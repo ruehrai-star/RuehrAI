@@ -36,7 +36,18 @@ Erster Batch in `location_feature_docs`:
 | --- | --- | --- |
 | 1 | `pending` | 10786 |
 
-DDL: [schema.sql](schema.sql). Refresh-Schritte: [pipeline.md](pipeline.md).
+DDL: [schema.sql](schema.sql). Refresh-Schritte: [pipeline.md](pipeline.md). Sync-Pfad: [supabase-to-brain-sync.md](supabase-to-brain-sync.md).
+
+## STAGE / PROD
+
+| Umgebung | Host | Rolle |
+| --- | --- | --- |
+| **STAGE** | Eule | Aktiver Sync und Feature-Builds. Standardziel aller Data-Engineer-Pipelines. |
+| **PROD** | Fuchs | App-Produktion Brain. |
+
+**Promote** (Modell B): nur freigegebene Snapshots Eule → Fuchs. Sync-Jobs schreiben nie direkt nach PROD.
+
+Netz: Tailscale. Narrative Infra: Confluence „Infrastruktur Eule / Fuchs / Ubuntu“.
 
 ## Tabellen / Artefakte
 
