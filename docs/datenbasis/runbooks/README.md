@@ -10,7 +10,7 @@ Lies zuerst den [Überblick](../README.md).
 
 ## Status
 
-Runbooks sind beschrieben, noch nicht als ausführbare Skripte im Repo. Quelle 03 bleibt der bekannte Auth-Blocker, siehe [Regionalstatistik](../quellen-und-abrufe/quelle-03-regionalstatistik.md).
+Runbooks sind beschrieben, noch nicht als ausführbare Skripte im Repo. Quelle 03 bleibt der bekannte Auth-Blocker, siehe [Regionalstatistik](../quellen-und-abrufe/quelle-03-regionalstatistik.md). Brain-Stand, DDL und die Refresh-Skizze des ersten Feature-Doc-Batches: [Vektorisierung & Analytics](../vektorisierung-analytics/README.md).
 
 ## Tabellen / Artefakte
 
