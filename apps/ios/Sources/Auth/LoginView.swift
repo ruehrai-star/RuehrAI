@@ -66,7 +66,7 @@ struct LoginView: View {
         if session.usesFixture {
             return "No Backend base URL is set, so this screen uses the offline fixture for POST /auth/login and POST /auth/register. Any email and a password of 8 to 72 characters are accepted. The token stays in memory and is not a JWT."
         }
-        return "Signs in against the Backend JWT endpoints. The access token stays in memory. Password length is 8 to 72 characters."
+        return "POST /auth/login returns a Bearer JWT, kept in memory. Local Backend seed user from the contract: dev@ruehrai.local. Password length is 8 to 72 characters."
     }
 
     private func submit() {

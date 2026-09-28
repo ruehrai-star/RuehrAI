@@ -32,7 +32,7 @@ The map package is [MapLibre Native for iOS](https://github.com/maplibre/maplibr
 
 ## Codegen
 
-The Swift package `apps/ios/Packages/RuehrAPI` does not keep a copy of the contract. `Sources/RuehrAPI/openapi.yaml` is a symlink to [`packages/api-contracts/openapi/openapi.yaml`](../../packages/api-contracts/openapi/openapi.yaml). `openapi-generator-config.yaml` next to it asks the SwiftPM build plugin for public types and a client (`namingStrategy: idiomatic`).
+OpenAPI v0 on `main` is the source of truth: [`packages/api-contracts/openapi/openapi.yaml`](../../packages/api-contracts/openapi/openapi.yaml). The Swift package `apps/ios/Packages/RuehrAPI` does not keep a copy. `Sources/RuehrAPI/openapi.yaml` is a symlink to that file. `openapi-generator-config.yaml` next to it asks the SwiftPM build plugin for public types and a client (`namingStrategy: idiomatic`).
 
 | Package | Version |
 | --- | --- |
@@ -75,7 +75,7 @@ The contract's local seed user is `dev@ruehrai.local` / `dev-password`. That acc
 
 ## What the shell does
 
-1. **Sign in or create an account.** The buttons call `POST /auth/login` and `POST /auth/register`. A successful response is followed by `GET /auth/me`. Sign out drops the token. In fixture mode any plausible email and any password of 8 to 72 characters succeed, and the token is a `stub-session-` string with no dots (not a JWT). Against a live Backend the token is the JWT the server issued.
+1. **Sign in.** The primary button calls `POST /auth/login` and stores the returned Bearer token in memory. Create account calls `POST /auth/register`. Either success is followed by `GET /auth/me`. Sign out drops the token. Against a live Backend the token is the JWT from that response. The local seed user in the contract is `dev@ruehrai.local` / `dev-password`. Fixture mode (no base URL) accepts any plausible email and any password of 8 to 72 characters and returns a `stub-session-` string with no dots, not a JWT.
 2. **Map.** Opens centered on Germany. The basemap is the keyless [OpenFreeMap Liberty](https://tiles.openfreemap.org/styles/liberty) style (OpenStreetMap data). Leave the MapLibre logo and attribution button visible.
 3. **Layers.** A control switches the seeded ids `demo-gemeinden`, `demo-plz`, and `demo-grid100` and calls `GET /layers/{id}`. The grid layer draws a schematic rectangle for the documented Zensus 2022 100 m smoke band. It is not an official boundary. Gemeinde and PLZ layers are points.
 4. **Search.** The field calls `GET /search?q=`. Hits use the contract `grain` (`address`, `ags`, `plz5`, …). A tap centers the map when `lat` and `lon` are present (address zoom 15, PLZ 13, AGS 10). `Baden-Württemberg` has no point in the fixture, so the tap only explains that.
