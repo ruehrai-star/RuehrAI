@@ -17,7 +17,7 @@ Konkrete Open-Datensätze aus dem BMDV-Katalog Mobilithek. Der Katalog selbst is
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Geladen wurden katalogierte Open-Sets, keine reinen GTFS.de-Duplikate.
+**ok.** Katalogierte Open-Sets geladen, keine reinen GTFS.de-Duplikate. `mobilithek_bast_dtv_zaehlstellen` mit `ref_year` 2024, `lon`/`lat` null (nicht in der CSV). `mobilithek_oev_guete_gemeinden` auf Grain `ags`. `mobilithek_mobidata_bw_stops` als 10k-Smoke, Koordinaten WGS84. RLS aktiv, Policy `service_role_all`.
 
 ## Tabellen / Artefakte
 
@@ -38,5 +38,6 @@ Koordinaten nur setzen, wenn die Quelle sie liefert.
 
 ## Open issues
 
-- MobiData-BW-Stops sind ein Smoke-Subset; Full-Load oder nationaler Feed über Quelle 06 ist offen.
-- BASt- und ÖV-Güte-Koordinaten fehlen in der Quelle und werden nicht ergänzt.
+- Voller nationaler DELFI-GTFS-/ZHV-Bestand ist deferred (Quellen 06 und 20).
+- BASt-Koordinaten sind nicht veröffentlicht (`lon`/`lat` null) und werden nicht ergänzt.
+- MobiData-BW-Stops bleiben ein 10k-Smoke, kein nationaler Stop-Bestand.

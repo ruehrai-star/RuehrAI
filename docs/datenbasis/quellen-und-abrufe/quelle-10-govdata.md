@@ -17,7 +17,7 @@ Katalog-first über GovData (CKAN) plus nachgelagerte Open-Data-Anbieter (BBSR, 
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Koordinaten bleiben null, wenn die Veröffentlichung keine liefert.
+**ok.** Katalog-first: GovData verlinkt, Fact-Dateien bei den Herausgebern geladen. `govdata_dresden_kaufkraft` bleibt Grain other (Regionstext, kein AGS). RLS aktiv, Policy `service_role_all`. Koordinaten bleiben null, wenn die Veröffentlichung keine liefert.
 
 ## Tabellen / Artefakte
 
@@ -38,5 +38,6 @@ Platzhalter. Operativer Status in Confluence. Koordinaten bleiben null, wenn die
 
 ## Open issues
 
+- INKAR-Gesamtdownload über Quelle 28 (BBSR), nicht über GovData. Portal bleibt katalog-first.
 - Weitere Katalogtreffer nur ohne Duplikat zu den Quellen 01–09.
 - AGS-Mapping für `govdata_dresden_kaufkraft` braucht den Location-Guide.

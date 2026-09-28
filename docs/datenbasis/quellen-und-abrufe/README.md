@@ -10,20 +10,20 @@ Access-Typen: `OPEN` (kein Login) und `REG` (Registrierung; Secrets nur im Secre
 
 ## Status
 
-Übersicht der Stubs. Den operativen Pull-Status in Confluence aktualisieren.
+Technischer Stand der Scout-Pulls **2026-09-28**. Zeilenzahlen und `scout_pull_run`-IDs bleiben in Confluence. Weitere Pulls sind nach Quelle 10 pausiert; Fortsetzung ab Quelle 11 nach CTO-Go.
 
-| # | Stub | Source-ID | Access | Grain | Status (Confluence) |
+| # | Stub | Source-ID | Access | Grain | Status |
 | --- | --- | --- | --- | --- | --- |
-| 01 | [Destatis GENESIS](quelle-01-destatis-genesis.md) | `destatis-genesis` | `REG` | `ags5` | siehe Confluence |
-| 02 | [Zensus 2022](quelle-02-zensus-2022.md) | `zensus-2022-db` | `REG` / Download | `ags` | siehe Confluence |
+| 01 | [Destatis GENESIS](quelle-01-destatis-genesis.md) | `destatis-genesis` | `REG` | `ags5` | ok |
+| 02 | [Zensus 2022](quelle-02-zensus-2022.md) | `zensus-2022-db` | `REG` / Download | `ags` | ok (Regionaltabellen-Fallback) |
 | 03 | [Regionalstatistik](quelle-03-regionalstatistik.md) | `regionalstatistik` | `REG` | `ags` (Ziel) | **blocked (Auth)** |
-| 04 | [KBA](quelle-04-kba.md) | `kba-open` | `OPEN` | Land / `ags5` | siehe Confluence |
-| 05 | [Mobilithek](quelle-05-mobilithek.md) | `mobilithek` | `OPEN` | `ags` / other | siehe Confluence |
-| 06 | [GTFS Deutschland](quelle-06-gtfs-deutschland.md) | `gtfs-deutschland` | `OPEN` | other | siehe Confluence |
-| 07 | [Wegweiser Kommune](quelle-07-wegweiser-kommune.md) | `wegweiser-kommune` | `OPEN` | `ags` | siehe Confluence |
-| 08 | [Wegweiser Kommune API](quelle-08-wegweiser-kommune-api.md) | `wegweiser-kommune-api` | `OPEN` | `ags` | Inventar-Twin, keine eigenen Fact-Tabellen |
-| 09 | [OSM](quelle-09-osm.md) | `osm-overpass` | `OPEN` | address / `plz5` / other | Berlin-Subset; Nationwide deferred |
-| 10 | [GovData](quelle-10-govdata.md) | `govdata` | `OPEN` | `ags` / other | siehe Confluence |
+| 04 | [KBA](quelle-04-kba.md) | `kba-open` | `OPEN` | Land / `ags5` | ok |
+| 05 | [Mobilithek](quelle-05-mobilithek.md) | `mobilithek` | `OPEN` | `ags` / other | ok |
+| 06 | [GTFS Deutschland](quelle-06-gtfs-deutschland.md) | `gtfs-deutschland` | `OPEN` | other | ok |
+| 07 | [Wegweiser Kommune](quelle-07-wegweiser-kommune.md) | `wegweiser-kommune` | `OPEN` | `ags` | ok |
+| 08 | [Wegweiser Kommune API](quelle-08-wegweiser-kommune-api.md) | `wegweiser-kommune-api` | `OPEN` | `ags` | ok (Inventar-Twin) |
+| 09 | [OSM](quelle-09-osm.md) | `osm-overpass` | `OPEN` | address / `plz5` / other | ok (nur Berlin) |
+| 10 | [GovData](quelle-10-govdata.md) | `govdata` | `OPEN` | `ags` / other | ok |
 
 ## Tabellen / Artefakte
 
@@ -40,6 +40,7 @@ Neues-Quelle-Runbook: [Runbooks](../runbooks/README.md).
 
 ## Open issues
 
-- Quelle 03 (`regionalstatistik`) ist **blocked (Auth)**; null Fact-Tabellen, bis der Secret-Store-Zugang steht.
-- Quelle 08 dupliziert die Indikatoren aus Quelle 07 nicht; OpenAPI bleibt Inventar.
+- Scout-Pulls sind nach Quelle 10 pausiert. Resume ab Quelle 11 nach CTO-Go.
+- Quelle 03 (`regionalstatistik`) ist **blocked (Auth)**; null Fact-Tabellen, bis der Operator das REG-Passwort zurücksetzt oder ein neues Konto anlegt.
+- Quelle 08 dupliziert die Indikatoren aus Quelle 07 nicht; OpenAPI bleibt Inventar (`row_count` 0 by design).
 - Frühere Staging-Loads (zum Beispiel `ba-sgb2`, `zensus-2022-grid`) sind keine Kindseiten 01–10. Details nur in Confluence.

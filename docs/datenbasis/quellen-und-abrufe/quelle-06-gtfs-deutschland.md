@@ -17,7 +17,7 @@ Nationaler Free-Feed von GTFS.de / DELFI (agency, routes, stops). `stop_times` i
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Lizenzhinweis (CC BY) gehört in `scout_source`-Notes, nicht als Datei hierher.
+**ok.** Free-Feed geladen: `gtfs_de_agency`, `gtfs_de_routes`, `gtfs_de_stops` (`stop_lon` / `stop_lat`, WGS84). `stop_times` und `trips` (~2,3 GB) sind by design ausgelassen. RLS aktiv, Policy `service_role_all`. Lizenzhinweis (CC BY) bleibt in den `scout_source`-Notes.
 
 ## Tabellen / Artefakte
 
@@ -38,6 +38,7 @@ Platzhalter. Operativer Status in Confluence. Lizenzhinweis (CC BY) gehört in `
 
 ## Open issues
 
+- Trip-Level (`trips`, `stop_times`) später nachladen, falls nötig.
 - Wöchentlicher Refresh ist noch nicht automatisiert.
 - IFOPT- oder Adress-Mapping mit dem Location-Guide ist offen.
 - Abgrenzung zum Mobilithek-BW-Smoke in [Quelle 05](quelle-05-mobilithek.md).

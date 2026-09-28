@@ -20,9 +20,9 @@ Ordner in Confluence: [Datenbasis](https://ruehrai.atlassian.net/wiki/spaces/~71
 
 ## Status
 
-Skeleton. Aktuellen Plattformstand (welche Quelle `ok` oder `blocked` ist) in Confluence pflegen und hier nur nachziehen, wenn sich Tabellen oder Pfade ändern.
+Quellen-Stubs 01–10 in [Quellen & Abrufe](quellen-und-abrufe/README.md) tragen den technischen Stand **2026-09-28** (`ok`, `blocked`, `limited`). Narrativ, Zeilenzahlen und `scout_pull_run`-IDs bleiben in Confluence. Geo & Spatial und Vektorisierung & Analytics sind weiter Skeletons.
 
-Bekannte Ausnahme im Inventar: [Quelle 03 Regionalstatistik](quellen-und-abrufe/quelle-03-regionalstatistik.md) ist **blocked (Auth)** — noch keine Fact-Tabellen.
+[Quelle 03 Regionalstatistik](quellen-und-abrufe/quelle-03-regionalstatistik.md) ist **blocked (Auth)** — noch keine Fact-Tabellen. Scout-Pulls sind nach Quelle 10 pausiert (Fortsetzung ab 11 nach CTO-Go).
 
 ## Tabellen / Artefakte
 
@@ -44,4 +44,4 @@ Projekt-Ref (kein Secret): `tyfwdjzkfvuhasnebhvo`, Schema `public`.
 ## Open issues
 
 - Skeleton enthält noch keine SQL-Migrationen, Loader oder Refresh-Skripte.
-- Live-Status und Row-Counts stehen nur in Confluence, bis ein automatisierter Export ohne Secrets vereinbart ist.
+- Zeilenzahlen und `scout_pull_run`-IDs stehen nur in Confluence. Der technische Status der Quellen 01–10 steht in den Stubs.

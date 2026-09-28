@@ -17,7 +17,7 @@ Kreisstatistik aus Destatis GENESIS-Online. Technische Identifikatoren für Load
 
 ## Status
 
-Platzhalter für den letzten erfolgreichen Pull. Operativer Status steht in Confluence (dort zuletzt `ok`). Secrets nur im Secret-Store.
+**ok.** Kreisstatistik (Grain `ags5`) aus GENESIS geladen: Bevölkerung und Ausländer etwa 2022-12…2025-12, Alter 2024-12…2025-12. Secrets nur im Secret-Store. RLS auf diesen frühen Tabellen nicht als gesetzt führen — siehe Open issues.
 
 ## Tabellen / Artefakte
 
@@ -38,5 +38,7 @@ Gemeinde-Bevölkerung ist nicht Teil der nationalen Destatis-DB; siehe [Quelle 0
 
 ## Open issues
 
+- Gemeinde-Bevölkerung gehört zu [Quelle 03](quelle-03-regionalstatistik.md) und bleibt offen, solange die Registrierung fehlt.
+- Ältere Jahre von 12411-0018 brauchen GENESIS `job=true`.
+- Zum Pull-Zeitpunkt war RLS auf den Destatis-Tabellen noch deaktiviert. Neuere Quellen nutzen RLS plus `service_role_all`; Posture hier mit Confluence / Operator abgleichen.
 - Weitere GENESIS-Themen (Bildung, Erwerb, Haushalte) sind noch nicht als Tabellen geführt.
-- Abgrenzung zu Regionalstatistik (Gemeinde) offen, solange Quelle 03 blockiert ist.

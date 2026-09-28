@@ -18,7 +18,7 @@ OpenStreetMap-POIs für Berlin. Nationwide ist deferred. Kein erfundenes `grid10
 
 ## Status
 
-Platzhalter. Dokumentierter Umfang: Berlin-Subset, Nationwide deferred. Operativer Status in Confluence.
+**ok (limited).** Nur der Geofabrik-Extract Berlin Stadt; die offizielle Overpass-TLS-Schnittstelle war aus dem Agent-Netz blockiert. Grain address / `plz5` / other. `lon`/`lat` nur aus OSM, kein erfundenes `grid100`. RLS aktiv, Policy `service_role_all`. Nationwide bleibt deferred.
 
 ## Tabellen / Artefakte
 
