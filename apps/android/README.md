@@ -11,7 +11,7 @@ The spec is the shared package, not a copy under `apps/android`:
 
 `apps/android` runs OpenAPI Generator (`kotlin`, OkHttp 4, Moshi) during `preBuild`. Generated sources land in `app/build/generated/openapi` (package `de.ruehrai.api`) and are not committed. Gradle reads the YAML from the monorepo path above, so this directory has to be opened as `apps/android` inside the RuehrAI checkout.
 
-That contract currently arrives with Backend PR #6 (`cursor/backend-api-scaffold-dd3e`). This branch vendors the same `packages/api-contracts` tree so the Android build does not wait for that PR to merge.
+OpenAPI v0 is on `main` (`packages/api-contracts`, from the merged Backend PR). This branch does not carry its own copy of the spec.
 
 ## Open in Android Studio
 
