@@ -1,25 +1,45 @@
-# Pipeline — Feature-Docs nach Brain
+# Pipeline — Feature-Docs nach Brain STAGE
 
-Kurzskizze des ersten Loads (Stand 2026-09-28). Narrativ bleibt in Confluence. Keine Credentials, keine CSV-Inhalte, keine Chunks in diesem Repo.
+Stand 2026-10-04, Europe/Berlin. Ziel ist Brain STAGE auf Eule (Postgres.app, Datenbank `Brain`). Narrativ bleibt in Confluence. Keine Credentials, keine CSV-Inhalte, keine Chunks in diesem Repo. Kein Schreibweg nach PROD (Fuchs).
 
-Status und Zählung: [README.md](README.md). DDL: [schema.sql](schema.sql).
+Status und Zählung: [README.md](README.md). Lebender DDL-Stand: [schema.sql](schema.sql). Vertrag für Backend: [supabase-to-brain-sync.md](supabase-to-brain-sync.md).
 
-## Artefakte außerhalb des Repos
+## Pfad
 
-| Ort | Pfad |
+| System | Rolle in diesem Lauf |
 | --- | --- |
-| Shared box | `/workspace/data-engineer/` |
-| RuehrAI Mac | `/Users/ruehrai/data-engineer/` |
+| Supabase `tyfwdjzkfvuhasnebhvo` | Nur transienter Pull. Nicht die dauerhafte Quelle für Brain. |
+| Data-Scout (Eule, DB `Data-Scout`) | Dauerhafte Roh-Tabellen. Brain-Pipelines lesen nur. |
+| Brain STAGE (Eule, DB `Brain`) | Upsert der Feature-Docs, Embeddings, View, Katalogspiegel `geo`. |
+| Brain PROD (Fuchs) | Liegt außerhalb dieses Laufs. Promote Modell B nur nach ausdrücklichem Go. |
 
-Dort, nicht hier: Join-Template (`scripts/zensus_join_query.sql`), Chunk-Helfer (`scripts/extract_mcp_chunk.py`), Builder (`scripts/build_location_feature_docs.py`), Loader (`scripts/load_to_brain.sh`). Die Mac-Kopie des ersten Loads liegt unter `/Users/ruehrai/data-engineer/data/location_feature_docs.csv` und `/Users/ruehrai/data-engineer/scripts/load_to_brain.sh`. CSV und `data/chunks/` nicht committen.
+Zielobjekte: `features.location_feature_docs`, `features.embedding_jobs`, View `features.v_location_search`, Index `location_feature_docs_embedding_hnsw`. Schema `app` gehört Backend und hat bereits Tabellen; deren DDL steht nicht hier.
 
 ## Refresh
 
-1. Fact-Tabellen im Supabase-Projekt `tyfwdjzkfvuhasnebhvo` prüfen. Anon-REST liest sie nicht (RLS). Export über privilegiertes SQL, MCP `execute_sql`, in Chunks (`LIMIT` / `OFFSET`). Keys bleiben im Secret-Store.
-2. Join: Basis `zensus2022_demografie_gemeinden`, `LEFT JOIN` der fünf weiteren Zensus-Gemeinde-Tabellen auf `geo_ags` und `ref_period`, `ORDER BY geo_ags`. Chunk-Dateien lokal unter `data/chunks/`.
-3. Deutschen Fließtext und `metadata` bauen (`scripts/build_location_feature_docs.py`). Zwischen-CSV nicht ins Repo.
-4. CSV auf den Mac kopieren und mit `scripts/load_to_brain.sh` laden: Temp-Tabelle, `\copy`, `INSERT … ON CONFLICT` auf `(geo_key, grain, coalesce(ref_period, ''))`. Der Loader setzt `supabase_synced_at = now()`. Passwort der Rolle `ruehrai` nur aus dem Secret-Store; kein Connection-String in Git.
-5. Zeile in `embedding_jobs` prüfen. Nach dem ersten Load: `id=1`, `status=pending`, `row_count=10786`. Der Embedding-Lauf ist nicht gestartet.
-6. `embedding` und einen HNSW- oder IVFFlat-Index erst anlegen, wenn das Modell festliegt.
+1. Rohzeilen in Data-Scout prüfen und nur lesen. Ein Supabase-Export ist ein transienter Pull, kein zweiter dauerhafter Bestand.
+2. Docs bauen. Eindeutigkeit auf `(geo_key, grain, COALESCE(ref_period, ''))`. Teilen sich zwei Themen denselben Zeitraum, kommt das Thema als Suffix in `ref_period` (Beispiel `2025-12|bka`). Erlaubte Grains: `address`, `grid100`, `plz8`, `plz5`, `ags`, `ags5`, `other`.
+3. Idempotent nach **`features.location_feature_docs`** auf Brain STAGE upserten (`INSERT … ON CONFLICT`). Der Loader setzt `supabase_synced_at = now()`, wo der bestehende Loader das so schreibt. Passwort von `ruehrai` nur aus dem Secret-Store. Kein Connection-String in Git.
+4. Anzeigenamen, die noch leer sind und `metadata->>'gemeinde_name'` tragen, nachziehen:
 
-Der Upsert der Feature-Docs ist idempotent auf `(geo_key, grain, coalesce(ref_period, ''))`. Der erste Load hat genau eine Jobzeile geschrieben (`id=1`, `status=pending`, `row_count=10786`).
+```sql
+UPDATE features.location_feature_docs
+SET name = metadata->>'gemeinde_name'
+WHERE name IS NULL AND metadata->>'gemeinde_name' IS NOT NULL;
+```
+
+5. Embeddings auf Eule über oMLX. Basis-URL `http://localhost:8000/v1`, Modell `jina-embeddings-v5-text-small-retrieval-mlx-oQ8`. Ablage ist `vector(1024)`. Ein API-Key bleibt im Secret-Store und steht nicht in diesem Doc.
+6. Cosine-HNSW `location_feature_docs_embedding_hnsw` ist auf STAGE angelegt. `features.v_location_search` nutzt ihn. Die View hat keine eigene Ladelogik. Spaltenliste: `id`, `geo_key`, `grain`, `ref_period`, `name`, `title`, `lon`, `lat`, `source_theme`, `source_tables`, `metadata`, `supabase_synced_at`, `embedding`.
+7. Backend liest read-only: Connect über `DATABASE_URL` als `ruehrai`, dann `SET ROLE backend_ro_features` (NOLOGIN, kein eigenes Passwort).
+8. Gitter-Embeddings sind der offene Lauf. Am 2026-10-04 lief Screen `embed_grids_b` auf Eule noch (detached). `breitband_gitter` (`grid100`, `2025-12|gitter`): 3.590.703 Zeilen, 798.752 embedded (22,2 %), 2.791.951 NULL. Schlüssel `raster_rowid`. `dwd_temp_1km` (`other`, `2025|dwd`): 358.303 Zeilen, 0 embedded. Schlüssel `dwd1km:{col}:{row}`, °C = `value_tenth/10`.
+
+CSV und Chunks nicht committen. Hilfsskripte, falls lokal vorhanden, liegen außerhalb des Repos (Box `/workspace/data-engineer/`, Mac `/Users/ruehrai/data-engineer/`), nicht in Git.
+
+## Nicht Teil dieses Laufs
+
+- `dwd_cdc_raster_catalog` (70 Dateien, keine Zellenwerte, kein Area-Key)
+- anonymes `rwi_grid` (etwa 242.000 Zeilen, kein Area-Key)
+- Reload des 100-m-Breitband-ZIP
+- ÖPNV-GTFS-Stops und Kataloge ohne Geo
+- ältere Historienperioden jenseits der gewählten `ref_period`
+- Schreiben nach PROD oder ein Fuchs-Promote
