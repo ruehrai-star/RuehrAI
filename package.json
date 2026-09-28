@@ -1,0 +1,16 @@
+{
+  "name": "ruehrai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "RuehrAI monorepo — backend API and shared OpenAPI contracts",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start:dev": "pnpm --filter @ruehrai/backend start:dev",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "db:migrate": "pnpm --filter @ruehrai/backend db:migrate"
+  }
+}

@@ -1,0 +1,401 @@
+openapi: 3.0.3
+info:
+  title: RuehrAI API
+  version: 0.1.0
+  description: |
+    Dev-Team slice (v0). The backend issues its own JWTs and reads a local
+    Postgres database via `DATABASE_URL`. Clients call this API; they do not
+    talk to the database.
+
+    Base URL is environment-driven. Local default is `http://localhost:3000`
+    (`PORT`, default 3000). Deployed clients should take the base URL from
+    their own configuration and use this document as the contract.
+
+    Local migrations seed a development user `dev@ruehrai.local` /
+    `dev-password`. That account is a fixture for local runs, not a production
+    credential. `POST /auth/register` creates further users in the same database.
+servers:
+  - url: http://localhost:3000
+    description: Local development. The host and port follow the backend `PORT` env (default 3000).
+tags:
+  - name: Health
+  - name: Auth
+  - name: Search
+  - name: Layers
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness
+      description: Process is up. This check does not query Postgres.
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Exchange email and password for a JWT
+      description: |
+        Returns a bearer token. Local databases seeded by `db/migrations`
+        include `dev@ruehrai.local` / `dev-password`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+            example:
+              email: dev@ruehrai.local
+              password: dev-password
+      responses:
+        "200":
+          description: Authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Unknown email or wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Create a user and return a JWT
+      description: Password hashing is done in Postgres (`pgcrypto` bcrypt). Minimum password length is 8.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "201":
+          description: User created and signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Current user
+      description: "Requires Authorization: Bearer <accessToken>."
+      responses:
+        "200":
+          description: User row for the token subject.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /search:
+    get:
+      tags: [Search]
+      operationId: searchPlaces
+      summary: Search stub places by address, AGS, or PLZ
+      description: |
+        Named parameters `address`, `ags`, and `plz` are exact (`ags`, `plz`)
+        or substring (`address`) filters and are combined with AND.
+
+        `q` is a substring. `type` selects which field `q` is compared with
+        (`address`, `ags`, or `plz`). Without `type`, `q` matches label, AGS,
+        PLZ, and address. `type` has no effect when `q` is omitted.
+
+        With no filters the endpoint returns up to 50 seeded hits.
+        Coordinates are WGS84 (EPSG:4326) centroids. Rows are local demo data.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text substring. Interpretation depends on `type`.
+          schema:
+            type: string
+            maxLength: 200
+        - name: type
+          in: query
+          required: false
+          description: Field that `q` is matched against. Ignored when `q` is absent.
+          schema:
+            $ref: "#/components/schemas/SearchType"
+        - name: address
+          in: query
+          required: false
+          description: Substring matched against the address and the label.
+          schema:
+            type: string
+            maxLength: 300
+        - name: ags
+          in: query
+          required: false
+          description: Exact Amtlicher Gemeindeschlüssel (2–8 digits).
+          schema:
+            type: string
+            pattern: "^[0-9]{2,8}$"
+        - name: plz
+          in: query
+          required: false
+          description: Exact PLZ5 or PLZ8.
+          schema:
+            type: string
+            pattern: "^[0-9]{5}([0-9]{3})?$"
+      responses:
+        "200":
+          description: Matching hits, at most 50, ordered by label.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+              example:
+                hits:
+                  - id: ags:09162000
+                    label: München
+                    grain: ags
+                    lon: 11.5755
+                    lat: 48.1374
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /layers/{id}:
+    get:
+      tags: [Layers]
+      operationId: getLayer
+      summary: GeoJSON FeatureCollection for a layer
+      description: |
+        Returns a GeoJSON FeatureCollection as `application/json`.
+        Seeded layer ids in local dev: `demo-gemeinden`, `demo-plz`, `demo-grid100`.
+        Geometries are synthetic stubs for this slice (points, plus one rough polygon),
+        not official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9][a-z0-9-]{0,63}$"
+          example: demo-gemeinden
+      responses:
+        "200":
+          description: Layer contents. An existing layer with no features returns an empty `features` array.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureCollection"
+              example:
+                type: FeatureCollection
+                name: Demo-Gemeinden
+                description: Synthetische Demo-Geometrien.
+                features:
+                  - type: Feature
+                    id: ags:11000000
+                    geometry:
+                      type: Point
+                      coordinates: [13.405, 52.52]
+                    properties:
+                      label: Berlin
+                      grain: ags
+                      ags: "11000000"
+                      stub: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No layer with this id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    BadRequest:
+      description: Request failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Credentials:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Token lifetime in seconds.
+          example: 28800
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          description: User id as a decimal string.
+        email:
+          type: string
+          format: email
+    Grain:
+      type: string
+      description: Spatial grain of a hit. Matches the Datenbasis grain list used by this slice.
+      enum: [address, grid100, plz8, plz5, ags, ags5, other]
+    SearchType:
+      type: string
+      enum: [address, ags, plz]
+    SearchHit:
+      type: object
+      additionalProperties: false
+      required: [id, label, grain]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        grain:
+          $ref: "#/components/schemas/Grain"
+        lon:
+          type: number
+          format: double
+          nullable: true
+          description: WGS84 longitude. Omitted or null when the hit is not geocoded.
+        lat:
+          type: number
+          format: double
+          nullable: true
+          description: WGS84 latitude. Omitted or null when the hit is not geocoded.
+    SearchResponse:
+      type: object
+      additionalProperties: false
+      required: [hits]
+      properties:
+        hits:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/SearchHit"
+    Geometry:
+      type: object
+      required: [type, coordinates]
+      description: GeoJSON geometry. This slice seeds Point and Polygon.
+      properties:
+        type:
+          type: string
+          enum: [Point, Polygon, MultiPolygon]
+        coordinates:
+          description: "GeoJSON coordinates. Position order is longitude, latitude (EPSG:4326)."
+      additionalProperties: true
+    Feature:
+      type: object
+      additionalProperties: false
+      required: [type, geometry, properties]
+      properties:
+        type:
+          type: string
+          enum: [Feature]
+        id:
+          type: string
+        geometry:
+          $ref: "#/components/schemas/Geometry"
+        properties:
+          type: object
+          additionalProperties: true
+          description: "Includes label, grain, and stub: true for seeded demo features."
+    FeatureCollection:
+      type: object
+      additionalProperties: false
+      required: [type, features]
+      description: |
+        GeoJSON FeatureCollection. `name` and `description` are foreign members
+        carried for this API (RFC 7946 allows them).
+      properties:
+        type:
+          type: string
+          enum: [FeatureCollection]
+        name:
+          type: string
+        description:
+          type: string
+        features:
+          type: array
+          items:
+            $ref: "#/components/schemas/Feature"
+    ErrorResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        error:
+          type: string
