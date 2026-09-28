@@ -1,0 +1,60 @@
+name: RuehrAI
+options:
+  bundleIdPrefix: de.ruehrai
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  createIntermediateGroups: true
+  xcodeVersion: "16.3"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_STRICT_CONCURRENCY: minimal
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    exactVersion: "6.31.0"
+  RuehrAPI:
+    path: Packages/RuehrAPI
+  OpenAPIURLSession:
+    url: https://github.com/apple/swift-openapi-urlsession
+    exactVersion: "1.3.1"
+targets:
+  RuehrAI:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: MapLibre
+        product: MapLibre
+      - package: RuehrAPI
+        product: RuehrAPI
+      - package: OpenAPIURLSession
+        product: OpenAPIURLSession
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.ruehrai.ios
+        PRODUCT_NAME: RuehrAI
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_FILE: Sources/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: RuehrAI
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: "NO"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: "YES"
+    scheme:
+      testTargets:
+        - package: RuehrAPI/RuehrAPITests
+fileGroups:
+  - README.md

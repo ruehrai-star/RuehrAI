@@ -1,0 +1,8 @@
+# XcodeGen writes RuehrAI.xcodeproj on a Mac. project.yml is the source of truth.
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+.swiftpm/

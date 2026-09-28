@@ -1,0 +1,47 @@
+name: iOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "packages/api-contracts/openapi/**"
+      - ".github/workflows/ios.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/ios/**"
+      - "packages/api-contracts/openapi/**"
+      - ".github/workflows/ios.yml"
+
+jobs:
+  ruehr-api:
+    name: OpenAPI client tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift version
+        run: swift --version
+      - name: Test RuehrAPI
+        working-directory: apps/ios/Packages/RuehrAPI
+        run: swift test
+
+  xcodegen:
+    name: Generate Xcode project
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: apps/ios
+        run: xcodegen generate
+      - name: Unsigned xcodebuild (deferred)
+        run: |
+          echo "xcodebuild is deferred until an Apple Development Team is configured."
+          echo "project.yml was generated above so the spec stays valid."
+          echo "When signing is ready, build for the simulator without a team:"
+          echo "xcodebuild -project apps/ios/RuehrAI.xcodeproj -scheme RuehrAI -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO build"
