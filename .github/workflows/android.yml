@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "apps/android/**"
+      - "packages/api-contracts/**"
       - ".github/workflows/android.yml"
   push:
     branches:
       - main
     paths:
       - "apps/android/**"
+      - "packages/api-contracts/**"
       - ".github/workflows/android.yml"
 
 jobs:

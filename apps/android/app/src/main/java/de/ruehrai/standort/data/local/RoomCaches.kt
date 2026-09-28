@@ -2,12 +2,11 @@ package de.ruehrai.standort.data.local
 
 import android.content.Context
 import androidx.room.Room
+import de.ruehrai.api.infrastructure.Serializer
+import de.ruehrai.api.models.FeatureCollection
+import de.ruehrai.api.models.SearchResponse
 import de.ruehrai.standort.data.cache.LayerCache
 import de.ruehrai.standort.data.cache.SearchCache
-import de.ruehrai.standort.data.json.StandortJson
-import de.ruehrai.standort.data.model.LayerResponse
-import de.ruehrai.standort.data.model.SearchResponse
-import kotlinx.serialization.json.Json
 
 fun createAppDatabase(context: Context): AppDatabase =
     Room.databaseBuilder(context, AppDatabase::class.java, "standort-cache.db")
@@ -16,19 +15,20 @@ fun createAppDatabase(context: Context): AppDatabase =
 
 class RoomSearchCache(
     private val dao: SearchCacheDao,
-    private val json: Json = StandortJson,
     private val now: () -> Long = System::currentTimeMillis,
 ) : SearchCache {
+    private val adapter = Serializer.moshi.adapter(SearchResponse::class.java)
+
     override suspend fun read(key: String): SearchResponse? {
         val row = dao.find(key) ?: return null
-        return json.decodeFromString(SearchResponse.serializer(), row.payloadJson)
+        return adapter.fromJson(row.payloadJson)
     }
 
     override suspend fun write(key: String, response: SearchResponse) {
         dao.upsert(
             SearchCacheEntity(
                 query = key,
-                payloadJson = json.encodeToString(SearchResponse.serializer(), response),
+                payloadJson = adapter.toJson(response),
                 cachedAtEpochMs = now(),
             ),
         )
@@ -39,17 +39,19 @@ class RoomLayerCache(
     private val dao: LayerCacheDao,
     private val now: () -> Long = System::currentTimeMillis,
 ) : LayerCache {
-    override suspend fun read(id: String): LayerResponse? {
+    private val adapter = Serializer.moshi.adapter(FeatureCollection::class.java)
+
+    override suspend fun read(id: String): FeatureCollection? {
         val row = dao.find(id) ?: return null
-        return LayerResponse(id = row.id, name = row.name, geoJson = row.geoJson)
+        return adapter.fromJson(row.geoJson)
     }
 
-    override suspend fun write(layer: LayerResponse) {
+    override suspend fun write(id: String, layer: FeatureCollection) {
         dao.upsert(
             LayerCacheEntity(
-                id = layer.id,
-                name = layer.name,
-                geoJson = layer.geoJson,
+                id = id,
+                name = layer.name ?: id,
+                geoJson = adapter.toJson(layer),
                 cachedAtEpochMs = now(),
             ),
         )

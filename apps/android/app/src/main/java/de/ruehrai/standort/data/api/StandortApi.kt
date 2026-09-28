@@ -1,23 +1,28 @@
 package de.ruehrai.standort.data.api
 
-import de.ruehrai.standort.data.model.AuthSession
-import de.ruehrai.standort.data.model.LayerResponse
-import de.ruehrai.standort.data.model.LoginRequest
-import de.ruehrai.standort.data.model.SearchResponse
+import de.ruehrai.api.models.Credentials
+import de.ruehrai.api.models.FeatureCollection
+import de.ruehrai.api.models.HealthResponse
+import de.ruehrai.api.models.SearchResponse
+import de.ruehrai.api.models.TokenResponse
+import de.ruehrai.api.models.User
+import de.ruehrai.standort.data.model.SearchQuery
 
 /**
- * Client surface for the agreed Backend slice.
- *
- * Implementations:
- * - [MockStandortApi] until OpenAPI v0 is published
- * - [OpenApiStandortApi] once a client is generated from `packages/api-contracts`
- *
- * Auth is Backend JWT/session only. This module must not depend on a Supabase SDK.
+ * Backend OpenAPI v0 surface. The live implementation is the client generated
+ * from `packages/api-contracts/openapi/openapi.yaml`. Auth is that API's JWT.
+ * This module does not use a Supabase SDK.
  */
 interface StandortApi {
-    suspend fun login(request: LoginRequest): AuthSession
+    suspend fun login(credentials: Credentials): TokenResponse
 
-    suspend fun search(query: String): SearchResponse
+    suspend fun register(credentials: Credentials): TokenResponse
 
-    suspend fun getLayer(id: String): LayerResponse
+    suspend fun currentUser(): User
+
+    suspend fun search(query: SearchQuery): SearchResponse
+
+    suspend fun getLayer(id: String): FeatureCollection
+
+    suspend fun health(): HealthResponse
 }

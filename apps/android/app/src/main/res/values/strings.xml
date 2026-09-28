@@ -1,17 +1,33 @@
 <resources>
     <string name="app_name">RuehrAI Standort</string>
     <string name="login_title">Anmelden</string>
-    <string name="login_subtitle">Platzhalter für das Backend-Login (JWT/Session). Es wird kein Supabase-SDK verwendet.</string>
+    <string name="login_subtitle">JWT vom Backend (POST /auth/login). Kein Supabase-SDK.</string>
     <string name="login_email">E-Mail</string>
     <string name="login_password">Passwort</string>
     <string name="login_submit">Anmelden</string>
-    <string name="login_hint">Demo: eine E-Mail-Adresse und mindestens 8 Zeichen. Der Aufruf bleibt lokal, bis POST /auth/login am Backend steht.</string>
+    <string name="login_register">Konto anlegen</string>
+    <string name="login_base_url">API-Basis-URL</string>
+    <string name="login_mock_switch">Demo-Daten</string>
+    <string name="login_mode_live">Live-API</string>
+    <string name="login_mode_mock">Offline-Mock, gleiche Schemas</string>
+    <string name="login_health_checking">Prüfe GET /health…</string>
+    <string name="login_health_ok">Backend erreichbar</string>
+    <string name="login_health_down">Backend nicht erreichbar</string>
+    <string name="login_hint">Lokal: dev@ruehrai.local / dev-password. Emulator-Standard ist http://10.0.2.2:3000 (Backend auf localhost:3000). Passwort mindestens 8 Zeichen.</string>
     <string name="login_error_credentials">E-Mail oder Passwort ist ungültig.</string>
+    <string name="login_error_conflict">Diese E-Mail ist bereits registriert.</string>
+    <string name="login_error_network">Backend nicht erreichbar. URL prüfen oder Demo-Daten einschalten.</string>
+    <string name="login_error_bad_request">Anfrage ungültig. URL, E-Mail und Passwort prüfen.</string>
+    <string name="login_error_unknown">Anmeldung fehlgeschlagen.</string>
     <string name="logout">Abmelden</string>
     <string name="tab_map">Karte</string>
     <string name="tab_search">Suche</string>
     <string name="search_label">Adresse, AGS oder PLZ</string>
-    <string name="search_placeholder">z. B. Essen, 45127, 05113000</string>
+    <string name="search_placeholder">z. B. München, 80331, 09162000</string>
+    <string name="search_type_all">Alle</string>
+    <string name="search_no_geokey">ohne geoKey</string>
+    <string name="search_no_coords">ohne Koordinaten</string>
+    <string name="search_coords">%1$.4f, %2$.4f</string>
     <string name="search_empty">Keine Treffer.</string>
     <string name="search_prompt">Suchbegriff eingeben.</string>
     <string name="search_error">Suche fehlgeschlagen.</string>
@@ -25,4 +41,6 @@
         <item quantity="other">%1$s · %2$d Gebiete. Basiskarte von MapLibre Demo Tiles.</item>
     </plurals>
     <string name="map_caption_selection">Auswahl: %1$s</string>
+    <string name="map_caption_selection_no_coords">Auswahl: %1$s (ohne Koordinaten)</string>
+    <string name="map_unnamed_layer">Layer</string>
 </resources>

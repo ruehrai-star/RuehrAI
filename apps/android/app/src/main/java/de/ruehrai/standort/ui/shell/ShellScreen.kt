@@ -1,11 +1,13 @@
 package de.ruehrai.standort.ui.shell
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -31,9 +33,12 @@ private enum class ShellTab {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShellScreen(
+    userEmail: String?,
     state: ShellUiState,
     onQueryChange: (String) -> Unit,
-    onSelect: (de.ruehrai.standort.data.model.SearchHit) -> Unit,
+    onSearchTypeChange: (de.ruehrai.api.models.SearchType?) -> Unit,
+    onLayerSelected: (String) -> Unit,
+    onSelect: (de.ruehrai.api.models.SearchHit) -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -42,7 +47,17 @@ fun ShellScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = {
+                    Column {
+                        Text(stringResource(R.string.app_name))
+                        if (userEmail != null) {
+                            Text(
+                                text = userEmail,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                },
                 actions = {
                     TextButton(onClick = onLogout) {
                         Text(stringResource(R.string.logout))
@@ -69,17 +84,21 @@ fun ShellScreen(
     ) { padding ->
         when (tab) {
             ShellTab.Map -> MapScreen(
+                layerId = state.layerId,
                 layer = state.layer,
                 layerFailed = state.layerFailed,
                 selection = state.selection,
+                onLayerSelected = onLayerSelected,
                 modifier = Modifier.padding(padding),
             )
             ShellTab.Search -> SearchScreen(
                 query = state.query,
+                searchType = state.searchType,
                 results = state.results,
                 searching = state.searching,
                 failed = state.searchFailed,
                 onQueryChange = onQueryChange,
+                onSearchTypeChange = onSearchTypeChange,
                 onResultClick = { hit ->
                     onSelect(hit)
                     tab = ShellTab.Map

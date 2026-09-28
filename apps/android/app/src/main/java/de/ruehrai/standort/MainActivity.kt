@@ -11,10 +11,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val repository = (application as StandortApp).container.repository
+        val container = (application as StandortApp).container
         setContent {
             StandortTheme {
-                StandortRoot(repository)
+                StandortRoot(
+                    repository = container.repository,
+                    settings = container.settings,
+                )
             }
         }
     }

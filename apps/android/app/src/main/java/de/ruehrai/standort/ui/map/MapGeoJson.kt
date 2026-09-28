@@ -27,6 +27,14 @@ internal fun Style.upsertAreas(geoJson: String) {
                 PropertyFactory.lineWidth(1.5f),
             ),
         )
+        addLayer(
+            CircleLayer("standort-areas-circle", AREAS_SOURCE_ID).withProperties(
+                PropertyFactory.circleRadius(6f),
+                PropertyFactory.circleColor("#1F4E5F"),
+                PropertyFactory.circleStrokeWidth(1.5f),
+                PropertyFactory.circleStrokeColor("#F4F1EC"),
+            ),
+        )
     } else {
         existing.setGeoJson(geoJson)
     }

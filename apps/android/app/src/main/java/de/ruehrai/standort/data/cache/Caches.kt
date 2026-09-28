@@ -1,9 +1,8 @@
 package de.ruehrai.standort.data.cache
 
-import de.ruehrai.standort.data.model.LayerResponse
-import de.ruehrai.standort.data.model.SearchResponse
+import de.ruehrai.api.models.FeatureCollection
+import de.ruehrai.api.models.SearchResponse
 
-/** Small offline hook. The shell reads the mock through this cache. */
 interface SearchCache {
     suspend fun read(key: String): SearchResponse?
 
@@ -11,9 +10,9 @@ interface SearchCache {
 }
 
 interface LayerCache {
-    suspend fun read(id: String): LayerResponse?
+    suspend fun read(id: String): FeatureCollection?
 
-    suspend fun write(layer: LayerResponse)
+    suspend fun write(id: String, layer: FeatureCollection)
 }
 
 class InMemorySearchCache : SearchCache {
@@ -27,11 +26,11 @@ class InMemorySearchCache : SearchCache {
 }
 
 class InMemoryLayerCache : LayerCache {
-    private val rows = mutableMapOf<String, LayerResponse>()
+    private val rows = mutableMapOf<String, FeatureCollection>()
 
-    override suspend fun read(id: String): LayerResponse? = rows[id]
+    override suspend fun read(id: String): FeatureCollection? = rows[id]
 
-    override suspend fun write(layer: LayerResponse) {
-        rows[layer.id] = layer
+    override suspend fun write(id: String, layer: FeatureCollection) {
+        rows[id] = layer
     }
 }

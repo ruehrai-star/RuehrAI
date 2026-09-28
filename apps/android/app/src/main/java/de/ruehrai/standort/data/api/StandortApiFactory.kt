@@ -1,38 +1,36 @@
 package de.ruehrai.standort.data.api
 
-/**
- * Switch [mode] to [StandortApiMode.OPENAPI] after Backend lands OpenAPI v0
- * under `packages/api-contracts` and a generator is wired in this module.
- * This repository does not contain that package yet, so the default stays mock.
- */
-enum class StandortApiMode {
-    MOCK,
-    OPENAPI,
-}
+import de.ruehrai.standort.data.settings.ApiSettings
 
+/**
+ * Live OpenAPI client unless [ApiSettings.useMock] is set (login screen or
+ * Gradle `-Pruehrai.useMockApi=true`).
+ */
 object StandortApiFactory {
-    fun create(mode: StandortApiMode = StandortApiMode.MOCK): StandortApi =
-        when (mode) {
-            StandortApiMode.MOCK -> MockStandortApi()
-            StandortApiMode.OPENAPI -> OpenApiStandortApi()
-        }
+    fun create(settings: ApiSettings): StandortApi =
+        SwitchingStandortApi(
+            live = OpenApiStandortApi(settings),
+            mock = MockStandortApi(),
+            settings = settings,
+        )
 }
 
-/**
- * Placeholder for the generated client. Calling it fails loudly so the shell
- * cannot silently talk to the wrong backend.
- */
-class OpenApiStandortApi : StandortApi {
-    override suspend fun login(request: de.ruehrai.standort.data.model.LoginRequest) = notReady()
+class SwitchingStandortApi(
+    private val live: StandortApi,
+    private val mock: StandortApi,
+    private val settings: ApiSettings,
+) : StandortApi {
+    private fun current(): StandortApi = if (settings.useMock) mock else live
 
-    override suspend fun search(query: String) = notReady()
+    override suspend fun login(credentials: de.ruehrai.api.models.Credentials) = current().login(credentials)
 
-    override suspend fun getLayer(id: String) = notReady()
+    override suspend fun register(credentials: de.ruehrai.api.models.Credentials) = current().register(credentials)
 
-    private fun notReady(): Nothing =
-        error(
-            "Generated OpenAPI client is not available. Generate it from " +
-                "packages/api-contracts when Backend OpenAPI v0 lands, then return " +
-                "that client from StandortApiFactory.",
-        )
+    override suspend fun currentUser() = current().currentUser()
+
+    override suspend fun search(query: de.ruehrai.standort.data.model.SearchQuery) = current().search(query)
+
+    override suspend fun getLayer(id: String) = current().getLayer(id)
+
+    override suspend fun health() = current().health()
 }

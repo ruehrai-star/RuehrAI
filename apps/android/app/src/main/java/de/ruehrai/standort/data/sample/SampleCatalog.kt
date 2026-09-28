@@ -1,200 +1,121 @@
 package de.ruehrai.standort.data.sample
 
-import de.ruehrai.standort.data.model.SearchHit
-import de.ruehrai.standort.data.model.SearchKind
-
-internal data class SampleLayer(
-    val id: String,
-    val name: String,
-    val geoJson: String,
-)
+import de.ruehrai.api.models.Feature
+import de.ruehrai.api.models.FeatureCollection
+import de.ruehrai.api.models.Geometry
+import de.ruehrai.api.models.Grain
+import de.ruehrai.api.models.SearchHit
+import de.ruehrai.standort.data.model.DemoLayers
 
 /**
- * Local stand-in for `GET /search` and `GET /layers/{id}`.
- * Geometries are schematic boxes for the shell, not official boundaries.
+ * Same rows as the Backend dev seed (`app.search_places`, `app.map_layers`).
+ * Geometries are synthetic stubs, not official boundaries.
  */
 internal object SampleCatalog {
     val hits: List<SearchHit> = listOf(
+        hit("ags:09162000", "München", Grain.AGS, "09162000", 11.5755, 48.1374),
+        hit("ags:11000000", "Berlin", Grain.AGS, "11000000", 13.4050, 52.5200),
+        hit("ags:02000000", "Hamburg", Grain.AGS, "02000000", 9.9937, 53.5511),
+        hit("plz5:80331", "80331 München", Grain.PLZ5, "80331", 11.5760, 48.1370),
+        hit("plz5:10115", "10115 Berlin", Grain.PLZ5, "10115", 13.3870, 52.5320),
         hit(
-            id = "addr-essen-kettwiger",
-            kind = SearchKind.ADDRESS,
-            label = "Kettwiger Straße 2, 45127 Essen",
-            subtitle = "Adresse · Essen",
-            latitude = 51.4556,
-            longitude = 7.0116,
-            ags = "05113000",
-            plz = "45127",
+            "address:demo-marienplatz-1",
+            "Marienplatz 1, München",
+            Grain.ADDRESS,
+            "address:demo-marienplatz-1",
+            11.5754,
+            48.1372,
         ),
-        hit(
-            id = "addr-dortmund-friedensplatz",
-            kind = SearchKind.ADDRESS,
-            label = "Friedensplatz 1, 44135 Dortmund",
-            subtitle = "Adresse · Dortmund",
-            latitude = 51.5136,
-            longitude = 7.4653,
-            ags = "05913000",
-            plz = "44135",
-        ),
-        hit(
-            id = "addr-duisburg-koenig",
-            kind = SearchKind.ADDRESS,
-            label = "Königstraße 1, 47051 Duisburg",
-            subtitle = "Adresse · Duisburg",
-            latitude = 51.4344,
-            longitude = 6.7623,
-            ags = "05112000",
-            plz = "47051",
-        ),
-        hit(
-            id = "addr-bochum-rathaus",
-            kind = SearchKind.ADDRESS,
-            label = "Willy-Brandt-Platz 1, 44787 Bochum",
-            subtitle = "Adresse · Bochum",
-            latitude = 51.4818,
-            longitude = 7.2162,
-            ags = "05911000",
-            plz = "44787",
-        ),
-        hit(
-            id = "ags-essen",
-            kind = SearchKind.AGS,
-            label = "05113000",
-            subtitle = "AGS · Essen",
-            latitude = 51.4556,
-            longitude = 7.0116,
-            ags = "05113000",
-            plz = "45127",
-        ),
-        hit(
-            id = "ags-dortmund",
-            kind = SearchKind.AGS,
-            label = "05913000",
-            subtitle = "AGS · Dortmund",
-            latitude = 51.5136,
-            longitude = 7.4653,
-            ags = "05913000",
-            plz = "44135",
-        ),
-        hit(
-            id = "ags-duisburg",
-            kind = SearchKind.AGS,
-            label = "05112000",
-            subtitle = "AGS · Duisburg",
-            latitude = 51.4344,
-            longitude = 6.7623,
-            ags = "05112000",
-            plz = "47051",
-        ),
-        hit(
-            id = "plz-45127",
-            kind = SearchKind.PLZ,
-            label = "45127",
-            subtitle = "PLZ · Essen",
-            latitude = 51.4556,
-            longitude = 7.0116,
-            ags = "05113000",
-            plz = "45127",
-        ),
-        hit(
-            id = "plz-44135",
-            kind = SearchKind.PLZ,
-            label = "44135",
-            subtitle = "PLZ · Dortmund",
-            latitude = 51.5136,
-            longitude = 7.4653,
-            ags = "05913000",
-            plz = "44135",
-        ),
-        hit(
-            id = "plz-45879",
-            kind = SearchKind.PLZ,
-            label = "45879",
-            subtitle = "PLZ · Gelsenkirchen",
-            latitude = 51.5110,
-            longitude = 7.0960,
-            ags = "05513000",
-            plz = "45879",
-        ),
+        hit("grid100:demo-muenchen", "Demo-Zelle München", Grain.GRID100, "grid100:demo-muenchen", 11.5755, 48.1374),
     )
 
-    val layers: Map<String, SampleLayer> = mapOf(
-        "ruhr-gemeinden" to SampleLayer(
-            id = "ruhr-gemeinden",
-            name = "Beispielgebiete Ruhr",
-            geoJson = RUHR_GEMEINDEN_GEOJSON,
+    val layers: Map<String, FeatureCollection> = mapOf(
+        DemoLayers.GEMEINDEN to collection(
+            name = "Demo-Gemeinden",
+            description = "Synthetische Punkte und ein Kasten für den Dev-Slice. Keine amtlichen Grenzen.",
+            features = listOf(
+                polygon(
+                    id = "ags:09162000",
+                    label = "München",
+                    ring = listOf(
+                        listOf(11.36, 48.06),
+                        listOf(11.72, 48.06),
+                        listOf(11.72, 48.25),
+                        listOf(11.36, 48.25),
+                        listOf(11.36, 48.06),
+                    ),
+                    properties = mapOf("label" to "München", "grain" to "ags", "ags" to "09162000", "stub" to true),
+                ),
+                point("ags:11000000", 13.405, 52.52, mapOf("label" to "Berlin", "grain" to "ags", "ags" to "11000000", "stub" to true)),
+                point("ags:02000000", 9.9937, 53.5511, mapOf("label" to "Hamburg", "grain" to "ags", "ags" to "02000000", "stub" to true)),
+            ),
+        ),
+        DemoLayers.PLZ to collection(
+            name = "Demo-PLZ",
+            description = "Synthetische PLZ-Punkte für den Dev-Slice.",
+            features = listOf(
+                point("plz5:80331", 11.576, 48.137, mapOf("label" to "80331 München", "grain" to "plz5", "plz" to "80331", "stub" to true)),
+                point("plz5:10115", 13.387, 52.532, mapOf("label" to "10115 Berlin", "grain" to "plz5", "plz" to "10115", "stub" to true)),
+            ),
+        ),
+        DemoLayers.GRID100 to collection(
+            name = "Demo-Gitter 100 m",
+            description = "Eine synthetische 100-m-Zelle. Keine Zensus-Geometrie.",
+            features = listOf(
+                point(
+                    "grid100:demo-muenchen",
+                    11.5755,
+                    48.1374,
+                    mapOf("label" to "Demo-Zelle München", "grain" to "grid100", "stub" to true),
+                ),
+            ),
         ),
     )
 
     private fun hit(
         id: String,
-        kind: SearchKind,
         label: String,
-        subtitle: String,
-        latitude: Double,
-        longitude: Double,
-        ags: String,
-        plz: String,
-    ) = SearchHit(
-        id = id,
-        kind = kind,
-        label = label,
-        subtitle = subtitle,
-        latitude = latitude,
-        longitude = longitude,
-        ags = ags,
-        plz = plz,
-    )
-}
+        grain: Grain,
+        geoKey: String,
+        lon: Double,
+        lat: Double,
+    ) = SearchHit(id = id, label = label, grain = grain, geoKey = geoKey, lon = lon, lat = lat)
 
-private val RUHR_GEMEINDEN_GEOJSON = """
-{
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "id": "essen",
-      "properties": { "name": "Essen", "ags": "05113000" },
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [[
-          [6.92, 51.40],
-          [7.12, 51.40],
-          [7.12, 51.52],
-          [6.92, 51.52],
-          [6.92, 51.40]
-        ]]
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "dortmund",
-      "properties": { "name": "Dortmund", "ags": "05913000" },
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [[
-          [7.32, 51.46],
-          [7.58, 51.46],
-          [7.58, 51.58],
-          [7.32, 51.58],
-          [7.32, 51.46]
-        ]]
-      }
-    },
-    {
-      "type": "Feature",
-      "id": "duisburg",
-      "properties": { "name": "Duisburg", "ags": "05112000" },
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [[
-          [6.68, 51.38],
-          [6.86, 51.38],
-          [6.86, 51.52],
-          [6.68, 51.52],
-          [6.68, 51.38]
-        ]]
-      }
+    private fun collection(
+        name: String,
+        description: String,
+        features: List<Feature>,
+    ) = FeatureCollection(
+        type = FeatureCollection.Type.FEATURE_COLLECTION,
+        features = features,
+        name = name,
+        description = description,
+    )
+
+    private fun point(
+        id: String,
+        lon: Double,
+        lat: Double,
+        properties: Map<String, Any>,
+    ) = Feature(
+        type = Feature.Type.FEATURE,
+        geometry = Geometry(type = Geometry.Type.POINT, coordinates = listOf(lon, lat)),
+        properties = properties,
+        id = id,
+    )
+
+    private fun polygon(
+        id: String,
+        label: String,
+        ring: List<List<Double>>,
+        properties: Map<String, Any>,
+    ): Feature {
+        check(label.isNotEmpty())
+        return Feature(
+            type = Feature.Type.FEATURE,
+            geometry = Geometry(type = Geometry.Type.POLYGON, coordinates = listOf(ring)),
+            properties = properties,
+            id = id,
+        )
     }
-  ]
 }
-""".trimIndent()
