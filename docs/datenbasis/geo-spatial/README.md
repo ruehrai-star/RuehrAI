@@ -67,7 +67,7 @@ Alle fünf Tabellen haben `attrs` (jsonb, Default `{}`) und `updated_at`. RLS: P
 
 `scout_fact_staging` hat die `geo_*`-ID-Spalten und `grain`. Die `scout_*`-Doku gehört nicht zum Location-Guide.
 
-Gemeinde-Facts liegen bei [Quelle 02](../quellen-und-abrufe/quelle-02-zensus-2022.md) auf Grain `ags`. Das 100-m-Gitter liegt in `geo_ref_grid100`.
+Der Smoke ist der Pre-List-Load `zensus-2022-grid`. Die Gemeinde-Facts von [Quelle 02](../quellen-und-abrufe/quelle-02-zensus-2022.md) (`zensus-2022-db`, Grain `ags`, `ref_period` `2022-05`) bleiben davon getrennt; das 100-m-Gitter liegt in `geo_ref_grid100`.
 
 ## How to refresh
 
@@ -83,6 +83,6 @@ Gemeinde-Facts liegen bei [Quelle 02](../quellen-und-abrufe/quelle-02-zensus-202
 - `geo_ref_admin` mit AGS-Grenzen füllen (`gemeinde`, `kreis`, `land`).
 - `geo_ref_plz` füllen.
 - `geo_ref_grid100` erweitern, sobald flächendeckende Pulls wieder laufen, und auf dem bestehenden Smoke PLZ sowie AGS nachziehen.
-- Adresslayer `geo_ref_address` für Pilotregionen, sobald Adressquellen ankommen.
+- Adresslayer `geo_ref_address` für Pilotregionen, sobald Adressquellen ankommen. [OSM Berlin](../quellen-und-abrufe/quelle-09-osm.md) setzt `geo_addr_id` nur bei vollständigen `addr:*`-Tags und füllt diese Tabelle noch nicht.
 - Crosswalks Fact ↔ Grid und Fact ↔ Adresse dokumentieren und füllen.
-- [Quelle 03](../quellen-und-abrufe/quelle-03-regionalstatistik.md) liefert noch kein Gemeinde-AGS aus der Regionalstatistik.
+- [Quelle 03](../quellen-und-abrufe/quelle-03-regionalstatistik.md) ist **blocked (Auth)** und liefert noch kein Gemeinde-AGS.
