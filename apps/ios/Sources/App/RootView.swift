@@ -1,3 +1,4 @@
+import RuehrAPI
 import SwiftUI
 
 struct RootView: View {
@@ -6,7 +7,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if session.isSignedIn {
-                MapScreen()
+                MapScreen(client: session.client)
             } else {
                 LoginView()
             }

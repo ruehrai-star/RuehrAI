@@ -4,6 +4,7 @@ struct LoginView: View {
     @EnvironmentObject private var session: SessionStore
     @State private var email = ""
     @State private var password = ""
+    @State private var createAccount = false
 
     var body: some View {
         NavigationStack {
@@ -16,6 +17,12 @@ struct LoginView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Picker("Account", selection: $createAccount) {
+                    Text("Sign in").tag(false)
+                    Text("Create account").tag(true)
+                }
+                .pickerStyle(.segmented)
+
                 VStack(spacing: 12) {
                     TextField("Email", text: $email)
                         .textContentType(.username)
@@ -25,7 +32,7 @@ struct LoginView: View {
                         .padding(12)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                     SecureField("Password", text: $password)
-                        .textContentType(.password)
+                        .textContentType(createAccount ? .newPassword : .password)
                         .padding(12)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                 }
@@ -34,17 +41,17 @@ struct LoginView: View {
                     Text(lastError)
                         .font(.subheadline)
                         .foregroundStyle(.red)
-                        .accessibilityLabel(lastError)
                 }
 
-                Button(action: signIn) {
-                    Text("Sign in")
+                Button(action: submit) {
+                    Text(createAccount ? "Create account" : "Sign in")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(AppTheme.accent)
+                .disabled(session.isWorking)
 
-                Text("This sign-in does not contact a server. It checks the shape of the email and password, then keeps a stub token in memory. A later slice will call the Backend JWT or session endpoint.")
+                Text(footnote)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -55,15 +62,30 @@ struct LoginView: View {
         }
     }
 
-    private func signIn() {
-        session.signIn(email: email, password: password)
-        if session.isSignedIn {
-            password = ""
+    private var footnote: String {
+        if session.usesFixture {
+            return "No Backend base URL is set, so this screen uses the offline fixture for POST /auth/login and POST /auth/register. Any email and a password of 8 to 72 characters are accepted. The token stays in memory and is not a JWT."
+        }
+        return "Signs in against the Backend JWT endpoints. The access token stays in memory. Password length is 8 to 72 characters."
+    }
+
+    private func submit() {
+        let email = email
+        let password = password
+        Task {
+            if createAccount {
+                await session.register(email: email, password: password)
+            } else {
+                await session.signIn(email: email, password: password)
+            }
+            if session.isSignedIn {
+                self.password = ""
+            }
         }
     }
 }
 
 #Preview {
     LoginView()
-        .environmentObject(SessionStore())
+        .environmentObject(SessionStore(connection: .fixture))
 }

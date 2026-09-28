@@ -1,11 +1,12 @@
 import Foundation
-import RuehrAIAPI
+import RuehrAPI
 import SwiftUI
 
 @MainActor
 final class MapScreenModel: ObservableObject {
     @Published var query = ""
-    @Published private(set) var results: [SearchHit] = []
+    @Published var layerID = FixtureTransport.seededLayerIDs[0]
+    @Published private(set) var results: [Components.Schemas.SearchHit] = []
     @Published private(set) var isSearching = false
     @Published private(set) var searchError: String?
     @Published private(set) var resultsCollapsed = false
@@ -17,16 +18,54 @@ final class MapScreenModel: ObservableObject {
     @Published var overlayError: String?
     @Published private(set) var focus: MapFocus = .germany
 
-    private let api: any RuehrAPIClient
+    private let client: Client
     private var searchGeneration = 0
 
-    init(api: any RuehrAPIClient) {
-        self.api = api
+    init(client: Client) {
+        self.client = client
     }
 
-    func load() async {
-        await refreshHealth()
-        await refreshLayer()
+    func refreshHealth() async {
+        do {
+            switch try await client.getHealth() {
+            case .ok(let ok):
+                let status = try ok.body.json.status
+                healthOK = status == .ok
+                healthSummary = healthOK ? "API ok" : "Backend status \(status.rawValue)"
+            case .undocumented(let statusCode, _):
+                healthOK = false
+                healthSummary = "Health check failed (\(statusCode))"
+            }
+        } catch {
+            healthOK = false
+            healthSummary = "Backend unavailable"
+        }
+    }
+
+    func refreshLayer() async {
+        do {
+            switch try await client.getLayer(path: .init(id: layerID)) {
+            case .ok(let ok):
+                let collection = try ok.body.json
+                geoJSON = try JSONEncoder().encode(collection)
+                layerSummary = collection.name ?? "Layer \(layerID)"
+            case .notFound(let notFound):
+                geoJSON = nil
+                layerSummary = try APIErrorText.message(notFound.body.json)
+            case .badRequest(let badRequest):
+                geoJSON = nil
+                layerSummary = try APIErrorText.message(badRequest.body.json)
+            case .unauthorized:
+                geoJSON = nil
+                layerSummary = "Sign in again to load the layer."
+            case .undocumented(let statusCode, _):
+                geoJSON = nil
+                layerSummary = "Layer request failed (\(statusCode))"
+            }
+        } catch {
+            geoJSON = nil
+            layerSummary = "Layer \(layerID) failed"
+        }
     }
 
     func performSearch() async {
@@ -48,67 +87,59 @@ final class MapScreenModel: ObservableObject {
         do {
             try await Task.sleep(nanoseconds: 250_000_000)
             guard generation == searchGeneration, !Task.isCancelled else { return }
-            let hits = try await api.search(query: trimmed)
+            let output = try await client.searchPlaces(query: .init(q: trimmed))
             guard generation == searchGeneration, !Task.isCancelled else { return }
-            results = hits
-            searchError = nil
+            switch output {
+            case .ok(let ok):
+                results = try ok.body.json.hits
+                searchError = nil
+            case .badRequest(let badRequest):
+                results = []
+                searchError = try APIErrorText.message(badRequest.body.json)
+            case .unauthorized:
+                results = []
+                searchError = "Sign in again to search."
+            case .undocumented(let statusCode, _):
+                results = []
+                searchError = "Search failed (\(statusCode))."
+            }
             isSearching = false
         } catch is CancellationError {
             return
         } catch {
             guard generation == searchGeneration else { return }
             results = []
-            searchError = (error as? LocalizedError)?.errorDescription ?? "Search failed."
+            searchError = "Search failed."
             isSearching = false
         }
     }
 
-    func select(_ hit: SearchHit) {
+    func select(_ hit: Components.Schemas.SearchHit) {
         resultsCollapsed = true
-        guard let coordinate = hit.coordinate else {
+        guard let lat = hit.lat, let lon = hit.lon else {
             banner = "\(hit.label) has no coordinates."
             return
         }
-        focus = focus.moving(
-            toLatitude: coordinate.latitude,
-            longitude: coordinate.longitude,
-            zoom: hit.kind.focusZoom
-        )
+        focus = focus.moving(toLatitude: lat, longitude: lon, zoom: hit.grain.focusZoom)
         banner = hit.label
-    }
-
-    private func refreshHealth() async {
-        do {
-            let response = try await api.health()
-            healthOK = response.status == "ok"
-            healthSummary = healthOK ? "Backend mock ok" : "Backend status \(response.status)"
-        } catch {
-            healthOK = false
-            healthSummary = "Backend unavailable"
-        }
-    }
-
-    private func refreshLayer() async {
-        do {
-            let collection = try await api.layer(id: MockAPIClient.sampleLayerID)
-            geoJSON = try collection.jsonData()
-            layerSummary = "Layer \(MockAPIClient.sampleLayerID)"
-        } catch {
-            geoJSON = nil
-            layerSummary = "Layer \(MockAPIClient.sampleLayerID) failed"
-        }
     }
 }
 
-extension SearchHitKind {
+extension Components.Schemas.SearchHit: Identifiable {}
+
+extension Components.Schemas.Grain {
     var focusZoom: Double {
         switch self {
         case .address:
             return 15
-        case .plz:
+        case .plz5, .plz8:
             return 13
-        case .ags:
+        case .ags, .ags5:
             return 10
+        case .grid100:
+            return 14
+        case .other:
+            return 8
         }
     }
 
@@ -116,10 +147,18 @@ extension SearchHitKind {
         switch self {
         case .address:
             return "Address"
+        case .plz5:
+            return "PLZ5"
+        case .plz8:
+            return "PLZ8"
         case .ags:
             return "AGS"
-        case .plz:
-            return "PLZ"
+        case .ags5:
+            return "AGS5"
+        case .grid100:
+            return "Grid"
+        case .other:
+            return "Other"
         }
     }
 }

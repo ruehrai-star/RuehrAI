@@ -25,7 +25,7 @@ Lokaler Start: [`docker-compose.yml`](docker-compose.yml) hochfahren, dann `pnpm
 
 Native Clients sprechen nur mit dem Backend, nicht mit Supabase.
 
-- **iOS:** [`apps/ios`](apps/ios/README.md) — SwiftUI-Shell (iOS 17+, MapLibre, Mock-API). Projekt per XcodeGen auf einem Mac öffnen.
+- **iOS:** [`apps/ios`](apps/ios/README.md) — SwiftUI-Shell (iOS 17+, MapLibre, OpenAPI-Client). Projekt per XcodeGen auf einem Mac öffnen.
 
 ## Data-Team
 

@@ -5,22 +5,26 @@ on:
   pull_request:
     paths:
       - "apps/ios/**"
+      - "packages/api-contracts/openapi/**"
       - ".github/workflows/ios.yml"
   push:
     branches:
       - main
     paths:
       - "apps/ios/**"
+      - "packages/api-contracts/openapi/**"
       - ".github/workflows/ios.yml"
 
 jobs:
-  mock-api:
-    name: Mock API tests
+  ruehr-api:
+    name: OpenAPI client tests
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test RuehrAIAPI
-        working-directory: apps/ios/Packages/RuehrAIAPI
+      - name: Show Swift version
+        run: swift --version
+      - name: Test RuehrAPI
+        working-directory: apps/ios/Packages/RuehrAPI
         run: swift test
 
   xcodegen:

@@ -1,4 +1,4 @@
-import RuehrAIAPI
+import RuehrAPI
 import SwiftUI
 
 struct MapScreen: View {
@@ -6,8 +6,8 @@ struct MapScreen: View {
     @StateObject private var model: MapScreenModel
     @FocusState private var searchFocused: Bool
 
-    init(api: any RuehrAPIClient = MockAPIClient()) {
-        _model = StateObject(wrappedValue: MapScreenModel(api: api))
+    init(client: Client) {
+        _model = StateObject(wrappedValue: MapScreenModel(client: client))
     }
 
     var body: some View {
@@ -21,6 +21,7 @@ struct MapScreen: View {
 
             VStack(spacing: 8) {
                 searchCard
+                layerPicker
                 if showsResults {
                     resultsCard
                 } else if let banner = model.banner {
@@ -38,10 +39,37 @@ struct MapScreen: View {
             statusBar
         }
         .task {
-            await model.load()
+            await model.refreshHealth()
+        }
+        .task(id: model.layerID) {
+            await model.refreshLayer()
         }
         .task(id: model.query) {
             await model.performSearch()
+        }
+    }
+
+    private var layerPicker: some View {
+        Picker("Layer", selection: $model.layerID) {
+            ForEach(FixtureTransport.seededLayerIDs, id: \.self) { id in
+                Text(layerTitle(id)).tag(id)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func layerTitle(_ id: String) -> String {
+        switch id {
+        case "demo-gemeinden":
+            return "Gemeinden"
+        case "demo-plz":
+            return "PLZ"
+        case "demo-grid100":
+            return "Grid"
+        default:
+            return id
         }
     }
 
@@ -108,7 +136,7 @@ struct MapScreen: View {
                                 resultRow(hit)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityHint(hit.coordinate == nil ? "No coordinates" : "Centers the map")
+                            .accessibilityHint(hit.lat == nil || hit.lon == nil ? "No coordinates" : "Centers the map")
                             Divider()
                         }
                     }
@@ -119,21 +147,21 @@ struct MapScreen: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func resultRow(_ hit: SearchHit) -> some View {
+    private func resultRow(_ hit: Components.Schemas.SearchHit) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.label)
                     .font(.body)
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
-                if hit.coordinate == nil {
+                if hit.lat == nil || hit.lon == nil {
                     Text("No coordinates")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
-            Text(hit.kind.displayName)
+            Text(hit.grain.displayName)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -152,7 +180,7 @@ struct MapScreen: View {
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.healthSummary)
+                Text(healthTitle)
                 Text(statusDetail)
                     .foregroundStyle(.secondary)
             }
@@ -167,6 +195,13 @@ struct MapScreen: View {
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
         .accessibilityElement(children: .contain)
+    }
+
+    private var healthTitle: String {
+        if model.healthOK {
+            return session.usesFixture ? "Fixture ok" : "Backend ok"
+        }
+        return model.healthSummary
     }
 
     private var statusDetail: String {
