@@ -17,7 +17,7 @@ Gemeinde-Statistik der Regionaldatenbank Deutschland. Dieses Stub hält den Bloc
 
 ## Status
 
-**blocked (Auth).** Der REST-Pfad ist erreichbar, die registrierte Anmeldung hängt (Timeout). Katalog und Tabellenabruf sind damit nicht möglich. Zugangsdaten nie in Git oder Confluence; nur Secret-Store.
+**blocked (Auth).** Der REST-Pfad ist erreichbar, die registrierte Anmeldung hängt (Timeout). Katalog und Tabellenabruf sind damit nicht möglich. Der Operator setzt das REG-Passwort zurück oder legt ein neues Konto an. Kein weiteres Auth-Raten. Zugangsdaten nie in Git oder Confluence; nur Secret-Store.
 
 ## Tabellen / Artefakte
 
@@ -25,7 +25,7 @@ Keine. Ziel sind mindestens zwei Gemeinde-Fact-Tabellen, sobald Auth steht. Bis 
 
 ## How to refresh
 
-1. Operator erneuert das REG-Konto und legt das Secret neu ab.
+1. Operator setzt das REG-Passwort zurück oder legt ein neues Konto an und speichert das Secret neu. Kein weiteres Auth-Raten.
 2. Data-Scout wiederholt den Pull (`scout_source` = `regionalstatistik`) und protokolliert `scout_pull_run`.
 3. Erst danach Fact-Tabellen anlegen, RLS setzen und dieses Stub sowie die Confluence-Seite um Tabellennamen ergänzen.
 

@@ -17,7 +17,7 @@ Gemeinde-Tabellen aus dem Zensus 2022 (Regionaltabellen). Der 100-m-Gitter-Smoke
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Der Portal-API-Pfad war beim letzten dokumentierten Abruf nicht nutzbar; geladen wurde der Regionaltabellen-Fallback.
+**ok** (Regionaltabellen-Fallback). Die Portal-API [ergebnisse.zensus2022.de](https://ergebnisse.zensus2022.de/) antwortete aus dem Agent-Egress mit HTTP 400 (WAF); geladen wurden die Destatis-Regionaltabellen (XLSX/CSV), `ref_period` `2022-05`, Grain `ags`. Getrennt vom Pre-List-Smoke `zensus-2022-grid` (`geo_ref_grid100`).
 
 ## Tabellen / Artefakte
 
@@ -43,3 +43,4 @@ Diese sechs Tabellen sind die Supabase-Quelle für den ersten Brain-Batch, siehe
 
 - Portal-API (`ergebnisse.zensus2022.de`) erneut von einem freigegebenen Netz prüfen.
 - Flächendeckendes 100-m-Gitter bleibt deferred; Smoke liegt bei `geo_ref_grid100`.
+- Erwerbsstatus enthält die Destatis-Sperrung (–) in kleinen Gemeinden.

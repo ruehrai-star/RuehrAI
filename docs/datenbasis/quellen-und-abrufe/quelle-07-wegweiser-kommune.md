@@ -17,7 +17,7 @@ Ist-Daten der Bertelsmann Stiftung (Wegweiser Kommune), öffentlicher CSV-Export
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Indikatoren liegen als JSONB-Map pro Gemeinde-Jahr; `k.A.` der Quelle bleibt `k.A.`.
+**ok.** Öffentlicher CSV-Export für 2021–2023 geladen, Grain `ags`, Indikatoren als JSONB. `k.A.` der Quelle bleibt `k.A.`. RLS aktiv, Policy `service_role_all`.
 
 ## Tabellen / Artefakte
 
@@ -38,6 +38,6 @@ Platzhalter. Operativer Status in Confluence. Indikatoren liegen als JSONB-Map p
 
 ## Open issues
 
-- Weitere Topics (Beschäftigung, Pflege, Pendler, Prognose) sind deferred.
-- Bildungswerte sind quellenbedingt lückenhaft.
+- Bildung ist oft `k.A.`
+- Deferred Topics: Kinderbetreuung, Pendler, Prognose und weitere.
 - Neuere Berichtsjahre nachziehen, sobald veröffentlicht.

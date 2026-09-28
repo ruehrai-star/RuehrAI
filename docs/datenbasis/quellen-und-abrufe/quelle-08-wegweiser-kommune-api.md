@@ -17,7 +17,7 @@ OpenAPI-Twin zu [Quelle 07](quelle-07-wegweiser-kommune.md). Dieses Stub inventa
 
 ## Status
 
-Inventar / Audit. Kein eigener Fact-Load. Operative Notiz in Confluence auf derselben Seite wie Quelle 07.
+**ok** (nur Inventar, `row_count` 0 by design). OpenAPI ist inventarisiert; kein zweiter Fact-Load und keine neuen Fact-Tabellen. Twin von [Quelle 07](quelle-07-wegweiser-kommune.md). Operative Notiz in Confluence auf derselben Seite.
 
 ## Tabellen / Artefakte
 

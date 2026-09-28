@@ -17,7 +17,7 @@ Fahrzeugstatistik des Kraftfahrt-Bundesamts aus öffentlichen Excel-Produkten (k
 
 ## Status
 
-Platzhalter. Operativer Status in Confluence. Produkte im letzten dokumentierten Load: FZ 8, FZ 27, FZ 5.
+**ok.** Öffentliche KBA-Excel-Produkte geladen (FZ 8, FZ 27, FZ 5): `kba_neuzulassungen_laender` monatlich je Land etwa 2023-10…2026-08, `kba_bestand_laender` quartalsweise je Land, `kba_ausserbetrieb_kreise` (`ags5`, Jahre 2023–2025). RLS aktiv, Policy `service_role_all` auf diesen drei Tabellen.
 
 ## Tabellen / Artefakte
 
@@ -36,5 +36,5 @@ Platzhalter. Operativer Status in Confluence. Produkte im letzten dokumentierten
 
 ## Open issues
 
-- Neuzulassungen und Bestand sind auf Bundesland begrenzt, nicht auf Kreis.
+- Feinste offene Körnung für Neuzulassungen und Bestand ist Bundesland, nicht Kreis.
 - Abgrenzung zu späteren Mobilithek-/KBA-Duplikaten in Confluence halten.
