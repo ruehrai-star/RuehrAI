@@ -1,3 +1,7 @@
+-- Schema app is reserved for this backend (users, auth, layer stubs, search fallback).
+-- Schema features (location_feature_docs, embedding_jobs, v_location_search)
+-- is created outside this migration. Do not put app tables in public.
+--
 -- App schema for the Dev-Team API slice.
 -- Password hashes use pgcrypto crypt()/bf (bcrypt). The seeded user is a
 -- local-dev fixture (dev@ruehrai.local / dev-password), not a production account.

@@ -184,8 +184,8 @@
           "Search"
         ],
         "operationId": "searchPlaces",
-        "summary": "Search stub places by address, AGS, or PLZ",
-        "description": "Named parameters `address`, `ags`, and `plz` are exact (`ags`, `plz`)\nor substring (`address`) filters and are combined with AND.\n\n`q` is a substring. `type` selects which field `q` is compared with\n(`address`, `ags`, or `plz`). Without `type`, `q` matches label, AGS,\nPLZ, and address. `type` has no effect when `q` is omitted.\n\nWith no filters the endpoint returns up to 50 seeded hits.\nCoordinates are WGS84 (EPSG:4326) centroids. Rows are local demo data.\n",
+        "summary": "Search places by name, grain, or geo key",
+        "description": "Reads `features.v_location_search` when that view contains at least one row.\nFilters apply to name, title, grain, and geo_key. `lon` and `lat` are\nJSON null when the row has no coordinates.\n\n`q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or\n`address`. Without `type`, `q` matches name, title, and geo_key.\n`type` has no effect when `q` is omitted.\n\n`ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an\nexact geo_key match on any grain. `grain` is exact. `address` is a\nsubstring of name, title, and geo_key. Filters combine with AND.\nAt most 50 hits, ordered by label.\n\nIf the view is missing or has no rows (local docker-compose), the same\nfilters run against the seeded `app.search_places` catalog.\nCoordinates are WGS84 (EPSG:4326) when present.\n",
         "parameters": [
           {
             "name": "q",
@@ -235,6 +235,25 @@
               "type": "string",
               "pattern": "^[0-9]{5}([0-9]{3})?$"
             }
+          },
+          {
+            "name": "geoKey",
+            "in": "query",
+            "required": false,
+            "description": "Exact geo_key on any grain.",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "grain",
+            "in": "query",
+            "required": false,
+            "description": "Exact spatial grain.",
+            "schema": {
+              "$ref": "#/components/schemas/Grain"
+            }
           }
         ],
         "responses": {
@@ -248,11 +267,12 @@
                 "example": {
                   "hits": [
                     {
-                      "id": "ags:09162000",
+                      "id": "1",
                       "label": "München",
                       "grain": "ags",
-                      "lon": 11.5755,
-                      "lat": 48.1374
+                      "geoKey": "09162000",
+                      "lon": null,
+                      "lat": null
                     }
                   ]
                 }
@@ -275,7 +295,7 @@
         ],
         "operationId": "getLayer",
         "summary": "GeoJSON FeatureCollection for a layer",
-        "description": "Returns a GeoJSON FeatureCollection as `application/json`.\nSeeded layer ids in local dev: `demo-gemeinden`, `demo-plz`, `demo-grid100`.\nGeometries are synthetic stubs for this slice (points, plus one rough polygon),\nnot official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.\n",
+        "description": "Returns a GeoJSON FeatureCollection as `application/json`.\nLayer rows stay in schema `app` (`map_layers`, `map_features`) until\nfeature documents have coordinates. Seeded layer ids in local dev:\n`demo-gemeinden`, `demo-plz`, `demo-grid100`.\nGeometries are synthetic stubs for this slice (points, plus one rough polygon),\nnot official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.\n",
         "parameters": [
           {
             "name": "id",
@@ -491,6 +511,11 @@
           },
           "grain": {
             "$ref": "#/components/schemas/Grain"
+          },
+          "geoKey": {
+            "type": "string",
+            "nullable": true,
+            "description": "Spatial key from the feature view (AGS, PLZ, address id, or grid id). Null when unknown."
           },
           "lon": {
             "type": "number",

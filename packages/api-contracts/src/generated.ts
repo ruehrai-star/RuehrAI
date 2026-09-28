@@ -93,16 +93,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search stub places by address, AGS, or PLZ
-         * @description Named parameters `address`, `ags`, and `plz` are exact (`ags`, `plz`)
-         *     or substring (`address`) filters and are combined with AND.
+         * Search places by name, grain, or geo key
+         * @description Reads `features.v_location_search` when that view contains at least one row.
+         *     Filters apply to name, title, grain, and geo_key. `lon` and `lat` are
+         *     JSON null when the row has no coordinates.
          *
-         *     `q` is a substring. `type` selects which field `q` is compared with
-         *     (`address`, `ags`, or `plz`). Without `type`, `q` matches label, AGS,
-         *     PLZ, and address. `type` has no effect when `q` is omitted.
+         *     `q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or
+         *     `address`. Without `type`, `q` matches name, title, and geo_key.
+         *     `type` has no effect when `q` is omitted.
          *
-         *     With no filters the endpoint returns up to 50 seeded hits.
-         *     Coordinates are WGS84 (EPSG:4326) centroids. Rows are local demo data.
+         *     `ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an
+         *     exact geo_key match on any grain. `grain` is exact. `address` is a
+         *     substring of name, title, and geo_key. Filters combine with AND.
+         *     At most 50 hits, ordered by label.
+         *
+         *     If the view is missing or has no rows (local docker-compose), the same
+         *     filters run against the seeded `app.search_places` catalog.
+         *     Coordinates are WGS84 (EPSG:4326) when present.
          */
         get: operations["searchPlaces"];
         put?: never;
@@ -123,7 +130,9 @@ export interface paths {
         /**
          * GeoJSON FeatureCollection for a layer
          * @description Returns a GeoJSON FeatureCollection as `application/json`.
-         *     Seeded layer ids in local dev: `demo-gemeinden`, `demo-plz`, `demo-grid100`.
+         *     Layer rows stay in schema `app` (`map_layers`, `map_features`) until
+         *     feature documents have coordinates. Seeded layer ids in local dev:
+         *     `demo-gemeinden`, `demo-plz`, `demo-grid100`.
          *     Geometries are synthetic stubs for this slice (points, plus one rough polygon),
          *     not official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.
          */
@@ -177,6 +186,8 @@ export interface components {
             id: string;
             label: string;
             grain: components["schemas"]["Grain"];
+            /** @description Spatial key from the feature view (AGS, PLZ, address id, or grid id). Null when unknown. */
+            geoKey?: string | null;
             /**
              * Format: double
              * @description WGS84 longitude. Omitted or null when the hit is not geocoded.
@@ -387,6 +398,10 @@ export interface operations {
                 ags?: string;
                 /** @description Exact PLZ5 or PLZ8. */
                 plz?: string;
+                /** @description Exact geo_key on any grain. */
+                geoKey?: string;
+                /** @description Exact spatial grain. */
+                grain?: components["schemas"]["Grain"];
             };
             header?: never;
             path?: never;
@@ -404,11 +419,12 @@ export interface operations {
                      * @example {
                      *       "hits": [
                      *         {
-                     *           "id": "ags:09162000",
+                     *           "id": "1",
                      *           "label": "München",
                      *           "grain": "ags",
-                     *           "lon": 11.5755,
-                     *           "lat": 48.1374
+                     *           "geoKey": "09162000",
+                     *           "lon": null,
+                     *           "lat": null
                      *         }
                      *       ]
                      *     }

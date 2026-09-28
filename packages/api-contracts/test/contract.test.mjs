@@ -25,9 +25,10 @@ test("v0 covers health, auth, search, and layers", () => {
   assert.deepEqual(doc.security, [{ bearerAuth: [] }]);
 
   const searchParams = doc.paths["/search"].get.parameters.map((parameter) => parameter.name);
-  for (const name of ["q", "type", "address", "ags", "plz"]) {
+  for (const name of ["q", "type", "address", "ags", "plz", "geoKey", "grain"]) {
     assert.ok(searchParams.includes(name), name);
   }
+  assert.equal(doc.components.schemas.SearchHit.properties.geoKey.nullable, true);
 
   const hitRequired = doc.components.schemas.SearchHit.required;
   assert.deepEqual(hitRequired, ["id", "label", "grain"]);

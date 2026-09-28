@@ -36,4 +36,15 @@ export class SearchQueryDto {
   @IsString()
   @Matches(/^\d{5}(\d{3})?$/)
   plz?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  @MaxLength(200)
+  geoKey?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsIn(["address", "grid100", "plz8", "plz5", "ags", "ags5", "other"])
+  grain?: "address" | "grid100" | "plz8" | "plz5" | "ags" | "ags5" | "other";
 }

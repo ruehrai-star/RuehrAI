@@ -62,21 +62,52 @@ curl -s http://localhost:3000/layers/demo-gemeinden \
   -H "authorization: Bearer $TOKEN"
 ```
 
-Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Stubs (Punkte und ein grober Polygon-Kasten), keine amtlichen Grenzen.
+Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Stubs (Punkte und ein grober Polygon-Kasten), keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
+
+`/search` liest `features.v_location_search`, sobald die View mindestens eine Zeile hat. Treffer kommen aus `name` (sonst `title` oder `geo_key`), `grain` und `geo_key`. `lon`/`lat` dürfen null sein. Filter: `q`, `type` (`address` | `ags` | `plz`), `address`, `ags`, `plz`, `geoKey`, `grain`.
+
+Hat die View keine Zeilen oder fehlt sie (frisches `docker compose`, ohne Brain-Daten), gilt derselbe Filter auf `app.search_places`. Ein Prozess merkt sich den Fallback im Log einmal pro Grund.
 
 ## Datenbank
 
-Schema `app`:
+Zwei Schemas. `public` bleibt für App-Tabellen ungenutzt.
 
-| Tabelle | Inhalt |
-| --- | --- |
-| `app.users` | Login (`bigint identity` als Primärschlüssel) |
-| `app.search_places` | Suchtreffer (`id`, `label`, `grain`, optionale `lon`/`lat`) |
-| `app.map_layers` / `app.map_features` | GeoJSON-Stubs für `/layers/{id}` |
+| Schema | Wer | Inhalt |
+| --- | --- | --- |
+| `app` | diese Migration | `users` (Login, `bigint identity`), `search_places` (Such-Fallback), `map_layers` / `map_features` (GeoJSON-Stubs) |
+| `features` | Data-Engineer, Brain | `location_feature_docs`, `embedding_jobs`, View `v_location_search` |
 
-`ags` und `plz` sind indiziert. Zugriff läuft über einen `pg.Pool` (max. 10 Verbindungen). Autorisierung prüft die API am JWT; die Datenbankrolle ist die App-Rolle aus `DATABASE_URL`.
+Die View-Spalten, die `/search` benutzt: `id`, `geo_key`, `grain`, `name`, `title`, `lon`, `lat`. `ref_period` liegt auf der View, filtert dieser Slice nicht. Koordinaten und Embeddings können leer sein.
 
-Vektor-Tabellen sind in diesem Slice noch nicht angelegt. Dieselbe lokale Postgres ist der vorgesehene Ort dafür.
+Verbindung: `pg.Pool` (max. 10) mit `DATABASE_URL`. Autorisierung der HTTP-Routen prüft das Backend am JWT.
+
+### Lesen von `features`
+
+Rolle `backend_ro_features` ist `NOLOGIN` und hat `SELECT` auf `features`. Nach dem Connect als App-User setzt jede Feature-Abfrage das in einer Transaktion:
+
+```sql
+BEGIN;
+SET LOCAL ROLE backend_ro_features;
+-- SELECT … FROM features.v_location_search
+COMMIT;
+```
+
+`SET LOCAL` endet mit der Transaktion. Die gepoolte Session bleibt der User aus `DATABASE_URL` und kann weiter nach `app` schreiben. Der App-User muss Mitglied der Rolle sein:
+
+```sql
+GRANT USAGE ON SCHEMA features TO backend_ro_features;
+GRANT SELECT ON features.v_location_search TO backend_ro_features;
+GRANT backend_ro_features TO <database_url_user>;
+```
+
+Fehlt die Rolle, liest der Prozess die View als den verbundenen User. Dafür braucht dieser User dieselben Rechte direkt:
+
+```sql
+GRANT USAGE ON SCHEMA features TO <database_url_user>;
+GRANT SELECT ON features.v_location_search TO <database_url_user>;
+```
+
+`docker compose` legt `features` nicht an. `/search` nutzt dann `app.search_places`. `ags` und `plz` auf dieser Fallback-Tabelle sind indiziert.
 
 ## Skripte
 
