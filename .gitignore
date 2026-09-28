@@ -6,3 +6,11 @@ coverage/
 !.env.example
 *.tsbuildinfo
 .pnpm-store/
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.cxx/
+captures/
+.DS_Store
