@@ -15,6 +15,8 @@ pnpm dev
 
 Open http://localhost:3000.
 
+`pnpm install` copies the MapLibre worker into `public/maplibre` (gitignored). The map loads that file directly because the Next bundler does not expose the worker as a JavaScript module.
+
 The map loads mock layer `grid100` (synthetic 100 m cells near Friedrichshafen, inside the southern smoke band). Search by address, AGS, or PLZ, then choose a hit to fly there.
 
 ## Checks

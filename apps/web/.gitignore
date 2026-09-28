@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# Copied from maplibre-gl on postinstall so the worker is served as a module.
+/public/maplibre/
+
 # production
 /build
 

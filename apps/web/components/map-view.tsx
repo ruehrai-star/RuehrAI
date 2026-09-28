@@ -8,6 +8,7 @@ import {
   type MapGeoJSONFeature,
   NavigationControl,
   ScaleControl,
+  setWorkerUrl,
 } from "maplibre-gl";
 import { useEffect, useRef } from "react";
 import { isGrain, type SearchHit } from "@/lib/api";
@@ -116,6 +117,11 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Turbopack does not emit the MapLibre worker next to the bundled library,
+    // so the browser requests an HTML 404 and refuses the module. Serve the
+    // package worker from public/ (copied on postinstall).
+    setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
     const map = new Map({
       container,
