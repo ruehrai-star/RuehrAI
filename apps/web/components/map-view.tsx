@@ -11,7 +11,7 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import { useEffect, useRef } from "react";
-import { isGrain, type SearchHit } from "@/lib/api";
+import { coordinatesOf, isGrain, type SearchHit } from "@/lib/api";
 import { zoomForGrain } from "@/lib/format";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -81,13 +81,14 @@ function hitFromProperties(
 }
 
 function pointCollection(selection: SearchHit | null): FeatureCollection {
-  if (selection?.lon === undefined || selection.lat === undefined) return EMPTY;
+  const point = selection ? coordinatesOf(selection) : null;
+  if (!selection || !point) return EMPTY;
   return {
     type: "FeatureCollection",
     features: [
       {
         type: "Feature",
-        geometry: { type: "Point", coordinates: [selection.lon, selection.lat] },
+        geometry: { type: "Point", coordinates: [point.lon, point.lat] },
         properties: { id: selection.id },
       },
     ],
@@ -147,6 +148,11 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
         id: "layer-fill",
         type: "fill",
         source: "layer",
+        filter: [
+          "any",
+          ["==", ["geometry-type"], "Polygon"],
+          ["==", ["geometry-type"], "MultiPolygon"],
+        ],
         paint: {
           "fill-color": [
             "case",
@@ -166,6 +172,11 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
         id: "layer-line",
         type: "line",
         source: "layer",
+        filter: [
+          "any",
+          ["==", ["geometry-type"], "Polygon"],
+          ["==", ["geometry-type"], "MultiPolygon"],
+        ],
         paint: {
           "line-color": [
             "case",
@@ -181,6 +192,28 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
           ],
         },
       });
+      map.addLayer({
+        id: "layer-circle",
+        type: "circle",
+        source: "layer",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            9,
+            6,
+          ],
+          "circle-color": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            "#d85a2a",
+            "#1f7a72",
+          ],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#fffaf3",
+        },
+      });
       map.addSource("selection", { type: "geojson", data: EMPTY });
       map.addLayer({
         id: "selection-circle",
@@ -194,18 +227,21 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
         },
       });
 
-      map.on("click", "layer-fill", (event: { features?: MapGeoJSONFeature[] }) => {
+      const selectFeature = (event: { features?: MapGeoJSONFeature[] }) => {
         const feature = event.features?.[0];
         if (!feature) return;
         const hit = hitFromProperties(feature.properties, feature.id);
         if (hit) onSelectRef.current(hit);
-      });
-      map.on("mouseenter", "layer-fill", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "layer-fill", () => {
-        map.getCanvas().style.cursor = "";
-      });
+      };
+      for (const layerId of ["layer-fill", "layer-circle"]) {
+        map.on("click", layerId, selectFeature);
+        map.on("mouseenter", layerId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layerId, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
 
       readyRef.current = true;
       const bounds = boundsOf(layer);
@@ -259,13 +295,14 @@ function applySelection(
     (source as GeoJSONSource).setData(pointCollection(selection));
   }
 
-  if (!selection || selection.lon === undefined || selection.lat === undefined) return;
+  const point = selection ? coordinatesOf(selection) : null;
+  if (!selection || !point) return;
 
   map.setFeatureState({ source: "layer", id: selection.id }, { selected: true });
   selectedFeatureId.current = selection.id;
 
   const camera = {
-    center: [selection.lon, selection.lat] as [number, number],
+    center: [point.lon, point.lat] as [number, number],
     zoom: zoomForGrain(selection.grain),
   };
   if (!animate || prefersReducedMotion()) {

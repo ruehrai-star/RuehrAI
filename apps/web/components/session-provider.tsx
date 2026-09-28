@@ -14,7 +14,7 @@ import { readStoredSession, subscribeSession, writeStoredSession } from "@/lib/s
 interface SessionContextValue {
   session: Session | null;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -36,8 +36,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    await getApi().logout();
+  const logout = useCallback(() => {
     writeStoredSession(null);
   }, []);
 

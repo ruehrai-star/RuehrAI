@@ -1,45 +1,41 @@
 # RuehrAI Web
 
-Map and search shell for Standortberatung. The UI talks to the Backend only through `lib/api`. That module is an in-process mock of the v0 HTTP contract until `packages/api-contracts` publishes a generated OpenAPI client. Swap the implementation in `createRuehrApi` (`lib/api/index.ts`); components stay on the `RuehrApi` interface.
+Map and search shell for Standortberatung. The UI calls the Backend through `lib/api`, typed with [`@ruehrai/api-contracts`](../../packages/api-contracts/README.md). There is no in-process mock on the happy path, and no Supabase client.
 
-There is no Supabase client. Login is a stub for a Backend JWT session (`POST /auth/login`), not a third-party auth provider.
+`GET /search`, `GET /layers/{id}`, and `POST /auth/login` go to `NEXT_PUBLIC_API_BASE_URL`. The default is `http://localhost:3000`, the Backend's local port. This app listens on **3001** so both can run together.
+
+Search and layers send `Authorization: Bearer`. Login stores the JWT from `TokenResponse` in `sessionStorage`. The contract has no logout route; Abmelden only clears that record.
 
 ## Run
 
-From `apps/web`:
+Start the Backend first (see [`apps/backend/README.md`](../backend/README.md)): Postgres, `pnpm db:migrate`, `pnpm start:dev`. Seed login: `dev@ruehrai.local` / `dev-password`.
+
+From the repo root:
 
 ```bash
 pnpm install
-pnpm dev
+pnpm --filter @ruehrai/web dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3001 and sign in. The map loads layer `demo-gemeinden`.
 
-`pnpm install` copies the MapLibre worker into `public/maplibre` (gitignored). The map loads that file directly because the Next bundler does not expose the worker as a JavaScript module.
+To point at another API:
 
-The map loads mock layer `grid100` (synthetic 100 m cells near Friedrichshafen, inside the southern smoke band). Search by address, AGS, or PLZ, then choose a hit to fly there.
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://api.example.com pnpm --filter @ruehrai/web dev
+```
+
+`NEXT_PUBLIC_*` is baked in at build time. Set it before `pnpm --filter @ruehrai/web build` for a deployed bundle.
+
+`pnpm install` copies the MapLibre worker into `apps/web/public/maplibre` (gitignored). The map loads that file because the Next bundler does not expose the worker as a JavaScript module.
 
 ## Checks
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm --filter @ruehrai/web lint
+pnpm --filter @ruehrai/web typecheck
+pnpm --filter @ruehrai/web test
+pnpm --filter @ruehrai/web build
 ```
 
-## Mock contract
-
-| Method | Path | Client |
-| --- | --- | --- |
-| GET | `/health` | `health()` |
-| GET | `/search?q=` | `search(query)` |
-| GET | `/layers/{id}` | `getLayer(id)` |
-| POST | `/auth/login` | `login({ email, password })` |
-| POST | `/auth/logout` | `logout()` |
-
-`GET /search` returns `{ query, results: [{ id, label, grain, lon?, lat? }] }`. Grains follow the Datenbasis list: `address`, `grid100`, `plz8`, `plz5`, `ags`, `other`. `GET /layers/grid100` returns a GeoJSON `FeatureCollection`. Any other layer id is a 404.
-
-`NEXT_PUBLIC_API_MODE` defaults to `mock`. Another value throws until the OpenAPI adapter is wired.
-
-Fixtures are illustrative. Grid ids use the documented `CRS3035RES100mN…E…` shape and are not surveyed Zensus cells. PLZ8 values are synthetic. The login token is unsigned (`alg: none`, signature `mock`) and lives only in `sessionStorage`.
+`typecheck` and `build` compile `@ruehrai/api-contracts` first. The web tests cover URL building, the bearer header, and parsing of the OpenAPI responses. They do not start the Backend.

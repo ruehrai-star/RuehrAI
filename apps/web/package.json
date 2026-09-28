@@ -7,14 +7,17 @@
   },
   "scripts": {
     "postinstall": "node scripts/copy-maplibre-worker.mjs",
-    "dev": "next dev",
+    "dev": "next dev --port 3001",
+    "prebuild": "pnpm --filter @ruehrai/api-contracts build",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3001",
     "lint": "eslint",
+    "pretypecheck": "pnpm --filter @ruehrai/api-contracts build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/api/catalog.test.ts"
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/api/http.test.ts lib/api/geo.test.ts"
   },
   "dependencies": {
+    "@ruehrai/api-contracts": "workspace:*",
     "maplibre-gl": "^6.11.2",
     "next": "16.3.6",
     "react": "19.2.8",

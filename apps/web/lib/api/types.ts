@@ -1,56 +1,23 @@
-import type { FeatureCollection } from "geojson";
+import type { Grain } from "@ruehrai/api-contracts";
+
+export type {
+  Credentials,
+  ErrorResponse,
+  Feature,
+  FeatureCollection,
+  Grain,
+  HealthResponse,
+  SearchHit,
+  SearchResponse,
+  TokenResponse,
+} from "@ruehrai/api-contracts";
 
 /**
- * Browser-side stand-in for the Backend OpenAPI v0 contract.
- * UI code depends only on {@link RuehrApi}. When `packages/api-contracts`
- * publishes a generated client, adapt it inside `createRuehrApi` — do not
- * call fetch from components.
- *
- *   GET  /health
- *   GET  /search?q=
- *   GET  /layers/{id}
- *   POST /auth/login
- *   POST /auth/logout
- */
-
-export type Grain =
-  | "address"
-  | "grid100"
-  | "plz8"
-  | "plz5"
-  | "ags"
-  | "other";
-
-/** One hit from `GET /search`. */
-export interface SearchHit {
-  id: string;
-  label: string;
-  grain: Grain;
-  lon?: number;
-  lat?: number;
-}
-
-export interface SearchResponse {
-  query: string;
-  results: SearchHit[];
-}
-
-export interface HealthResponse {
-  status: "ok" | "degraded";
-}
-
-/** Body for `POST /auth/login`. The backend owns the real session. */
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-/**
- * Unsigned placeholder for a Backend JWT session.
- * `token` is not a credential and must not be sent anywhere except this mock.
+ * Browser session derived from `POST /auth/login` (`TokenResponse`).
+ * The contract has no logout route; clearing this record is local.
  */
 export interface Session {
-  token: string;
+  accessToken: string;
   tokenType: "Bearer";
   expiresAt: string;
   email: string;
@@ -66,21 +33,16 @@ export class ApiError extends Error {
   }
 }
 
-export interface RuehrApi {
-  health(): Promise<HealthResponse>;
-  search(query: string): Promise<SearchResponse>;
-  getLayer(id: string): Promise<FeatureCollection>;
-  login(body: LoginRequest): Promise<Session>;
-  logout(): Promise<void>;
-}
+const GRAINS = new Set<Grain>([
+  "address",
+  "grid100",
+  "plz8",
+  "plz5",
+  "ags",
+  "ags5",
+  "other",
+]);
 
 export function isGrain(value: unknown): value is Grain {
-  return (
-    value === "address" ||
-    value === "grid100" ||
-    value === "plz8" ||
-    value === "plz5" ||
-    value === "ags" ||
-    value === "other"
-  );
+  return typeof value === "string" && GRAINS.has(value as Grain);
 }

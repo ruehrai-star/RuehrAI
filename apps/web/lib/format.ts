@@ -6,6 +6,7 @@ const GRAIN_LABELS: Record<Grain, string> = {
   plz8: "PLZ8",
   plz5: "PLZ",
   ags: "Gemeinde",
+  ags5: "Kreis",
   other: "Sonstiges",
 };
 
@@ -24,6 +25,7 @@ export function zoomForGrain(grain: Grain): number {
     case "plz5":
       return 13;
     case "ags":
+    case "ags5":
       return 11;
     default:
       return 12;

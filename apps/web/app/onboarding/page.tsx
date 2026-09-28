@@ -9,9 +9,9 @@ export default function OnboardingPage() {
   return (
     <PlaceholderPage kicker="Platzhalter" title="Einstieg">
       <p>
-        Die Karte zeigt ein synthetisches 100-m-Gitter. Die Suche findet Adressen, PLZ und
-        Gemeindeschlüssel über den API-Mock. Die fachliche Datenbasis bleibt in{" "}
-        <code>docs/datenbasis</code>.
+        Nach der Anmeldung lädt die Karte die Lage <code>demo-gemeinden</code> vom Backend. Die
+        Suche findet Adressen, PLZ und Gemeindeschlüssel über <code>GET /search</code>. Die
+        fachliche Datenbasis bleibt in <code>docs/datenbasis</code>.
       </p>
     </PlaceholderPage>
   );

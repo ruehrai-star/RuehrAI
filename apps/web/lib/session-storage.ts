@@ -10,7 +10,7 @@ function isSession(value: unknown): value is Session {
   if (!value || typeof value !== "object") return false;
   const session = value as Partial<Session>;
   return (
-    typeof session.token === "string" &&
+    typeof session.accessToken === "string" &&
     session.tokenType === "Bearer" &&
     typeof session.expiresAt === "string" &&
     typeof session.email === "string"

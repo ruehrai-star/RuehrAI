@@ -39,17 +39,17 @@ export function LoginForm() {
   if (session) {
     return (
       <div className="auth-card">
-        <p className="stub-kicker">Platzhalter-Session</p>
+        <p className="stub-kicker">Backend-Session</p>
         <h2>Angemeldet</h2>
         <p className="stub-copy">
           {session.email} · gültig bis {new Date(session.expiresAt).toLocaleString("de-DE")}
         </p>
-        <p className="token" title={session.token}>
-          {session.tokenType} {session.token.slice(0, 28)}…
+        <p className="token" title={session.accessToken}>
+          {session.tokenType} {session.accessToken.slice(0, 28)}…
         </p>
         <p className="hint">
-          Unsigniertes Token der Form <code>header.payload.mock</code>. Das Backend ersetzt es
-          später durch eine echte JWT-Session. Es wird nur in <code>sessionStorage</code> gehalten.
+          JWT aus <code>POST /auth/login</code>. Es liegt nur in <code>sessionStorage</code> und geht
+          mit <code>Authorization: Bearer</code> an Suche und Lagen.
         </p>
         <div className="auth-actions">
           <button type="button" className="button" onClick={() => router.push("/")}>
@@ -68,8 +68,8 @@ export function LoginForm() {
       <p className="stub-kicker">POST /auth/login</p>
       <h2>Beim Backend anmelden</h2>
       <p className="stub-copy">
-        Stub für die Backend-Session. Beliebige E-Mail mit @ und ein nicht leeres Passwort. Es gibt
-        noch keinen echten Auth-Provider.
+        Das Backend stellt das JWT aus. Lokal ist der Seed-Account{" "}
+        <code>dev@ruehrai.local</code> / <code>dev-password</code>. Passwort mindestens 8 Zeichen.
       </p>
       <label htmlFor="login-email">E-Mail</label>
       <input
@@ -86,6 +86,7 @@ export function LoginForm() {
         type="password"
         autoComplete="current-password"
         required
+        minLength={8}
         value={password}
         onChange={(event) => setPassword(event.target.value)}
       />

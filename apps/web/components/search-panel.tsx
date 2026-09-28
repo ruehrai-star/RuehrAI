@@ -1,10 +1,10 @@
 "use client";
 
 import type { FormEvent } from "react";
-import type { HealthResponse, SearchHit } from "@/lib/api";
+import type { SearchHit } from "@/lib/api";
 import { grainLabel } from "@/lib/format";
 
-const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Friedrichshafen"];
+const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
 
 interface SearchPanelProps {
   query: string;
@@ -15,7 +15,7 @@ interface SearchPanelProps {
   selection: SearchHit | null;
   onSelect: (hit: SearchHit) => void;
   onFitLayer: () => void;
-  health: HealthResponse | null;
+  apiStatus: "unknown" | "ok" | "down";
   layerStatus: string;
 }
 
@@ -28,7 +28,7 @@ export function SearchPanel({
   selection,
   onSelect,
   onFitLayer,
-  health,
+  apiStatus,
   layerStatus,
 }: SearchPanelProps) {
   function onSubmit(event: FormEvent) {
@@ -51,8 +51,8 @@ export function SearchPanel({
           aria-controls="search-results"
         />
         <p className="hint">
-          Die Suche spricht den Mock von <code>GET /search</code> an. Ein Treffer fliegt die Karte
-          dorthin.
+          Die Suche ruft <code>GET /search</code> am Backend auf. Ein Treffer fliegt die Karte
+          dorthin. Suche und Lagen brauchen die Anmeldung.
         </p>
         <div className="examples" aria-label="Beispielsuchen">
           {EXAMPLES.map((example) => (
@@ -105,11 +105,11 @@ export function SearchPanel({
 
       <div className="panel-foot">
         <button type="button" className="button button-quiet" onClick={onFitLayer}>
-          Gitter einpassen
+          Lage einpassen
         </button>
         <p className="status-line">
           <span>{layerStatus}</span>
-          <span>{health ? `API ${health.status}` : "API …"}</span>
+          <span>{apiStatus === "ok" ? "API ok" : apiStatus === "down" ? "API nicht erreichbar" : "API …"}</span>
         </p>
       </div>
     </section>
