@@ -81,8 +81,9 @@ export function isMissingRevenue(value: number | null | undefined): boolean {
 export function parseRevenueInput(raw: string): number | null | "invalid" {
   const trimmed = raw.trim().replace(/\s/g, "");
   if (!trimmed) return null;
-  const normalized = trimmed.includes(",") ? trimmed.replace(/\./g, "").replace(",", ".") : trimmed;
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return "invalid";
+  // de-DE: '.' groups thousands (display only); ',' is the decimal separator.
+  if (!/^(?:\d{1,3}(?:\.\d{3})*|\d+)(?:,\d{1,2})?$/.test(trimmed)) return "invalid";
+  const normalized = trimmed.replace(/\./g, "").replace(",", ".");
   const value = Number(normalized);
   return Number.isFinite(value) ? value : "invalid";
 }
