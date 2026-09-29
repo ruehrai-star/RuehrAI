@@ -9,6 +9,10 @@ test("point geometry and null coordinates", () => {
   });
   assert.equal(coordinatesOf({ lon: null, lat: null }), null);
   assert.equal(coordinatesOf({}), null);
+  assert.equal(coordinatesOf({ lon: Number.NaN, lat: 48 }), null);
+  assert.deepEqual(coordinatesOf({ lon: "11.575", lat: " 48.137 " }), { lon: 11.575, lat: 48.137 });
+  assert.equal(coordinatesOf({ lon: "", lat: "48.1" }), null);
+  assert.equal(coordinatesOf({ lon: "nein", lat: "48.1" }), null);
 });
 
 test("polygon centroid ignores the closing vertex", () => {

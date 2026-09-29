@@ -285,7 +285,12 @@ function parseStore(body: StoreLocation): StoreLocation {
   ) {
     throw new ApiError("Antwort von /stores ist ungültig.", 502);
   }
-  return body;
+  const point = coordinatesOf(body);
+  return {
+    ...body,
+    lon: point?.lon ?? null,
+    lat: point?.lat ?? null,
+  };
 }
 
 function parseRevenueSeries(body: MonthlyRevenueSeries): MonthlyRevenuePoint[] {

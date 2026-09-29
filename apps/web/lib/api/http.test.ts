@@ -406,6 +406,60 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
   }
 });
 
+test("GET /stores keeps numeric-string coordinates and does not treat them as missing", async () => {
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        stores: [
+          {
+            id: "1",
+            label: null,
+            street: "Weg 1",
+            postalCode: "80331",
+            city: "München",
+            countryCode: "DE",
+            lon: "11.575",
+            lat: "48.137",
+            createdAt: "2026-09-29T12:00:00.000Z",
+            updatedAt: "2026-09-29T12:00:00.000Z",
+          },
+          {
+            id: "2",
+            label: null,
+            street: "Weg 2",
+            postalCode: "20095",
+            city: "Hamburg",
+            countryCode: "DE",
+            lon: null,
+            lat: null,
+            createdAt: "2026-09-29T12:00:00.000Z",
+            updatedAt: "2026-09-29T12:00:00.000Z",
+          },
+        ],
+      }),
+  });
+
+  const stores = await api.listStores();
+  assert.equal(stores[0]?.lon, 11.575);
+  assert.equal(typeof stores[0]?.lon, "number");
+  assert.equal(stores[0]?.lat, 48.137);
+  assert.equal(stores[1]?.lon, null);
+  const model = buildKarte({
+    stores,
+    region: null,
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.deepEqual(
+    model.pins.map((pin) => pin.id),
+    ["1"],
+  );
+  assert.equal(model.showEmptyAddresses, false);
+  assert.equal(model.coordinateGapLabel, "1 Filialadresse ohne Koordinaten.");
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

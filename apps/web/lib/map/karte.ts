@@ -6,7 +6,9 @@ import { coordinatesOf } from "../api/geo.ts";
  * Map model for the Karte page (KAN-48, KAN-50, KAN-51) on OpenAPI 0.5.0.
  *
  * Pins use `StoreLocation.lon` / `lat` from `GET /stores` (WGS84). The Backend
- * fills a missing pair from the PLZ centroid. Null stays unpinned.
+ * fills a missing pair from the PLZ centroid. A missing pair stays unpinned.
+ * That is a coordinate hint, not the empty state. The empty copy is only for
+ * zero saved addresses.
  *
  * `GET` / `PUT /target-region` returns:
  * - `bounds`: `LonLatBounds` `{ west, south, east, north }` for fitBounds
@@ -136,11 +138,15 @@ export function empfehlungPins(items: Recommendation[]): EmpfehlungPin[] {
   return pins;
 }
 
+/** Addresses exist, but at least one has no usable WGS84 pair. */
 export function coordinateGapLabel(stores: StoreLocation[]): string | null {
   const missing = stores.filter((store) => coordinatesOf(store) === null).length;
   if (missing === 0) return null;
-  if (missing === 1) return "Für 1 Filialadresse liegen keine Koordinaten vor.";
-  return `Für ${missing} Filialadressen liegen keine Koordinaten vor.`;
+  const label = missing === 1 ? "1 Filialadresse ohne Koordinaten" : `${missing} Filialadressen ohne Koordinaten`;
+  const pinned = stores.length - missing;
+  if (pinned > 0) return `${label}.`;
+  const verb = missing === 1 ? "erscheint sie" : "erscheinen sie";
+  return `${label}. Deshalb ${verb} nicht auf der Karte.`;
 }
 
 export function regionOverlay(region: TargetRegion | null): {
