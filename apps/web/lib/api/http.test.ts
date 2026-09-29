@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { buildKarte } from "../map/karte.ts";
 import { apiBaseUrl, createHttpApi, DEFAULT_API_BASE_URL, toMapFeatureCollection } from "./http.ts";
 import { ApiError } from "./types.ts";
 
@@ -313,6 +314,96 @@ test("PUT /target-region and store revenue use the contract paths", async () => 
     "POST http://backend.test/stores",
     "PUT http://backend.test/stores/3/revenue",
   ]);
+});
+
+test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps map geometry", async () => {
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async (input) => {
+      const url = String(input);
+      if (url.endsWith("/stores")) {
+        return jsonResponse({
+          stores: [
+            {
+              id: "1",
+              label: "Marienplatz",
+              street: "Marienplatz 1",
+              postalCode: "80331",
+              city: "München",
+              countryCode: "DE",
+              lon: 11.575,
+              lat: 48.137,
+              createdAt: "2026-09-29T12:00:00.000Z",
+              updatedAt: "2026-09-29T12:00:00.000Z",
+            },
+            {
+              id: "2",
+              label: "Alexanderplatz",
+              street: "Alexanderplatz 1",
+              postalCode: "10178",
+              city: "Berlin",
+              countryCode: "DE",
+              lon: 13.413,
+              lat: 52.522,
+              createdAt: "2026-09-29T12:00:00.000Z",
+              updatedAt: "2026-09-29T12:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/target-region")) {
+        return jsonResponse({
+          label: "München",
+          grain: "ags",
+          geoKey: "09162000",
+          lon: 11.5,
+          lat: 48.1,
+          updatedAt: "2026-09-29T12:00:00.000Z",
+          bounds: { west: 11.3, south: 48.0, east: 11.8, north: 48.3 },
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [11.3, 48.0],
+                [11.8, 48.0],
+                [11.8, 48.3],
+                [11.3, 48.3],
+                [11.3, 48.0],
+              ],
+            ],
+          },
+        });
+      }
+      return jsonResponse({ statusCode: 500, message: url }, 500);
+    },
+  });
+
+  const stores = await api.listStores();
+  assert.equal(stores[0]?.lon, 11.575);
+  assert.equal(stores[0]?.lat, 48.137);
+  assert.equal(stores[1]?.street, "Alexanderplatz 1");
+  const region = await api.getTargetRegion();
+  assert.equal(region?.bounds?.west, 11.3);
+  assert.equal(region?.bounds?.south, 48);
+  assert.equal(region?.bounds?.east, 11.8);
+  assert.equal(region?.bounds?.north, 48.3);
+  assert.equal(region?.geometry?.type, "Polygon");
+  const model = buildKarte({
+    stores,
+    region,
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(model.pins.length, 2);
+  assert.equal(model.pins[0]?.place, "80331 München");
+  assert.equal(model.showLegend, true);
+  assert.equal(model.camera.kind, "bounds");
+  if (model.camera.kind === "bounds") {
+    assert.equal(model.camera.bounds.west, 11.3);
+    assert.equal(model.camera.bounds.east, 13.413);
+    assert.equal(model.camera.bounds.north, 52.522);
+  }
 });
 
 function jsonResponse(body: unknown, status = 200): Response {

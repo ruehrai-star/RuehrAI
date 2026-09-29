@@ -27,6 +27,7 @@ import type {
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
+import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import type { RuehrApi } from "./client";
 import { ApiError, isGrain, type Session } from "./types.ts";
@@ -267,7 +268,11 @@ function parseTargetRegion(body: TargetRegion): TargetRegion {
   if (body.grain != null && !isGrain(body.grain)) {
     throw new ApiError("Antwort von /target-region ist ungültig.", 502);
   }
-  return body;
+  return {
+    ...body,
+    bounds: readContractBounds(body.bounds),
+    geometry: readRegionGeometry(body.geometry),
+  };
 }
 
 function parseStore(body: StoreLocation): StoreLocation {
