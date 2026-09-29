@@ -20,7 +20,7 @@ pnpm start:dev
 
 `pnpm db:migrate` wendet `db/migrations/*.sql` an und merkt sich angewendete Dateien in `app.schema_migrations`. Der Compose-User ist Superuser und darf `CREATE EXTENSION pgcrypto`.
 
-`.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. Darunter steht der STAGE-Embeddings-Block nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings).
+`.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings).
 
 ## Seed-Nutzer
 
@@ -111,16 +111,16 @@ Verbindung: `pg.Pool` (max. 10) mit `DATABASE_URL`. Autorisierung der HTTP-Route
 
 ### STAGE / Embeddings
 
-CTO-Entscheidung 2026-09-29: STAGE nutzt lokale LLM- und Embedding-Modelle auf Fuchs oMLX. OpenAI ist für Embeddings verboten.
+CTO-Korrektur 2026-09-29: STAGE läuft auf Eule (`168.192.2.194`) mit lokalem oMLX. Die Embeddings- und LLM-Basis-URL von STAGE/Eule ist `http://localhost:8000/v1`. Fuchs (`168.192.2.123`) bleibt PROD/remote oMLX. OpenAI ist für Embeddings verboten.
 
 | Angabe | Wert |
 | --- | --- |
-| Auf Fuchs | `http://localhost:8000/v1` |
-| Von Eule (Mesh) | `http://168.192.2.123:8000/v1` |
+| STAGE (Eule `168.192.2.194`) | `EMBEDDINGS_BASE_URL=http://localhost:8000/v1` |
+| PROD / remote Fuchs (`168.192.2.123`) | `EMBEDDINGS_BASE_URL=http://168.192.2.123:8000/v1` (localhost, wenn der Prozess auf Fuchs läuft) |
 | Modell | `rg113/jina-embeddings-v5-text-small-retrieval-mlx-oQ8` |
 | Vektor-Dimension | `1024` |
 
-Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL` und `EMBEDDING_DIM`. Von Eule zeigt `EMBEDDINGS_BASE_URL` auf `http://168.192.2.123:8000/v1`; auf Fuchs selbst auf `http://localhost:8000/v1`.
+Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL` und `EMBEDDING_DIM`.
 
 Das Backend ruft diesen Endpoint nicht auf. Schreibseitige Embeddings gehören Brain und Data-Engineer. `GET /search` bleibt ein SQL-Filter auf `features.v_location_search` (ohne Zeilen in der View: `app.search_places`). Es gibt keinen OpenAI-Client in diesem Service.
 
