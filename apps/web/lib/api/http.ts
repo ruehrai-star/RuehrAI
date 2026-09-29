@@ -1,12 +1,19 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import type {
+  AnalysisBrain,
+  AnalysisInput,
+  AnalysisPattern,
+  AnalysisPatternResponse,
+  AnalysisRun,
   Credentials,
+  CriterionDirection,
   ErrorResponse,
   FeatureCollection as ContractFeatureCollection,
   HealthResponse,
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
+  RevenueDirection,
   SearchHit,
   SearchResponse,
   StoreList,
@@ -182,6 +189,29 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       });
       return parseRevenueSeries(body);
     },
+
+    async getAnalysisInput(): Promise<AnalysisInput> {
+      const body = await request<AnalysisInput>("/analysis/input", { auth: true });
+      return parseAnalysisInput(body);
+    },
+
+    async createAnalysisRun(): Promise<AnalysisRun> {
+      const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
+      return parseAnalysisRun(body);
+    },
+
+    async getAnalysisRun(id: string): Promise<AnalysisRun> {
+      const body = await request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { auth: true });
+      return parseAnalysisRun(body);
+    },
+
+    async getAnalysisPattern(): Promise<AnalysisPatternResponse | null> {
+      const body = await request<AnalysisPatternResponse | null>("/analysis/pattern", {
+        auth: true,
+        nullOn404: true,
+      });
+      return body ? parseAnalysisPatternResponse(body) : null;
+    },
   };
 }
 
@@ -309,6 +339,115 @@ function parseHits(body: SearchResponse): SearchHit[] {
       lat: coords?.lat ?? null,
     };
   });
+}
+
+const REVENUE_DIRECTIONS = new Set<RevenueDirection>(["up", "down", "flat"]);
+const CRITERION_DIRECTIONS = new Set<CriterionDirection>(["up", "down", "flat", "unknown"]);
+const BRAIN_MODES = new Set<AnalysisBrain["mode"]>(["vector", "sql"]);
+const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason"]>>([
+  "embeddings_disabled",
+  "embeddings_unconfigured",
+  "embeddings_unreachable",
+  "embeddings_rejected",
+  "vector_query_failed",
+  "no_embeddings_in_region",
+  "features_unavailable",
+]);
+const PATTERN_SOURCES = new Set<AnalysisPattern["source"]>(["llm", "heuristic"]);
+
+function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"): AnalysisInput {
+  if (
+    !body ||
+    !body.region ||
+    typeof body.region.label !== "string" ||
+    typeof body.region.updatedAt !== "string" ||
+    !Array.isArray(body.stores) ||
+    !isRevenueDirection(body.revenueDirection) ||
+    typeof body.capturedAt !== "string"
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const store of body.stores) {
+    if (
+      !store ||
+      typeof store.id !== "string" ||
+      typeof store.street !== "string" ||
+      typeof store.postalCode !== "string" ||
+      typeof store.city !== "string" ||
+      !Array.isArray(store.points) ||
+      !Array.isArray(store.changes)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const point of store.points) {
+      if (
+        !point ||
+        typeof point.year !== "number" ||
+        typeof point.month !== "number" ||
+        !(point.revenueEur === null || typeof point.revenueEur === "number")
+      ) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
+  return body;
+}
+
+function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
+  const route = "/analysis/runs";
+  if (!body || typeof body.id !== "string" || body.status !== "completed" || typeof body.createdAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseAnalysisInput(body.input, route);
+  parseAnalysisBrain(body.brain, route);
+  parseAnalysisPattern(body.pattern, route);
+  return body;
+}
+
+function parseAnalysisBrain(body: AnalysisBrain, route: string): AnalysisBrain {
+  if (!body || !BRAIN_MODES.has(body.mode) || typeof body.factCount !== "number" || !Array.isArray(body.facts)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.vectorUnavailableReason != null && !BRAIN_REASONS.has(body.vectorUnavailableReason)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  return body;
+}
+
+function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPattern {
+  if (
+    !body ||
+    !PATTERN_SOURCES.has(body.source) ||
+    typeof body.summary !== "string" ||
+    !isRevenueDirection(body.revenueDirection) ||
+    !Array.isArray(body.criteria)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const criterion of body.criteria) {
+    if (
+      !criterion ||
+      typeof criterion.key !== "string" ||
+      typeof criterion.label !== "string" ||
+      typeof criterion.evidence !== "string" ||
+      !CRITERION_DIRECTIONS.has(criterion.direction)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+  }
+  return body;
+}
+
+function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPatternResponse {
+  if (!body || typeof body.runId !== "string" || typeof body.createdAt !== "string") {
+    throw new ApiError("Antwort von GET /analysis/pattern ist ungültig.", 502);
+  }
+  parseAnalysisPattern(body.pattern, "GET /analysis/pattern");
+  return body;
+}
+
+function isRevenueDirection(value: unknown): value is RevenueDirection {
+  return typeof value === "string" && REVENUE_DIRECTIONS.has(value as RevenueDirection);
 }
 
 function parseLayer(body: ContractFeatureCollection): ContractFeatureCollection {

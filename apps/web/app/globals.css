@@ -524,6 +524,32 @@ input {
   font-size: 18px;
 }
 
+.summary-caption {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.summary-line {
+  margin: 0;
+  font-size: 18px;
+}
+
+.criterion-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.criterion {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
 .stack {
   display: flex;
   flex-direction: column;

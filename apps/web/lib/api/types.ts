@@ -1,7 +1,13 @@
 import type { Grain } from "@ruehrai/api-contracts";
 
 export type {
+  AnalysisBrain,
+  AnalysisInput,
+  AnalysisPattern,
+  AnalysisPatternResponse,
+  AnalysisRun,
   Credentials,
+  CriterionDirection,
   ErrorResponse,
   Feature,
   FeatureCollection,
@@ -9,6 +15,8 @@ export type {
   HealthResponse,
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
+  PatternCriterion,
+  RevenueDirection,
   SearchHit,
   SearchResponse,
   StoreLocation,

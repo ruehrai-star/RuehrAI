@@ -23,12 +23,20 @@ export function getApi(): RuehrApi {
 
 export type { RuehrApi } from "./client";
 export type {
+  AnalysisBrain,
+  AnalysisInput,
+  AnalysisPattern,
+  AnalysisPatternResponse,
+  AnalysisRun,
   Credentials,
+  CriterionDirection,
   FeatureCollection,
   Grain,
   HealthResponse,
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
+  PatternCriterion,
+  RevenueDirection,
   SearchHit,
   SearchResponse,
   Session,
