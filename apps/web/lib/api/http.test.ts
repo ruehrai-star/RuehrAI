@@ -1,19 +1,64 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { apiBaseUrl, createHttpApi, DEFAULT_API_BASE_URL, toMapFeatureCollection } from "./http.ts";
 import { ApiError } from "./types.ts";
 
+function withPublicApiBase<T>(value: string | undefined, run: () => T): T {
+  const key = "NEXT_PUBLIC_API_BASE_URL";
+  const previous = process.env[key];
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+}
+
 test("api base URL defaults to the Backend local port and strips a trailing slash", () => {
-  assert.equal(apiBaseUrl({} as NodeJS.ProcessEnv), DEFAULT_API_BASE_URL);
-  assert.equal(
-    apiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "http://localhost:3000/" } as NodeJS.ProcessEnv),
-    "http://localhost:3000",
+  withPublicApiBase(undefined, () => {
+    assert.equal(apiBaseUrl(), DEFAULT_API_BASE_URL);
+  });
+  withPublicApiBase("http://localhost:3000/", () => {
+    assert.equal(apiBaseUrl(), "http://localhost:3000");
+  });
+});
+
+test("NEXT_PUBLIC_API_BASE_URL is read as a static process.env member", () => {
+  const source = readFileSync(new URL("./http.ts", import.meta.url), "utf8");
+  const start = source.indexOf("export function apiBaseUrl");
+  const end = source.indexOf("export function createHttpApi");
+  assert.ok(start >= 0 && end > start);
+  const fn = source.slice(start, end);
+  assert.match(fn, /export function apiBaseUrl\(\): string/);
+  assert.match(fn, /process\.env\.NEXT_PUBLIC_API_BASE_URL/);
+  const withoutStaticAccess = fn.replaceAll("process.env.NEXT_PUBLIC_API_BASE_URL", "");
+  assert.equal(withoutStaticAccess.includes("NEXT_PUBLIC_API_BASE_URL"), false);
+});
+
+test("createHttpApi uses the public base when no baseUrl is passed", async () => {
+  const seen: string[] = [];
+  const api = withPublicApiBase("/api", () =>
+    createHttpApi({
+      fetch: async (input) => {
+        seen.push(String(input));
+        return jsonResponse({ status: "ok" });
+      },
+    }),
   );
+  await api.health();
+  assert.equal(seen[0], "/api/health");
 });
 
 test("a same-origin STAGE base stays a relative /api path", async () => {
-  assert.equal(apiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "/api/" } as NodeJS.ProcessEnv), "/api");
-  assert.equal(apiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "" } as NodeJS.ProcessEnv), "");
+  withPublicApiBase("/api/", () => {
+    assert.equal(apiBaseUrl(), "/api");
+  });
+  withPublicApiBase("", () => {
+    assert.equal(apiBaseUrl(), "");
+  });
   const seen: string[] = [];
   const api = createHttpApi({
     baseUrl: "/api",
