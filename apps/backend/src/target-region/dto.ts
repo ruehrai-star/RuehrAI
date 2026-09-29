@@ -1,5 +1,6 @@
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
+  Allow,
   IsIn,
   IsNumber,
   IsOptional,
@@ -9,6 +10,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from "class-validator";
 
 export const GRAINS = [
@@ -72,4 +74,36 @@ export class TargetRegionWriteDto {
   @Min(-90)
   @Max(90)
   lat?: number | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LonLatBoundsDto)
+  bounds?: LonLatBoundsDto | null;
+
+  /** GeoJSON Polygon or MultiPolygon. Validated in the service. */
+  @IsOptional()
+  @Allow()
+  geometry?: unknown;
+}
+
+export class LonLatBoundsDto {
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  west!: number;
+
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  south!: number;
+
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  east!: number;
+
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  north!: number;
 }

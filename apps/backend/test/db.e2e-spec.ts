@@ -207,7 +207,11 @@ async function dropFeaturesFixture(): Promise<void> {
       grain: "ags",
       geoKey: "09162000",
       ags: "09162000",
+      bounds: { west: 11.36, south: 48.06, east: 11.72, north: 48.25 },
     });
+    expect(region.body.geometry).toMatchObject({ type: "Polygon" });
+    expect(region.body.lon).toBeCloseTo(11.5755);
+    expect(region.body.lat).toBeCloseTo(48.1374);
     await request(server).get("/target-region").set(other).expect(404);
 
     const created = await request(server)
@@ -228,6 +232,8 @@ async function dropFeaturesFixture(): Promise<void> {
       countryCode: "DE",
       label: "Filiale Marienplatz",
     });
+    expect(created.body.lon).toBeCloseTo(11.576);
+    expect(created.body.lat).toBeCloseTo(48.137);
 
     const listed = await request(server).get("/stores").set(owner).expect(200);
     expect(listed.body.stores.map((store: { id: string }) => store.id)).toContain(storeId);

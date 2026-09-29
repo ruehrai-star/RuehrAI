@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.4 covers health, auth, search, layers, customer inputs, analysis, and recommendations", () => {
+test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recommendations, and map geometry", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.4.0");
+  assert.equal(doc.info.version, "0.5.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -76,6 +76,24 @@ test("v0.4 covers health, auth, search, layers, customer inputs, analysis, and r
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("llm"), true);
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("vector"), true);
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("sql"), true);
+
+  const region = doc.components.schemas.TargetRegion;
+  assert.deepEqual(
+    ["label", "bounds", "geometry", "updatedAt"].every((name) => region.required.includes(name)),
+    true,
+  );
+  assert.equal(region.properties.bounds.nullable, true);
+  assert.equal(region.properties.geometry.nullable, true);
+  assert.equal(region.properties.lon.description.includes("WGS84"), true);
+  assert.deepEqual(doc.components.schemas.LonLatBounds.required, ["west", "south", "east", "north"]);
+  assert.deepEqual(doc.components.schemas.RegionGeometry.properties.type.enum, [
+    "Polygon",
+    "MultiPolygon",
+  ]);
+  assert.equal(doc.components.schemas.StoreLocation.properties.lon.nullable, true);
+  assert.equal(doc.components.schemas.StoreLocation.properties.lon.description.includes("WGS84"), true);
+  assert.equal(doc.components.schemas.StoreLocationWrite.properties.lat.description.includes("WGS84"), true);
+  assert.equal(doc.components.schemas.TargetRegionWrite.properties.geometry.nullable, true);
 });
 
 test("the contract does not mention Supabase", () => {

@@ -12,6 +12,7 @@ import {
   toRevenue,
   toRevenueParam,
 } from "../customer/values";
+import { PlaceCatalogService } from "../geo/place-catalog.service";
 import { MonthlyRevenueWriteDto, StoreLocationWriteDto } from "./dto";
 
 /** Product window for monthly figures: up to three years. */
@@ -76,7 +77,10 @@ const STORE_COLUMNS = `
 
 @Injectable()
 export class StoresService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly catalog: PlaceCatalogService,
+  ) {}
 
   async list(userId: string): Promise<{ stores: StoreLocation[] }> {
     const result = await this.db.query<StoreRow>(
@@ -86,17 +90,20 @@ export class StoresService {
        ORDER BY created_at ASC, id ASC`,
       [userId],
     );
-    return { stores: result.rows.map(toStore) };
+    const stores = result.rows.map(toStore);
+    await this.fillMissingCoords(stores);
+    return { stores };
   }
 
   async get(userId: string, storeId: string): Promise<StoreLocation> {
     const store = await this.findOwned(this.db.query.bind(this.db), userId, storeId);
     if (!store) throw new NotFoundException("Store not found");
+    await this.fillMissingCoords([store]);
     return store;
   }
 
   async create(userId: string, dto: StoreLocationWriteDto): Promise<StoreLocation> {
-    const values = writeValues(dto);
+    const values = await this.writeValues(dto);
     const result = await this.db.query<StoreRow>(
       `INSERT INTO app.store_locations (
          user_id, label, street, postal_code, city, country_code, lon, lat
@@ -115,7 +122,7 @@ export class StoresService {
     storeId: string,
     dto: StoreLocationWriteDto,
   ): Promise<StoreLocation> {
-    const values = writeValues(dto);
+    const values = await this.writeValues(dto);
     const result = await this.db.query<StoreRow>(
       `UPDATE app.store_locations
        SET label = $3,
@@ -227,6 +234,47 @@ export class StoresService {
     return row ? toStore(row) : undefined;
   }
 
+  private async writeValues(dto: StoreLocationWriteDto): Promise<unknown[]> {
+    const coords = await this.resolveCoords(dto);
+    return [
+      emptyToNull(dto.label),
+      dto.street.trim(),
+      dto.postalCode.trim(),
+      dto.city.trim(),
+      dto.countryCode ?? "DE",
+      coords.lon,
+      coords.lat,
+    ];
+  }
+
+  /** Explicit WGS84 pair is kept. Otherwise the PLZ centroid from the local catalog. */
+  private async resolveCoords(
+    dto: StoreLocationWriteDto,
+  ): Promise<{ lon: number | null; lat: number | null }> {
+    const coords = normalizeCoordPair(dto.lon, dto.lat);
+    if (coords.lon !== null && coords.lat !== null) return coords;
+    const postalCode = dto.postalCode.trim();
+    const found = await this.catalog.plzCentroids([postalCode]);
+    return found.get(postalCode) ?? coords;
+  }
+
+  private async fillMissingCoords(stores: StoreLocation[]): Promise<void> {
+    const missing = [
+      ...new Set(
+        stores.filter((store) => store.lon === null || store.lat === null).map((store) => store.postalCode),
+      ),
+    ];
+    if (missing.length === 0) return;
+    const found = await this.catalog.plzCentroids(missing);
+    for (const store of stores) {
+      if (store.lon !== null && store.lat !== null) continue;
+      const point = found.get(store.postalCode);
+      if (!point) continue;
+      store.lon = point.lon;
+      store.lat = point.lat;
+    }
+  }
+
   private async readPoints(query: SqlQuery, storeId: string): Promise<MonthlyRevenuePoint[]> {
     const result = await query<RevenueRow>(
       `SELECT year, month, revenue_eur::text AS revenue_eur, updated_at
@@ -242,19 +290,6 @@ export class StoresService {
       updatedAt: toIso(row.updated_at),
     }));
   }
-}
-
-function writeValues(dto: StoreLocationWriteDto): unknown[] {
-  const coords = normalizeCoordPair(dto.lon, dto.lat);
-  return [
-    emptyToNull(dto.label),
-    dto.street.trim(),
-    dto.postalCode.trim(),
-    dto.city.trim(),
-    dto.countryCode ?? "DE",
-    coords.lon,
-    coords.lat,
-  ];
 }
 
 function assertUniqueMonths(points: { year: number; month: number }[]): void {
