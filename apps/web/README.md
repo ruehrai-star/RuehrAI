@@ -30,7 +30,8 @@ Open http://localhost:3001.
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. `GET` returns 404 until one is saved. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |
-| Musteranalyse | `/musteranalyse` | `GET /analysis/input`, `POST /analysis/runs`, `GET /analysis/runs/{id}`, `GET /analysis/pattern`. The page shows the input summary, Brain-Suche status (`vector` or SQL filter), and the derived pattern (Kurzfassung). It does not call oMLX. The contract also has `/recommendations`; this UI does not call those routes. |
+| Musteranalyse | `/musteranalyse` | `GET /analysis/input`, `POST /analysis/runs`, `GET /analysis/runs/{id}`, `GET /analysis/pattern`. The page shows the input summary, Brain-Suche status (`vector` or SQL filter), and the derived pattern (Kurzfassung). After a pattern exists, **Empfehlungen** opens the Top-3 page. It does not call oMLX. |
+| Empfehlungen | `/empfehlungen` | `GET /recommendations`, `POST /recommendations`. Shows **Top 3 in Ihrer Zielregion**, the pattern's Kurzkriterien, and cards with Rang, Adresse, Begründung, and Details. Fewer than three matches show the thin-region hint plus the Backend `reason`. |
 
 These calls use [`@ruehrai/api-contracts`](../../packages/api-contracts/README.md) from this repo. There is no client fixture and no separate copy of the OpenAPI document. A missing Backend shows an error, not Demo-Daten.
 

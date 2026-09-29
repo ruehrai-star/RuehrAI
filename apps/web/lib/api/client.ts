@@ -3,6 +3,8 @@ import type {
   AnalysisPatternResponse,
   AnalysisRun,
   Credentials,
+  RecommendationCreate,
+  RecommendationSet,
   FeatureCollection,
   HealthResponse,
   MonthlyRevenuePoint,
@@ -20,7 +22,8 @@ import type { Session } from "./types";
  * `getHealth`, `searchPlaces`, `getLayer`, `login`, `register`, `logout`,
  * `getTargetRegion`, `putTargetRegion`, `listStores`, `createStore`,
  * `updateStore`, `deleteStore`, `listStoreRevenue`, `putStoreRevenue`,
- * `getAnalysisInput`, `createAnalysisRun`, `getAnalysisRun`, `getAnalysisPattern`.
+ * `getAnalysisInput`, `createAnalysisRun`, `getAnalysisRun`, `getAnalysisPattern`,
+ * `getRecommendations`, `createRecommendations`.
  */
 export interface RuehrApi {
   health(): Promise<HealthResponse>;
@@ -41,4 +44,6 @@ export interface RuehrApi {
   createAnalysisRun(): Promise<AnalysisRun>;
   getAnalysisRun(id: string): Promise<AnalysisRun>;
   getAnalysisPattern(): Promise<AnalysisPatternResponse | null>;
+  getRecommendations(): Promise<RecommendationSet | null>;
+  createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet>;
 }

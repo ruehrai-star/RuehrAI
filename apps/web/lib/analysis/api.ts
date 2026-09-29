@@ -3,8 +3,7 @@ import type { RuehrApi } from "../api/client.ts";
 
 /**
  * Musteranalyse through `RuehrApi` / `@ruehrai/api-contracts`.
- * The browser calls only the Backend analysis routes. It does not call
- * `/recommendations` or oMLX.
+ * The browser calls only the Backend analysis routes. It does not call oMLX.
  */
 export function getAnalysisApi(): RuehrApi {
   return getApi();

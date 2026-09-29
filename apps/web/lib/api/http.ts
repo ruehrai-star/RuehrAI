@@ -13,6 +13,10 @@ import type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
+  Recommendation,
+  RecommendationCreate,
+  RecommendationEvidence,
+  RecommendationSet,
   RevenueDirection,
   SearchHit,
   SearchResponse,
@@ -211,6 +215,23 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
         nullOn404: true,
       });
       return body ? parseAnalysisPatternResponse(body) : null;
+    },
+
+    async getRecommendations(): Promise<RecommendationSet | null> {
+      const body = await request<RecommendationSet | null>("/recommendations", {
+        auth: true,
+        nullOn404: true,
+      });
+      return body ? parseRecommendationSet(body) : null;
+    },
+
+    async createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet> {
+      const created = await request<RecommendationSet>("/recommendations", {
+        method: "POST",
+        auth: true,
+        body: body?.runId ? JSON.stringify({ runId: body.runId }) : undefined,
+      });
+      return parseRecommendationSet(created);
     },
   };
 }
@@ -444,6 +465,73 @@ function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPa
   }
   parseAnalysisPattern(body.pattern, "GET /analysis/pattern");
   return body;
+}
+
+const MONTH_STAMP = /^[0-9]{4}-[0-9]{2}$/;
+
+function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
+  const route = "/recommendations";
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.runId !== "string" ||
+    typeof body.createdAt !== "string" ||
+    !body.window ||
+    !MONTH_STAMP.test(body.window.from) ||
+    !MONTH_STAMP.test(body.window.to) ||
+    typeof body.count !== "number" ||
+    !(body.reason === null || typeof body.reason === "string") ||
+    !Array.isArray(body.items) ||
+    body.items.length > 3 ||
+    body.count !== body.items.length
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseAnalysisPattern(body.pattern, route);
+  body.items.forEach((item) => parseRecommendation(item, route));
+  return body;
+}
+
+function parseRecommendation(body: Recommendation, route: string): Recommendation {
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.rank !== "number" ||
+    body.rank < 1 ||
+    body.rank > 3 ||
+    typeof body.title !== "string" ||
+    typeof body.score !== "number" ||
+    typeof body.rationale !== "string" ||
+    !PATTERN_SOURCES.has(body.source) ||
+    !Array.isArray(body.criteriaEvidence) ||
+    !body.location ||
+    typeof body.location.geoKey !== "string" ||
+    !isGrain(body.location.grain) ||
+    !isNullableNumber(body.location.lon) ||
+    !isNullableNumber(body.location.lat) ||
+    !(body.location.name === null || typeof body.location.name === "string")
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
+  return body;
+}
+
+function parseRecommendationEvidence(body: RecommendationEvidence, route: string): void {
+  if (
+    !body ||
+    typeof body.key !== "string" ||
+    typeof body.label !== "string" ||
+    typeof body.evidence !== "string" ||
+    !CRITERION_DIRECTIONS.has(body.direction) ||
+    !CRITERION_DIRECTIONS.has(body.patternDirection)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || typeof value === "number";
 }
 
 function isRevenueDirection(value: unknown): value is RevenueDirection {
