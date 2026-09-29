@@ -22,6 +22,8 @@ function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
     plz: null,
     lon: null,
     lat: null,
+    bounds: null,
+    geometry: null,
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };

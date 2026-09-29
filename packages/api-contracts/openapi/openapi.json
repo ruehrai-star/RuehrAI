@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.4.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location. Clients call only this API.\n"
+    "version": "0.5.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. When a store write omits both, they are filled\nfrom the PLZ centroid in `app.search_places` (or a matching Point in\n`app.map_features`). Target-region `bounds` (west, south, east, north) is\nthe extent for map fitBounds together with those pins. `geometry` is a\nGeoJSON Polygon or MultiPolygon (EPSG:4326, longitude then latitude) for a\nsemi-transparent fill and outline. Labels stay client-side. Clients call\nonly this API.\n"
   },
   "servers": [
     {
@@ -258,7 +258,7 @@
         ],
         "operationId": "putTargetRegion",
         "summary": "Create or replace the target region",
-        "description": "Upserts the single region for the token's user. Omitted geo fields are\nstored as null, including fields set by a previous save.\n",
+        "description": "Upserts the single region for the token's user. Omitted scalar geo\nfields are stored as null, including fields set by a previous save.\n\n`bounds` and `geometry` are filled when the body omits them. A GeoJSON\nPolygon or MultiPolygon on the request is stored, and `bounds`\n(west, south, east, north) are derived from its coordinates. `bounds`\nwithout geometry become a rectangular Polygon. Otherwise the API copies\na Polygon or MultiPolygon from `app.map_features` for the ags, plz, or\ngeoKey, or builds a stub rectangle around the catalog point in\n`app.search_places` or a Point feature. Those outlines are the same\nsynthetic stubs as `/layers/{id}`, not official boundaries.\n\n`lon` and `lat` stay as sent when both are set. A polygon sent by the\nclient uses its centroid when the pair is omitted. A catalog outline\nuses the catalog point when one exists, otherwise the geometry centroid.\nWeb fits the map to store pins union `bounds`, and draws `geometry` as\na semi-transparent fill with an outline. Labels are client-side.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -342,7 +342,7 @@
         ],
         "operationId": "createStore",
         "summary": "Add a store address",
-        "description": "German address (`postalCode` is PLZ5, `countryCode` is `DE`).\n`street` includes the house number.\n",
+        "description": "German address (`postalCode` is PLZ5, `countryCode` is `DE`).\n`street` includes the house number. `lon` and `lat` are WGS84\n(EPSG:4326) for the map pin. Send both or neither. When both are\nomitted, the API sets them to the PLZ centroid from `app.search_places`\n(seed or loaded catalog), then a Point in `app.map_features` with that\nPLZ. They stay null only when that postal code has no catalog point.\nNo external geocoder is called. The same fill runs on update and on\nread when a stored row still has no coordinates.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -427,6 +427,7 @@
         ],
         "operationId": "updateStore",
         "summary": "Replace a store address",
+        "description": "Same coordinate rule as create: omit `lon` and `lat` together to fill\nthe PLZ centroid, or send both to keep an explicit WGS84 pin.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -1463,11 +1464,71 @@
           }
         }
       },
+      "LonLatBounds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "west",
+          "south",
+          "east",
+          "north"
+        ],
+        "description": "Axis-aligned WGS84 extent for map fitBounds. `west` and `east` are\nlongitudes, `south` and `north` are latitudes. Clients union this box\nwith store pin coordinates.\n",
+        "properties": {
+          "west": {
+            "type": "number",
+            "format": "double",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "south": {
+            "type": "number",
+            "format": "double",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "east": {
+            "type": "number",
+            "format": "double",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "north": {
+            "type": "number",
+            "format": "double",
+            "minimum": -90,
+            "maximum": 90
+          }
+        }
+      },
+      "RegionGeometry": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "description": "GeoJSON Polygon or MultiPolygon for the target-region overlay\n(semi-transparent fill and outline). Position order is longitude,\nlatitude (EPSG:4326). Rings are closed. This slice uses the same\nsynthetic stubs as `/layers/{id}` when the client does not send one.\n",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Polygon",
+              "MultiPolygon"
+            ]
+          },
+          "coordinates": {
+            "description": "GeoJSON coordinates for the declared type."
+          }
+        }
+      },
       "TargetRegion": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "label",
+          "bounds",
+          "geometry",
           "updatedAt"
         ],
         "properties": {
@@ -1510,14 +1571,34 @@
             "format": "double",
             "nullable": true,
             "minimum": -180,
-            "maximum": 180
+            "maximum": 180,
+            "description": "WGS84 longitude of a representative point. Null when unknown."
           },
           "lat": {
             "type": "number",
             "format": "double",
             "nullable": true,
             "minimum": -90,
-            "maximum": 90
+            "maximum": 90,
+            "description": "WGS84 latitude of a representative point. Null when unknown."
+          },
+          "bounds": {
+            "nullable": true,
+            "description": "Extent of `geometry` for map fitBounds. Null when the region has\nno outline and no catalog point.\n",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LonLatBounds"
+              }
+            ]
+          },
+          "geometry": {
+            "nullable": true,
+            "description": "Overlay polygon. Null when the region has no outline and no catalog point.\n",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RegionGeometry"
+              }
+            ]
           },
           "updatedAt": {
             "type": "string",
@@ -1578,6 +1659,24 @@
             "nullable": true,
             "minimum": -90,
             "maximum": 90
+          },
+          "bounds": {
+            "nullable": true,
+            "description": "Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.\nIgnored when `geometry` is set, because bounds are then derived from it.\n",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LonLatBounds"
+              }
+            ]
+          },
+          "geometry": {
+            "nullable": true,
+            "description": "Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is\nthe overlay and replaces any catalog outline.\n",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RegionGeometry"
+              }
+            ]
           }
         }
       },
@@ -1631,14 +1730,16 @@
             "format": "double",
             "nullable": true,
             "minimum": -180,
-            "maximum": 180
+            "maximum": 180,
+            "description": "WGS84 longitude for the map pin. Filled from the PLZ centroid when\na write omits both coordinates and the catalog has that postal code.\n"
           },
           "lat": {
             "type": "number",
             "format": "double",
             "nullable": true,
             "minimum": -90,
-            "maximum": 90
+            "maximum": 90,
+            "description": "WGS84 latitude for the map pin. Filled from the PLZ centroid when\na write omits both coordinates and the catalog has that postal code.\n"
           },
           "createdAt": {
             "type": "string",
@@ -1690,14 +1791,16 @@
             "format": "double",
             "nullable": true,
             "minimum": -180,
-            "maximum": 180
+            "maximum": 180,
+            "description": "WGS84 longitude. Omit together with `lat` to fill from the PLZ centroid."
           },
           "lat": {
             "type": "number",
             "format": "double",
             "nullable": true,
             "minimum": -90,
-            "maximum": 90
+            "maximum": 90,
+            "description": "WGS84 latitude. Omit together with `lon` to fill from the PLZ centroid."
           }
         }
       },

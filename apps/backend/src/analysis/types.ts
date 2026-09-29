@@ -1,3 +1,4 @@
+import { LonLatBounds, RegionGeometry } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 
 export type RevenueDirection = "up" | "down" | "flat";
@@ -50,6 +51,8 @@ export interface AnalysisRegion {
   plz: string | null;
   lon: number | null;
   lat: number | null;
+  bounds: LonLatBounds | null;
+  geometry: RegionGeometry | null;
   updatedAt: string;
 }
 

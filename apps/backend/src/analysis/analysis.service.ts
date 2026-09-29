@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { toCoord, toIso, toRevenue } from "../customer/values";
+import { boundsFromRow, geometryFromUnknown } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 import { BrainSearchService } from "./brain-search.service";
 import {
@@ -34,6 +35,11 @@ interface RegionRow {
   plz: string | null;
   lon: number | string | null;
   lat: number | string | null;
+  bounds_west?: number | string | null;
+  bounds_south?: number | string | null;
+  bounds_east?: number | string | null;
+  bounds_north?: number | string | null;
+  geometry?: unknown;
   updated_at: Date | string;
 }
 
@@ -132,7 +138,8 @@ export class AnalysisService {
 
   private async loadInput(userId: string): Promise<AnalysisInput> {
     const regionResult = await this.db.query<RegionRow>(
-      `SELECT label, grain, geo_key, ags, plz, lon, lat, updated_at
+      `SELECT label, grain, geo_key, ags, plz, lon, lat,
+              bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at
        FROM app.target_regions
        WHERE user_id = $1::bigint`,
       [userId],
@@ -213,6 +220,8 @@ function toRegion(row: RegionRow): AnalysisRegion {
     plz: row.plz,
     lon: toCoord(row.lon),
     lat: toCoord(row.lat),
+    bounds: boundsFromRow(row),
+    geometry: geometryFromUnknown(row.geometry),
     updatedAt: toIso(row.updated_at),
   };
 }

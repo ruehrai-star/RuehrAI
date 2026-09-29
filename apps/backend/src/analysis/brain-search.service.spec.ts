@@ -25,6 +25,8 @@ function input(): AnalysisInput {
       plz: "80331",
       lon: 11.5,
       lat: 48.1,
+      bounds: null,
+      geometry: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
     stores: [

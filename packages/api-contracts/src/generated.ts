@@ -126,8 +126,23 @@ export interface paths {
         get: operations["getTargetRegion"];
         /**
          * Create or replace the target region
-         * @description Upserts the single region for the token's user. Omitted geo fields are
-         *     stored as null, including fields set by a previous save.
+         * @description Upserts the single region for the token's user. Omitted scalar geo
+         *     fields are stored as null, including fields set by a previous save.
+         *
+         *     `bounds` and `geometry` are filled when the body omits them. A GeoJSON
+         *     Polygon or MultiPolygon on the request is stored, and `bounds`
+         *     (west, south, east, north) are derived from its coordinates. `bounds`
+         *     without geometry become a rectangular Polygon. Otherwise the API copies
+         *     a Polygon or MultiPolygon from `app.map_features` for the ags, plz, or
+         *     geoKey, or builds a stub rectangle around the catalog point in
+         *     `app.search_places` or a Point feature. Those outlines are the same
+         *     synthetic stubs as `/layers/{id}`, not official boundaries.
+         *
+         *     `lon` and `lat` stay as sent when both are set. A polygon sent by the
+         *     client uses its centroid when the pair is omitted. A catalog outline
+         *     uses the catalog point when one exists, otherwise the geometry centroid.
+         *     Web fits the map to store pins union `bounds`, and draws `geometry` as
+         *     a semi-transparent fill with an outline. Labels are client-side.
          */
         put: operations["putTargetRegion"];
         post?: never;
@@ -154,7 +169,13 @@ export interface paths {
         /**
          * Add a store address
          * @description German address (`postalCode` is PLZ5, `countryCode` is `DE`).
-         *     `street` includes the house number.
+         *     `street` includes the house number. `lon` and `lat` are WGS84
+         *     (EPSG:4326) for the map pin. Send both or neither. When both are
+         *     omitted, the API sets them to the PLZ centroid from `app.search_places`
+         *     (seed or loaded catalog), then a Point in `app.map_features` with that
+         *     PLZ. They stay null only when that postal code has no catalog point.
+         *     No external geocoder is called. The same fill runs on update and on
+         *     read when a stored row still has no coordinates.
          */
         post: operations["createStore"];
         delete?: never;
@@ -178,7 +199,11 @@ export interface paths {
          * @description 404 when the id is missing or belongs to another user.
          */
         get: operations["getStore"];
-        /** Replace a store address */
+        /**
+         * Replace a store address
+         * @description Same coordinate rule as create: omit `lon` and `lat` together to fill
+         *     the PLZ centroid, or send both to keep an explicit WGS84 pin.
+         */
         put: operations["updateStore"];
         post?: never;
         /**
@@ -519,6 +544,35 @@ export interface components {
             description?: string;
             features: components["schemas"]["Feature"][];
         };
+        /**
+         * @description Axis-aligned WGS84 extent for map fitBounds. `west` and `east` are
+         *     longitudes, `south` and `north` are latitudes. Clients union this box
+         *     with store pin coordinates.
+         */
+        LonLatBounds: {
+            /** Format: double */
+            west: number;
+            /** Format: double */
+            south: number;
+            /** Format: double */
+            east: number;
+            /** Format: double */
+            north: number;
+        };
+        /**
+         * @description GeoJSON Polygon or MultiPolygon for the target-region overlay
+         *     (semi-transparent fill and outline). Position order is longitude,
+         *     latitude (EPSG:4326). Rings are closed. This slice uses the same
+         *     synthetic stubs as `/layers/{id}` when the client does not send one.
+         */
+        RegionGeometry: {
+            /** @enum {string} */
+            type: "Polygon" | "MultiPolygon";
+            /** @description GeoJSON coordinates for the declared type. */
+            coordinates: unknown;
+        } & {
+            [key: string]: unknown;
+        };
         TargetRegion: {
             label: string;
             /**
@@ -529,10 +583,23 @@ export interface components {
             geoKey?: string | null;
             ags?: string | null;
             plz?: string | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 longitude of a representative point. Null when unknown.
+             */
             lon?: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 latitude of a representative point. Null when unknown.
+             */
             lat?: number | null;
+            /**
+             * @description Extent of `geometry` for map fitBounds. Null when the region has
+             *     no outline and no catalog point.
+             */
+            bounds: components["schemas"]["LonLatBounds"] | null;
+            /** @description Overlay polygon. Null when the region has no outline and no catalog point. */
+            geometry: components["schemas"]["RegionGeometry"] | null;
             /** Format: date-time */
             updatedAt: string;
         };
@@ -547,6 +614,16 @@ export interface components {
             lon?: number | null;
             /** Format: double */
             lat?: number | null;
+            /**
+             * @description Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.
+             *     Ignored when `geometry` is set, because bounds are then derived from it.
+             */
+            bounds?: components["schemas"]["LonLatBounds"] | null;
+            /**
+             * @description Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is
+             *     the overlay and replaces any catalog outline.
+             */
+            geometry?: components["schemas"]["RegionGeometry"] | null;
         };
         StoreLocation: {
             /** @description Store id as a decimal string. */
@@ -560,9 +637,17 @@ export interface components {
             city: string;
             /** @enum {string} */
             countryCode: "DE";
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 longitude for the map pin. Filled from the PLZ centroid when
+             *     a write omits both coordinates and the catalog has that postal code.
+             */
             lon?: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 latitude for the map pin. Filled from the PLZ centroid when
+             *     a write omits both coordinates and the catalog has that postal code.
+             */
             lat?: number | null;
             /** Format: date-time */
             createdAt: string;
@@ -579,9 +664,15 @@ export interface components {
              * @enum {string}
              */
             countryCode: "DE";
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 longitude. Omit together with `lat` to fill from the PLZ centroid.
+             */
             lon?: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description WGS84 latitude. Omit together with `lon` to fill from the PLZ centroid.
+             */
             lat?: number | null;
         };
         StoreList: {
