@@ -56,7 +56,9 @@ export interface paths {
         put?: never;
         /**
          * Create a user and return a JWT
-         * @description Password hashing is done in Postgres (`pgcrypto` bcrypt). Minimum password length is 8.
+         * @description Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is
+         *     stored in `app.users`. Minimum password length is 8. The response matches
+         *     `POST /auth/login`.
          */
         post: operations["register"];
         delete?: never;
@@ -80,6 +82,163 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the current access token
+         * @description Requires `Authorization: Bearer <accessToken>`. Stores the token id
+         *     (`jti`) in `app.revoked_tokens` until the token's own expiry. A later
+         *     request with the same token is `401`. Clients should also drop the
+         *     token locally. This is the Slice-1 session end: JWTs stay stateless
+         *     apart from this denylist. There is no refresh token.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/target-region": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the signed-in user's target region
+         * @description One region per user, the area where they want to open a new store.
+         *     `404` when nothing has been saved yet.
+         */
+        get: operations["getTargetRegion"];
+        /**
+         * Create or replace the target region
+         * @description Upserts the single region for the token's user. Omitted geo fields are
+         *     stored as null, including fields set by a previous save.
+         */
+        put: operations["putTargetRegion"];
+        post?: never;
+        /**
+         * Clear the target region
+         * @description Idempotent. Responds `204` even when no region was stored.
+         */
+        delete: operations["deleteTargetRegion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the signed-in user's store addresses */
+        get: operations["listStores"];
+        put?: never;
+        /**
+         * Add a store address
+         * @description German address (`postalCode` is PLZ5, `countryCode` is `DE`).
+         *     `street` includes the house number.
+         */
+        post: operations["createStore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one store address
+         * @description 404 when the id is missing or belongs to another user.
+         */
+        get: operations["getStore"];
+        /** Replace a store address */
+        put: operations["updateStore"];
+        post?: never;
+        /**
+         * Delete a store address
+         * @description Also deletes monthly revenue for that store.
+         */
+        delete: operations["deleteStore"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{id}/revenue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Monthly revenue for one store
+         * @description Points the customer has saved, ordered by year then month. A point with
+         *     `revenueEur: null` was explicitly marked missing. A month with no point
+         *     was not entered. At most 36 points are stored per store.
+         */
+        get: operations["listStoreRevenue"];
+        /**
+         * Upsert monthly revenue points
+         * @description Inserts or replaces each `(year, month)` in the body. Other saved months
+         *     stay. `revenueEur: null` marks that month as missing. The store can hold
+         *     at most 36 months; a request that would exceed that returns `400` and
+         *     changes nothing.
+         */
+        put: operations["putStoreRevenue"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{id}/revenue/{year}/{month}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one monthly revenue point
+         * @description `204` when the store exists, including when that month was not stored.
+         *     `404` when the store is missing or belongs to another user.
+         */
+        delete: operations["deleteStoreRevenueMonth"];
         options?: never;
         head?: never;
         patch?: never;
@@ -232,6 +391,97 @@ export interface components {
             description?: string;
             features: components["schemas"]["Feature"][];
         };
+        TargetRegion: {
+            label: string;
+            /**
+             * @description Same values as Grain. Null when the region is a free-text label.
+             * @enum {string|null}
+             */
+            grain?: "address" | "grid100" | "plz8" | "plz5" | "ags" | "ags5" | "other" | null;
+            geoKey?: string | null;
+            ags?: string | null;
+            plz?: string | null;
+            /** Format: double */
+            lon?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        TargetRegionWrite: {
+            label: string;
+            /** @enum {string|null} */
+            grain?: "address" | "grid100" | "plz8" | "plz5" | "ags" | "ags5" | "other" | null;
+            geoKey?: string | null;
+            ags?: string | null;
+            plz?: string | null;
+            /** Format: double */
+            lon?: number | null;
+            /** Format: double */
+            lat?: number | null;
+        };
+        StoreLocation: {
+            /** @description Store id as a decimal string. */
+            id: string;
+            /** @description Optional store name. */
+            label?: string | null;
+            /** @description Street and house number. */
+            street: string;
+            /** @description German PLZ5. */
+            postalCode: string;
+            city: string;
+            /** @enum {string} */
+            countryCode: "DE";
+            /** Format: double */
+            lon?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        StoreLocationWrite: {
+            label?: string | null;
+            street: string;
+            postalCode: string;
+            city: string;
+            /**
+             * @default DE
+             * @enum {string}
+             */
+            countryCode: "DE";
+            /** Format: double */
+            lon?: number | null;
+            /** Format: double */
+            lat?: number | null;
+        };
+        StoreList: {
+            stores: components["schemas"]["StoreLocation"][];
+        };
+        MonthlyRevenuePoint: {
+            year: number;
+            month: number;
+            /**
+             * Format: double
+             * @description EUR. Null means the month was marked missing.
+             */
+            revenueEur: number | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        MonthlyRevenuePointWrite: {
+            year: number;
+            month: number;
+            /** Format: double */
+            revenueEur: number | null;
+        };
+        MonthlyRevenueSeries: {
+            points: components["schemas"]["MonthlyRevenuePoint"][];
+        };
+        MonthlyRevenueWrite: {
+            points: components["schemas"]["MonthlyRevenuePointWrite"][];
+        };
         ErrorResponse: {
             statusCode?: number;
             message?: string | string[];
@@ -258,7 +508,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description Store id as a decimal string. */
+        StoreId: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -383,6 +636,400 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token revoked. The body is empty. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The token has no revocable id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getTargetRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved target region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetRegion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description This user has not saved a target region. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putTargetRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "label": "München",
+                 *       "grain": "ags",
+                 *       "geoKey": "09162000",
+                 *       "ags": "09162000",
+                 *       "lon": 11.5755,
+                 *       "lat": 48.1374
+                 *     }
+                 */
+                "application/json": components["schemas"]["TargetRegionWrite"];
+            };
+        };
+        responses: {
+            /** @description Saved target region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetRegion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    deleteTargetRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Target region cleared. The body is empty. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listStores: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stores owned by the token's user, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "label": "Filiale Marienplatz",
+                 *       "street": "Marienplatz 1",
+                 *       "postalCode": "80331",
+                 *       "city": "München"
+                 *     }
+                 */
+                "application/json": components["schemas"]["StoreLocationWrite"];
+            };
+        };
+        responses: {
+            /** @description Store created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreLocation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Store owned by the token's user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreLocation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreLocationWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreLocation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Store deleted. The body is empty. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listStoreRevenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved months. Empty `points` when none have been entered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthlyRevenueSeries"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putStoreRevenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "points": [
+                 *         {
+                 *           "year": 2025,
+                 *           "month": 1,
+                 *           "revenueEur": 18450.5
+                 *         },
+                 *         {
+                 *           "year": 2025,
+                 *           "month": 2,
+                 *           "revenueEur": null
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["MonthlyRevenueWrite"];
+            };
+        };
+        responses: {
+            /** @description Full series after the upsert. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthlyRevenueSeries"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteStoreRevenueMonth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Store id as a decimal string. */
+                id: components["parameters"]["StoreId"];
+                year: number;
+                month: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Month removed, or it was not stored. The body is empty. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No store with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     searchPlaces: {

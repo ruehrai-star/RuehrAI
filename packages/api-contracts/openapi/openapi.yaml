@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -13,7 +13,11 @@ info:
 
     Local migrations seed a development user `dev@ruehrai.local` /
     `dev-password`. That account is a fixture for local runs, not a production
-    credential. `POST /auth/register` creates further users in the same database.
+    credential. `POST /auth/register` creates further users in `app.users`.
+    `POST /auth/logout` revokes that access token until it expires.
+
+    Customer inputs (target region, store addresses, monthly revenue) are
+    stored in schema `app` and are visible only to the user id in the token.
 servers:
   - url: http://localhost:3000
     description: Local development. The host and port follow the backend `PORT` env (default 3000).
@@ -22,6 +26,8 @@ tags:
   - name: Auth
   - name: Search
   - name: Layers
+  - name: TargetRegion
+  - name: Stores
 security:
   - bearerAuth: []
 paths:
@@ -79,7 +85,10 @@ paths:
       tags: [Auth]
       operationId: register
       summary: Create a user and return a JWT
-      description: Password hashing is done in Postgres (`pgcrypto` bcrypt). Minimum password length is 8.
+      description: |
+        Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is
+        stored in `app.users`. Minimum password length is 8. The response matches
+        `POST /auth/login`.
       security: []
       requestBody:
         required: true
@@ -117,6 +126,310 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current access token
+      description: |
+        Requires `Authorization: Bearer <accessToken>`. Stores the token id
+        (`jti`) in `app.revoked_tokens` until the token's own expiry. A later
+        request with the same token is `401`. Clients should also drop the
+        token locally. This is the Slice-1 session end: JWTs stay stateless
+        apart from this denylist. There is no refresh token.
+      responses:
+        "204":
+          description: Token revoked. The body is empty.
+        "400":
+          description: The token has no revocable id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /target-region:
+    get:
+      tags: [TargetRegion]
+      operationId: getTargetRegion
+      summary: Read the signed-in user's target region
+      description: |
+        One region per user, the area where they want to open a new store.
+        `404` when nothing has been saved yet.
+      responses:
+        "200":
+          description: Saved target region.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetRegion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: This user has not saved a target region.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [TargetRegion]
+      operationId: putTargetRegion
+      summary: Create or replace the target region
+      description: |
+        Upserts the single region for the token's user. Omitted geo fields are
+        stored as null, including fields set by a previous save.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetRegionWrite"
+            example:
+              label: München
+              grain: ags
+              geoKey: "09162000"
+              ags: "09162000"
+              lon: 11.5755
+              lat: 48.1374
+      responses:
+        "200":
+          description: Saved target region.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetRegion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [TargetRegion]
+      operationId: deleteTargetRegion
+      summary: Clear the target region
+      description: Idempotent. Responds `204` even when no region was stored.
+      responses:
+        "204":
+          description: Target region cleared. The body is empty.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /stores:
+    get:
+      tags: [Stores]
+      operationId: listStores
+      summary: List the signed-in user's store addresses
+      responses:
+        "200":
+          description: Stores owned by the token's user, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Stores]
+      operationId: createStore
+      summary: Add a store address
+      description: |
+        German address (`postalCode` is PLZ5, `countryCode` is `DE`).
+        `street` includes the house number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreLocationWrite"
+            example:
+              label: Filiale Marienplatz
+              street: Marienplatz 1
+              postalCode: "80331"
+              city: München
+      responses:
+        "201":
+          description: Store created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreLocation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /stores/{id}:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    get:
+      tags: [Stores]
+      operationId: getStore
+      summary: Read one store address
+      description: "404 when the id is missing or belongs to another user."
+      responses:
+        "200":
+          description: Store owned by the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreLocation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Stores]
+      operationId: updateStore
+      summary: Replace a store address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreLocationWrite"
+      responses:
+        "200":
+          description: Updated store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreLocation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Stores]
+      operationId: deleteStore
+      summary: Delete a store address
+      description: Also deletes monthly revenue for that store.
+      responses:
+        "204":
+          description: Store deleted. The body is empty.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /stores/{id}/revenue:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    get:
+      tags: [Stores]
+      operationId: listStoreRevenue
+      summary: Monthly revenue for one store
+      description: |
+        Points the customer has saved, ordered by year then month. A point with
+        `revenueEur: null` was explicitly marked missing. A month with no point
+        was not entered. At most 36 points are stored per store.
+      responses:
+        "200":
+          description: Saved months. Empty `points` when none have been entered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyRevenueSeries"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Stores]
+      operationId: putStoreRevenue
+      summary: Upsert monthly revenue points
+      description: |
+        Inserts or replaces each `(year, month)` in the body. Other saved months
+        stay. `revenueEur: null` marks that month as missing. The store can hold
+        at most 36 months; a request that would exceed that returns `400` and
+        changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonthlyRevenueWrite"
+            example:
+              points:
+                - year: 2025
+                  month: 1
+                  revenueEur: 18450.5
+                - year: 2025
+                  month: 2
+                  revenueEur: null
+      responses:
+        "200":
+          description: Full series after the upsert.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyRevenueSeries"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /stores/{id}/revenue/{year}/{month}:
+    delete:
+      tags: [Stores]
+      operationId: deleteStoreRevenueMonth
+      summary: Remove one monthly revenue point
+      description: |
+        `204` when the store exists, including when that month was not stored.
+        `404` when the store is missing or belongs to another user.
+      parameters:
+        - $ref: "#/components/parameters/StoreId"
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1990
+            maximum: 2100
+        - name: month
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+      responses:
+        "204":
+          description: Month removed, or it was not stored. The body is empty.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No store with this id for the token's user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /search:
     get:
       tags: [Search]
@@ -264,6 +577,15 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  parameters:
+    StoreId:
+      name: id
+      in: path
+      required: true
+      description: Store id as a decimal string.
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]{0,18}$"
   responses:
     BadRequest:
       description: Request failed validation.
@@ -413,6 +735,238 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Feature"
+    TargetRegion:
+      type: object
+      additionalProperties: false
+      required: [label, updatedAt]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        grain:
+          type: string
+          nullable: true
+          enum: [address, grid100, plz8, plz5, ags, ags5, other]
+          description: Same values as Grain. Null when the region is a free-text label.
+        geoKey:
+          type: string
+          nullable: true
+          maxLength: 200
+        ags:
+          type: string
+          nullable: true
+          pattern: "^[0-9]{2,8}$"
+        plz:
+          type: string
+          nullable: true
+          pattern: "^[0-9]{5}([0-9]{3})?$"
+        lon:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90
+          maximum: 90
+        updatedAt:
+          type: string
+          format: date-time
+    TargetRegionWrite:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        grain:
+          type: string
+          nullable: true
+          enum: [address, grid100, plz8, plz5, ags, ags5, other]
+        geoKey:
+          type: string
+          nullable: true
+          maxLength: 200
+        ags:
+          type: string
+          nullable: true
+          pattern: "^[0-9]{2,8}$"
+        plz:
+          type: string
+          nullable: true
+          pattern: "^[0-9]{5}([0-9]{3})?$"
+        lon:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90
+          maximum: 90
+    StoreLocation:
+      type: object
+      additionalProperties: false
+      required: [id, street, postalCode, city, countryCode, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          description: Store id as a decimal string.
+        label:
+          type: string
+          nullable: true
+          maxLength: 120
+          description: Optional store name.
+        street:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Street and house number.
+        postalCode:
+          type: string
+          pattern: "^[0-9]{5}$"
+          description: German PLZ5.
+        city:
+          type: string
+          minLength: 1
+          maxLength: 120
+        countryCode:
+          type: string
+          enum: [DE]
+        lon:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90
+          maximum: 90
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    StoreLocationWrite:
+      type: object
+      additionalProperties: false
+      required: [street, postalCode, city]
+      properties:
+        label:
+          type: string
+          nullable: true
+          maxLength: 120
+        street:
+          type: string
+          minLength: 1
+          maxLength: 200
+        postalCode:
+          type: string
+          pattern: "^[0-9]{5}$"
+        city:
+          type: string
+          minLength: 1
+          maxLength: 120
+        countryCode:
+          type: string
+          enum: [DE]
+          default: DE
+        lon:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90
+          maximum: 90
+    StoreList:
+      type: object
+      additionalProperties: false
+      required: [stores]
+      properties:
+        stores:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoreLocation"
+    MonthlyRevenuePoint:
+      type: object
+      additionalProperties: false
+      required: [year, month, revenueEur, updatedAt]
+      properties:
+        year:
+          type: integer
+          minimum: 1990
+          maximum: 2100
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        revenueEur:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          description: EUR. Null means the month was marked missing.
+        updatedAt:
+          type: string
+          format: date-time
+    MonthlyRevenuePointWrite:
+      type: object
+      additionalProperties: false
+      required: [year, month, revenueEur]
+      properties:
+        year:
+          type: integer
+          minimum: 1990
+          maximum: 2100
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        revenueEur:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 9999999999.99
+    MonthlyRevenueSeries:
+      type: object
+      additionalProperties: false
+      required: [points]
+      properties:
+        points:
+          type: array
+          maxItems: 36
+          items:
+            $ref: "#/components/schemas/MonthlyRevenuePoint"
+    MonthlyRevenueWrite:
+      type: object
+      additionalProperties: false
+      required: [points]
+      properties:
+        points:
+          type: array
+          minItems: 1
+          maxItems: 36
+          items:
+            $ref: "#/components/schemas/MonthlyRevenuePointWrite"
     ErrorResponse:
       type: object
       properties:

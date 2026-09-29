@@ -1,6 +1,6 @@
 # @ruehrai/api-contracts
 
-OpenAPI **v0** für die RuehrAI-API. Das ist der Vertrag, den Clients konsumieren.
+OpenAPI **v0.2.0** für die RuehrAI-API. Das ist der Vertrag, den Clients konsumieren. `0.2.0` ergänzt Logout, Zielregion, Filialadressen und Monatsumsatz. `POST /auth/login` und `POST /auth/register` bleiben in Request und Response unverändert.
 
 | Datei | Rolle |
 | --- | --- |
