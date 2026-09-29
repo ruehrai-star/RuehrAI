@@ -15,7 +15,7 @@ interface SessionContextValue {
   session: Session | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -47,7 +47,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    if (readStoredSession()?.accessToken) {
+      try {
+        await getApi().logout();
+      } catch {
+        // Abmelden still drops the browser token when revoke fails.
+      }
+    }
     writeStoredSession(null);
   }, []);
 

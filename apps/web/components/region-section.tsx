@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, getApi, type SearchHit } from "@/lib/api";
+import { ApiError, getApi, type SearchHit, type TargetRegion, type TargetRegionWrite } from "@/lib/api";
 import { grainLabel } from "@/lib/format";
-import { regionDraftFromHit, type RegionDraft, type TargetRegion } from "@/lib/locations/model";
+import { toTargetRegionWrite } from "@/lib/locations/model";
 import { errorText } from "@/lib/user-message";
 
 interface RegionSectionProps {
@@ -12,7 +12,7 @@ interface RegionSectionProps {
   saving: boolean;
   error: string | null;
   notice: string | null;
-  onSave: (draft: RegionDraft) => Promise<void>;
+  onSave: (draft: TargetRegionWrite) => Promise<void>;
 }
 
 export function RegionSection({ saved, canSave, saving, error, notice, onSave }: RegionSectionProps) {
@@ -57,7 +57,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!picked) return;
-    await onSave(regionDraftFromHit(picked));
+    await onSave(toTargetRegionWrite(picked));
   }
 
   return (
@@ -78,7 +78,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
             Gespeichert: <strong>{saved.label}</strong>
             {saved.geoKey ? ` · ${saved.geoKey}` : ""}
           </span>
-          <span className="badge">{grainLabel(saved.grain)}</span>
+          {saved.grain ? <span className="badge">{grainLabel(saved.grain)}</span> : null}
         </p>
       ) : (
         <p className="message">Noch keine Zielregion gespeichert.</p>

@@ -2,16 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useSession } from "./session-provider";
 
 export function SignedInPanel() {
   const router = useRouter();
   const { session, logout } = useSession();
+  const [pending, setPending] = useState(false);
   if (!session) return null;
 
-  function onLogout() {
-    logout();
-    router.push("/login");
+  async function onLogout() {
+    setPending(true);
+    try {
+      await logout();
+    } finally {
+      setPending(false);
+      router.push("/login");
+    }
   }
 
   return (
@@ -25,8 +32,8 @@ export function SignedInPanel() {
         <Link href="/standorte" className="button button-quiet">
           Standorte
         </Link>
-        <button type="button" className="button button-quiet" onClick={onLogout}>
-          Abmelden
+        <button type="button" className="button button-quiet" onClick={onLogout} disabled={pending}>
+          {pending ? "Abmelden …" : "Abmelden"}
         </button>
       </div>
     </div>

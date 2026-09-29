@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getLocationApi, LOCATION_CONTRACT_MESSAGE } from "@/lib/locations/api";
-import {
-  type MonthlyRevenue,
-  type RegionDraft,
-  type StoreAddress,
-  type StoreDraft,
-  type TargetRegion,
-} from "@/lib/locations/model";
+import type {
+  MonthlyRevenuePoint,
+  MonthlyRevenuePointWrite,
+  StoreLocation,
+  StoreLocationWrite,
+  TargetRegion,
+  TargetRegionWrite,
+} from "@/lib/api";
+import { getLocationApi } from "@/lib/locations/api";
 import { errorText } from "@/lib/user-message";
 import { RegionSection } from "./region-section";
 import { RevenueSection } from "./revenue-section";
@@ -20,10 +21,10 @@ export function StandortePage() {
   const { session } = useSession();
   const api = getLocationApi();
   const [region, setRegion] = useState<TargetRegion | null>(null);
-  const [stores, setStores] = useState<StoreAddress[]>([]);
+  const [stores, setStores] = useState<StoreLocation[]>([]);
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [storeId, setStoreId] = useState<string | null>(null);
-  const [revenue, setRevenue] = useState<MonthlyRevenue[]>([]);
+  const [revenue, setRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [revenueStoreId, setRevenueStoreId] = useState<string | null>(null);
   const [regionSaving, setRegionSaving] = useState(false);
   const [storePending, setStorePending] = useState<string | null>(null);
@@ -36,17 +37,17 @@ export function StandortePage() {
   const [storeNotice, setStoreNotice] = useState<string | null>(null);
   const [revenueNotice, setRevenueNotice] = useState<string | null>(null);
 
-  const loading = Boolean(session && api && loadedEmail !== session.email);
+  const loading = Boolean(session && loadedEmail !== session.email);
   const visibleRegion = loadedEmail === session?.email ? region : null;
   const visibleStores = loadedEmail === session?.email ? stores : [];
-  const revenueLoading = Boolean(session && api && storeId && revenueStoreId !== storeId);
+  const revenueLoading = Boolean(session && storeId && revenueStoreId !== storeId);
   const visibleRevenue = revenueStoreId === storeId ? revenue : [];
 
   useEffect(() => {
-    if (!session || !api) return;
+    if (!session) return;
     let cancelled = false;
     const email = session.email;
-    Promise.all([api.loadRegion(), api.listStores()])
+    Promise.all([api.getTargetRegion(), api.listStores()])
       .then(([nextRegion, nextStores]) => {
         if (cancelled) return;
         setRegion(nextRegion);
@@ -68,11 +69,11 @@ export function StandortePage() {
   }, [session, api]);
 
   useEffect(() => {
-    if (!session || !api || !storeId) return;
+    if (!session || !storeId) return;
     let cancelled = false;
     const requestedId = storeId;
     api
-      .listRevenue(requestedId)
+      .listStoreRevenue(requestedId)
       .then((rows) => {
         if (cancelled) return;
         setRevenue(rows);
@@ -90,13 +91,12 @@ export function StandortePage() {
     };
   }, [session, api, storeId]);
 
-  async function saveRegion(draft: RegionDraft) {
-    if (!api) return;
+  async function saveRegion(draft: TargetRegionWrite) {
     setRegionSaving(true);
     setRegionError(null);
     setRegionNotice(null);
     try {
-      const saved = await api.saveRegion(draft);
+      const saved = await api.putTargetRegion(draft);
       setRegion(saved);
       setRegionNotice("Zielregion gespeichert.");
     } catch (caught) {
@@ -106,8 +106,7 @@ export function StandortePage() {
     }
   }
 
-  async function createStore(draft: StoreDraft) {
-    if (!api) return;
+  async function createStore(draft: StoreLocationWrite) {
     setStorePending("create");
     setStoreError(null);
     setStoreNotice(null);
@@ -123,8 +122,7 @@ export function StandortePage() {
     }
   }
 
-  async function updateStore(id: string, draft: StoreDraft) {
-    if (!api) return;
+  async function updateStore(id: string, draft: StoreLocationWrite) {
     setStorePending(id);
     setStoreError(null);
     setStoreNotice(null);
@@ -140,7 +138,6 @@ export function StandortePage() {
   }
 
   async function deleteStore(id: string) {
-    if (!api) return;
     setStorePending(id);
     setStoreError(null);
     setStoreNotice(null);
@@ -157,13 +154,13 @@ export function StandortePage() {
     }
   }
 
-  async function saveRevenue(rows: MonthlyRevenue[]) {
-    if (!api || !storeId) return;
+  async function saveRevenue(rows: MonthlyRevenuePointWrite[]) {
+    if (!storeId) return;
     setRevenueSaving(true);
     setRevenueError(null);
     setRevenueNotice(null);
     try {
-      const saved = await api.saveRevenue(storeId, rows);
+      const saved = await api.putStoreRevenue(storeId, rows);
       setRevenue(saved);
       setRevenueNotice("Umsatz gespeichert.");
     } catch (caught) {
@@ -201,11 +198,6 @@ export function StandortePage() {
         <a href="#filialadressen">Filialadressen</a>
         <a href="#umsatz">Umsatz</a>
       </nav>
-      {api ? null : (
-        <p className="banner" role="status">
-          {LOCATION_CONTRACT_MESSAGE}
-        </p>
-      )}
       {loading ? <p className="message">Standorte werden geladen …</p> : null}
       {loadError ? (
         <p className="message message-error" role="alert">
@@ -214,7 +206,7 @@ export function StandortePage() {
       ) : null}
       <RegionSection
         saved={visibleRegion}
-        canSave={api !== null}
+        canSave
         saving={regionSaving}
         error={regionError}
         notice={regionNotice}
@@ -222,7 +214,7 @@ export function StandortePage() {
       />
       <StoreSection
         stores={visibleStores}
-        canSave={api !== null}
+        canSave
         pendingId={storePending}
         error={storeError}
         notice={storeNotice}
@@ -234,7 +226,7 @@ export function StandortePage() {
         stores={visibleStores}
         storeId={storeId}
         saved={visibleRevenue}
-        canSave={api !== null}
+        canSave
         loading={revenueLoading}
         saving={revenueSaving}
         error={revenueError}

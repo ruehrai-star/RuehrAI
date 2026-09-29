@@ -27,9 +27,15 @@ export type {
   FeatureCollection,
   Grain,
   HealthResponse,
+  MonthlyRevenuePoint,
+  MonthlyRevenuePointWrite,
   SearchHit,
   SearchResponse,
   Session,
+  StoreLocation,
+  StoreLocationWrite,
+  TargetRegion,
+  TargetRegionWrite,
 } from "./types";
 export { ApiError, isGrain } from "./types";
 export { coordinatesOf } from "./geo";

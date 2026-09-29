@@ -1,89 +1,77 @@
-import type { Grain, SearchHit } from "@ruehrai/api-contracts";
-
-export interface RegionDraft {
-  label: string;
-  grain: Grain;
-  geoKey: string | null;
-  lon: number | null;
-  lat: number | null;
-}
-
-export interface TargetRegion extends RegionDraft {
-  id: string;
-}
+import type { Grain, MonthlyRevenuePoint, SearchHit, TargetRegionWrite } from "@ruehrai/api-contracts";
 
 export interface StoreDraft {
-  name: string;
+  label: string;
   street: string;
   postalCode: string;
   city: string;
 }
 
-export interface StoreAddress extends StoreDraft {
-  id: string;
-}
-
-export interface MonthlyRevenue {
-  month: string;
-  revenueEur: number | null;
-}
-
 export interface MonthRow {
-  month: string;
-  label: string;
+  year: number;
+  month: number;
+  monthNumber: string;
+  monthName: string;
   revenueEur: number | null;
   missing: boolean;
   invalid: boolean;
 }
 
-export function regionDraftFromHit(hit: SearchHit): RegionDraft {
+const REVENUE_YEAR_SPAN = 3;
+
+export function toTargetRegionWrite(hit: SearchHit): TargetRegionWrite {
+  const geoKey = typeof hit.geoKey === "string" ? hit.geoKey : null;
   return {
     label: hit.label,
     grain: hit.grain,
-    geoKey: typeof hit.geoKey === "string" ? hit.geoKey : null,
+    geoKey,
+    ags: agsFromHit(hit.grain, geoKey),
+    plz: plzFromHit(hit.grain, geoKey),
     lon: typeof hit.lon === "number" ? hit.lon : null,
     lat: typeof hit.lat === "number" ? hit.lat : null,
   };
 }
 
 export function validateStoreDraft(draft: StoreDraft): string | null {
-  if (!draft.name.trim()) return "Bezeichnung fehlt.";
+  if (!draft.label.trim()) return "Bezeichnung fehlt.";
   if (!draft.street.trim()) return "Straße fehlt.";
   if (!/^[0-9]{5}$/.test(draft.postalCode.trim())) return "PLZ muss fünf Ziffern haben.";
   if (!draft.city.trim()) return "Ort fehlt.";
   return null;
 }
 
-export function normalizeStoreDraft(draft: StoreDraft): StoreDraft {
+export function toStoreWrite(draft: StoreDraft): {
+  label: string;
+  street: string;
+  postalCode: string;
+  city: string;
+  countryCode: "DE";
+} {
   return {
-    name: draft.name.trim(),
+    label: draft.label.trim(),
     street: draft.street.trim(),
     postalCode: draft.postalCode.trim(),
     city: draft.city.trim(),
+    countryCode: "DE",
   };
 }
 
-export function monthKeys(count: number, from: Date): string[] {
-  if (count < 1) return [];
-  const anchor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
-  const keys: string[] = [];
-  for (let i = count - 1; i >= 0; i -= 1) {
-    const date = new Date(anchor);
-    date.setUTCMonth(anchor.getUTCMonth() - i);
-    keys.push(monthKey(date));
-  }
-  return keys;
+export function revenueYears(from: Date): number[] {
+  const end = from.getUTCFullYear();
+  return Array.from({ length: REVENUE_YEAR_SPAN }, (_, index) => end - (REVENUE_YEAR_SPAN - 1 - index));
 }
 
-export function formatMonthLabel(key: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(key);
-  if (!match) return key;
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
-  return new Intl.DateTimeFormat("de-DE", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+export function formatMonthName(month: number): string {
+  const date = new Date(Date.UTC(2020, month - 1, 1));
+  return new Intl.DateTimeFormat("de-DE", { month: "long", timeZone: "UTC" }).format(date);
+}
+
+export function formatMonthNumber(month: number): string {
+  return String(month).padStart(2, "0");
+}
+
+export function revenueKey(year: number, month: number): string {
+  return `${year}-${formatMonthNumber(month)}`;
 }
 
 export function isMissingRevenue(value: number | null | undefined): boolean {
@@ -107,20 +95,32 @@ export function formatRevenueInput(value: number | null): string {
   }).format(value);
 }
 
-export function formatEuro(value: number): string {
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(value);
+export function draftsForPoints(points: MonthlyRevenuePoint[]): Record<string, string> {
+  const drafts: Record<string, string> = {};
+  for (const point of points) {
+    drafts[revenueKey(point.year, point.month)] = formatRevenueInput(point.revenueEur);
+  }
+  return drafts;
 }
 
-export function rowsForMonths(months: string[], saved: MonthlyRevenue[], drafts: Record<string, string>): MonthRow[] {
-  const byMonth = new Map(saved.map((row) => [row.month, row.revenueEur]));
-  return months.map((month) => {
-    const draft = drafts[month];
-    const parsed = draft === undefined ? (byMonth.get(month) ?? null) : parseRevenueInput(draft);
+export function rowsForYear(
+  year: number,
+  saved: MonthlyRevenuePoint[],
+  drafts: Record<string, string> | null,
+): MonthRow[] {
+  const byKey = new Map(saved.map((point) => [revenueKey(point.year, point.month), point.revenueEur]));
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    const key = revenueKey(year, month);
+    const draft = drafts?.[key];
+    const parsed = drafts === null || draft === undefined ? (byKey.get(key) ?? null) : parseRevenueInput(draft);
     const invalid = parsed === "invalid";
     const revenueEur = invalid ? null : parsed;
     return {
+      year,
       month,
-      label: formatMonthLabel(month),
+      monthNumber: formatMonthNumber(month),
+      monthName: formatMonthName(month),
       revenueEur,
       missing: !invalid && isMissingRevenue(revenueEur),
       invalid,
@@ -128,16 +128,12 @@ export function rowsForMonths(months: string[], saved: MonthlyRevenue[], drafts:
   });
 }
 
-export function draftsFromSaved(months: string[], saved: MonthlyRevenue[]): Record<string, string> {
-  const byMonth = new Map(saved.map((row) => [row.month, row.revenueEur]));
-  const drafts: Record<string, string> = {};
-  for (const month of months) {
-    const value = byMonth.get(month);
-    drafts[month] = formatRevenueInput(value ?? null);
-  }
-  return drafts;
+function agsFromHit(grain: Grain, geoKey: string | null): string | null {
+  if ((grain !== "ags" && grain !== "ags5") || !geoKey || !/^[0-9]{2,8}$/.test(geoKey)) return null;
+  return geoKey;
 }
 
-function monthKey(date: Date): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+function plzFromHit(grain: Grain, geoKey: string | null): string | null {
+  if ((grain !== "plz5" && grain !== "plz8") || !geoKey || !/^[0-9]{5}([0-9]{3})?$/.test(geoKey)) return null;
+  return geoKey;
 }

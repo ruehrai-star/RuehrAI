@@ -1,18 +1,19 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { normalizeStoreDraft, validateStoreDraft, type StoreAddress, type StoreDraft } from "@/lib/locations/model";
+import type { StoreLocation } from "@/lib/api";
+import { toStoreWrite, validateStoreDraft, type StoreDraft } from "@/lib/locations/model";
 
-const EMPTY: StoreDraft = { name: "", street: "", postalCode: "", city: "" };
+const EMPTY: StoreDraft = { label: "", street: "", postalCode: "", city: "" };
 
 interface StoreSectionProps {
-  stores: StoreAddress[];
+  stores: StoreLocation[];
   canSave: boolean;
   pendingId: string | null;
   error: string | null;
   notice: string | null;
-  onCreate: (draft: StoreDraft) => Promise<void>;
-  onUpdate: (id: string, draft: StoreDraft) => Promise<void>;
+  onCreate: (draft: ReturnType<typeof toStoreWrite>) => Promise<void>;
+  onUpdate: (id: string, draft: ReturnType<typeof toStoreWrite>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -43,7 +44,7 @@ export function StoreSection({
       return;
     }
     setFormError(null);
-    const next = normalizeStoreDraft(draft);
+    const next = toStoreWrite(draft);
     if (editingId) {
       await onUpdate(editingId, next);
       setEditingId(null);
@@ -53,12 +54,12 @@ export function StoreSection({
     setDraft(EMPTY);
   }
 
-  function beginEdit(store: StoreAddress) {
+  function beginEdit(store: StoreLocation) {
     setEditingId(store.id);
     setConfirmId(null);
     setFormError(null);
     setDraft({
-      name: store.name,
+      label: store.label ?? "",
       street: store.street,
       postalCode: store.postalCode,
       city: store.city,
@@ -78,10 +79,10 @@ export function StoreSection({
         <label htmlFor="store-name">Bezeichnung</label>
         <input
           id="store-name"
-          value={draft.name}
+          value={draft.label}
           required
           autoComplete="organization"
-          onChange={(event) => updateField("name", event.target.value)}
+          onChange={(event) => updateField("label", event.target.value)}
         />
         <label htmlFor="store-street">Straße</label>
         <input
@@ -160,7 +161,7 @@ export function StoreSection({
       <ul className="store-list">
         {stores.map((store) => (
           <li key={store.id} className="store-row">
-            <strong>{store.name}</strong>
+            <strong>{store.label || "Filiale"}</strong>
             <span>
               {store.street}, {store.postalCode} {store.city}
             </span>

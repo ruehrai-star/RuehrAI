@@ -4,7 +4,7 @@ Map, search, and Standort-Eingaben for Standortberatung. The UI calls the Backen
 
 `GET /search`, `GET /layers/{id}`, `POST /auth/login`, and `POST /auth/register` go to `NEXT_PUBLIC_API_BASE_URL`. The default is `http://localhost:3000`, the Backend's local port. This app listens on **3001** so both can run together.
 
-Search and layers send `Authorization: Bearer`. Anmelden and Registrieren store the JWT from `TokenResponse` in `sessionStorage` under `ruehrai.session`. The contract has no logout route; **Abmelden** removes that record and returns to `/login`.
+Search, layers, and Standort-Eingaben send `Authorization: Bearer`. Anmelden and Registrieren store the JWT from `TokenResponse` in `sessionStorage` under `ruehrai.session`. **Abmelden** calls `POST /auth/logout` (revokes the token id) and then removes that record, returning to `/login`. If the revoke call fails, the browser token is still cleared.
 
 Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**.
 
@@ -27,11 +27,11 @@ Open http://localhost:3001.
 | Anmelden | `/login` | `POST /auth/login`. Invalid credentials stay on the form with an error. |
 | Abmelden | header | Clears `sessionStorage` and opens `/login`. |
 | Karte + Suche | `/` | `GET /layers/demo-gemeinden` (default layer) and `GET /search`. |
-| Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then save the target region. |
-| Filialadressen | `/standorte#filialadressen` | List, add, edit, and remove store addresses. |
-| Umsatz | `/standorte#umsatz` | Monthly revenue per store. Empty months are marked **fehlend**. `0` is a stored value. |
+| Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. `GET` returns 404 until one is saved. |
+| Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
+| Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |
 
-Zielregion, Filialadressen, and Umsatz are saved only through operations published in `@ruehrai/api-contracts`. Until those operations exist, `/standorte` still lets you search a region, and the save actions stay disabled. The page says so. It does not write Demo-Daten.
+These calls use `@ruehrai/api-contracts` OpenAPI 0.2.0. There is no client fixture. A missing Backend shows an error, not Demo-Daten.
 
 To point at another API:
 
@@ -52,4 +52,4 @@ pnpm --filter @ruehrai/web test
 pnpm --filter @ruehrai/web build
 ```
 
-`typecheck` and `build` compile `@ruehrai/api-contracts` first. The web tests cover URL building, the bearer header, login/register token mapping, and the Standort input rules (missing Umsatz vs. zero). They do not start the Backend.
+`typecheck` and `build` compile `@ruehrai/api-contracts` first. The web tests cover URL building, the bearer header, login/register/logout, the Standort paths, and the Umsatz rules (missing month vs. zero, Jahr/Monat, three years). They do not start the Backend.

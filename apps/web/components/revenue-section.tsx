@@ -1,25 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  draftsFromSaved,
-  monthKeys,
-  rowsForMonths,
-  type MonthlyRevenue,
-  type StoreAddress,
-} from "@/lib/locations/model";
+import type { MonthlyRevenuePoint, MonthlyRevenuePointWrite, StoreLocation } from "@/lib/api";
+import { draftsForPoints, revenueYears, rowsForYear } from "@/lib/locations/model";
 
 interface RevenueSectionProps {
-  stores: StoreAddress[];
+  stores: StoreLocation[];
   storeId: string | null;
-  saved: MonthlyRevenue[];
+  saved: MonthlyRevenuePoint[];
   canSave: boolean;
   loading: boolean;
   saving: boolean;
   error: string | null;
   notice: string | null;
   onSelectStore: (id: string) => void;
-  onSave: (rows: MonthlyRevenue[]) => Promise<void>;
+  onSave: (rows: MonthlyRevenuePointWrite[]) => Promise<void>;
 }
 
 export function RevenueSection({
@@ -34,28 +29,29 @@ export function RevenueSection({
   onSelectStore,
   onSave,
 }: RevenueSectionProps) {
-  const [span, setSpan] = useState<12 | 36>(12);
+  const years = useMemo(() => revenueYears(new Date()), []);
+  const [year, setYear] = useState(years[years.length - 1] ?? new Date().getUTCFullYear());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [draftStore, setDraftStore] = useState<string | null>(null);
-  const months = useMemo(() => monthKeys(span, new Date()), [span]);
 
-  const baseDrafts = draftsFromSaved(months, saved);
-  const activeDrafts = draftStore === storeId ? { ...baseDrafts, ...drafts } : baseDrafts;
-  const rows = rowsForMonths(months, saved, activeDrafts);
+  const savedDrafts = draftsForPoints(saved);
+  const displayDrafts = draftStore === storeId ? { ...savedDrafts, ...drafts } : savedDrafts;
+  const rows = rowsForYear(year, saved, displayDrafts);
   const missing = rows.filter((row) => row.missing).length;
   const invalid = rows.some((row) => row.invalid);
 
-  function edit(month: string, value: string) {
-    const base = draftStore === storeId ? drafts : draftsFromSaved(months, saved);
+  function edit(key: string, value: string) {
+    const base = draftStore === storeId ? drafts : draftsForPoints(saved);
     setDraftStore(storeId);
-    setDrafts({ ...base, [month]: value });
+    setDrafts({ ...base, [key]: value });
   }
 
   return (
     <section className="section-card" id="umsatz" aria-labelledby="umsatz-title">
       <h2 id="umsatz-title">Umsatz</h2>
       <p className="stub-copy">
-        Monatlicher Umsatz je Standort. Leere Monate sind als fehlend markiert. 0 € ist ein echter Wert.
+        Monatlicher Umsatz der letzten drei Jahre je Standort. Jahr und Monat stehen in der Tabelle. Leere
+        Monate sind fehlend. 0 € ist ein echter Wert. Höchstens 36 Monate.
       </p>
 
       {stores.length === 0 ? (
@@ -74,65 +70,70 @@ export function RevenueSection({
           >
             {stores.map((store) => (
               <option key={store.id} value={store.id}>
-                {store.name} · {store.postalCode} {store.city}
+                {store.label || "Filiale"} · {store.postalCode} {store.city}
               </option>
             ))}
           </select>
-          <div className="row-actions" role="group" aria-label="Zeitraum">
-            <button
-              type="button"
-              className={span === 12 ? "button" : "button button-quiet"}
-              aria-pressed={span === 12}
-              onClick={() => setSpan(12)}
-            >
-              12 Monate
-            </button>
-            <button
-              type="button"
-              className={span === 36 ? "button" : "button button-quiet"}
-              aria-pressed={span === 36}
-              onClick={() => setSpan(36)}
-            >
-              36 Monate
-            </button>
+          <div className="row-actions" role="group" aria-label="Jahr">
+            {years.map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                className={entry === year ? "button" : "button button-quiet"}
+                aria-pressed={entry === year}
+                onClick={() => setYear(entry)}
+              >
+                {entry}
+              </button>
+            ))}
           </div>
           <p className="status-line" aria-live="polite">
-            <span>{loading ? "Umsatz wird geladen …" : `${missing} von ${rows.length} Monaten fehlend`}</span>
+            <span>
+              {loading ? "Umsatz wird geladen …" : `Jahr ${year}: ${missing} von ${rows.length} Monaten fehlend`}
+            </span>
           </p>
           <div className="table-scroll">
             <table className="month-table">
-              <caption className="hint">Umsatz in Euro. Leere Felder bleiben fehlend.</caption>
+              <caption className="hint">Umsatz in Euro für {year}. Leere Felder bleiben fehlend.</caption>
               <thead>
                 <tr>
+                  <th scope="col">Jahr</th>
                   <th scope="col">Monat</th>
                   <th scope="col">Umsatz</th>
                   <th scope="col">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.month} className={row.missing || row.invalid ? "is-missing" : undefined}>
-                    <th scope="row">{row.label}</th>
-                    <td>
-                      <input
-                        aria-label={`Umsatz ${row.label}`}
-                        inputMode="decimal"
-                        value={activeDrafts[row.month] ?? ""}
-                        placeholder="fehlend"
-                        onChange={(event) => edit(row.month, event.target.value)}
-                      />
-                    </td>
-                    <td>
-                      {row.invalid ? (
-                        <span className="badge badge-missing">ungültig</span>
-                      ) : row.missing ? (
-                        <span className="badge badge-missing">fehlend</span>
-                      ) : (
-                        <span className="badge">erfasst</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const key = `${row.year}-${row.monthNumber}`;
+                  return (
+                    <tr key={key} className={row.missing || row.invalid ? "is-missing" : undefined}>
+                      <td>{row.year}</td>
+                      <th scope="row">
+                        {row.monthNumber}
+                        <span className="hint"> {row.monthName}</span>
+                      </th>
+                      <td>
+                        <input
+                          aria-label={`Umsatz ${row.year} Monat ${row.monthNumber}`}
+                          inputMode="decimal"
+                          value={displayDrafts[key] ?? ""}
+                          placeholder="fehlend"
+                          onChange={(event) => edit(key, event.target.value)}
+                        />
+                      </td>
+                      <td>
+                        {row.invalid ? (
+                          <span className="badge badge-missing">ungültig</span>
+                        ) : row.missing ? (
+                          <span className="badge badge-missing">fehlend</span>
+                        ) : (
+                          <span className="badge">erfasst</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -152,10 +153,16 @@ export function RevenueSection({
             disabled={!canSave || !storeId || saving || invalid}
             onClick={() => {
               if (!storeId) return;
-              void onSave(rows.map((row) => ({ month: row.month, revenueEur: row.revenueEur })));
+              void onSave(
+                rows.map((row) => ({
+                  year: row.year,
+                  month: row.month,
+                  revenueEur: row.revenueEur,
+                })),
+              );
             }}
           >
-            {saving ? "Speichern …" : "Umsatz speichern"}
+            {saving ? "Speichern …" : `Umsatz ${year} speichern`}
           </button>
         </div>
       )}

@@ -160,6 +160,100 @@ test("error JSON from the Backend becomes ApiError", async () => {
   });
 });
 
+test("POST /auth/logout revokes the bearer token and accepts an empty body", async () => {
+  const seen: { url?: string; method?: string; authorization?: string | null } = {};
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async (input, init) => {
+      seen.url = String(input);
+      seen.method = init?.method;
+      seen.authorization = new Headers(init?.headers).get("authorization");
+      return new Response(null, { status: 204 });
+    },
+  });
+  await api.logout();
+  assert.equal(seen.url, "http://backend.test/auth/logout");
+  assert.equal(seen.method, "POST");
+  assert.equal(seen.authorization, "Bearer jwt-1");
+});
+
+test("GET /target-region maps 404 to an empty region", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => jsonResponse({ statusCode: 404, message: "Not found" }, 404),
+  });
+  assert.equal(await api.getTargetRegion(), null);
+});
+
+test("PUT /target-region and store revenue use the contract paths", async () => {
+  const calls: string[] = [];
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async (input, init) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/target-region")) {
+        return jsonResponse({
+          label: "München",
+          grain: "ags",
+          geoKey: "09162000",
+          ags: "09162000",
+          plz: null,
+          lon: 11.5,
+          lat: 48.1,
+          updatedAt: "2026-09-29T12:00:00.000Z",
+        });
+      }
+      if (url.endsWith("/stores") && init?.method === "POST") {
+        return jsonResponse(
+          {
+            id: "3",
+            label: "Nord",
+            street: "Weg 1",
+            postalCode: "80331",
+            city: "München",
+            countryCode: "DE",
+            lon: null,
+            lat: null,
+            createdAt: "2026-09-29T12:00:00.000Z",
+            updatedAt: "2026-09-29T12:00:00.000Z",
+          },
+          201,
+        );
+      }
+      if (url.endsWith("/revenue") && init?.method === "PUT") {
+        assert.deepEqual(JSON.parse(String(init?.body)), {
+          points: [{ year: 2026, month: 1, revenueEur: null }],
+        });
+        return jsonResponse({
+          points: [{ year: 2026, month: 1, revenueEur: null, updatedAt: "2026-09-29T12:00:00.000Z" }],
+        });
+      }
+      return jsonResponse({ statusCode: 500, message: url }, 500);
+    },
+  });
+
+  const region = await api.putTargetRegion({ label: "München", grain: "ags", geoKey: "09162000" });
+  assert.equal(region.label, "München");
+  const store = await api.createStore({
+    label: "Nord",
+    street: "Weg 1",
+    postalCode: "80331",
+    city: "München",
+    countryCode: "DE",
+  });
+  assert.equal(store.id, "3");
+  const points = await api.putStoreRevenue("3", [{ year: 2026, month: 1, revenueEur: null }]);
+  assert.equal(points[0]?.revenueEur, null);
+  assert.deepEqual(calls, [
+    "PUT http://backend.test/target-region",
+    "POST http://backend.test/stores",
+    "PUT http://backend.test/stores/3/revenue",
+  ]);
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
