@@ -1,5 +1,10 @@
 import type {
+  AnalysisInput,
+  AnalysisPatternResponse,
+  AnalysisRun,
   Credentials,
+  RecommendationCreate,
+  RecommendationSet,
   FeatureCollection,
   HealthResponse,
   MonthlyRevenuePoint,
@@ -16,7 +21,9 @@ import type { Session } from "./types";
  * UI-facing client. Methods follow OpenAPI operationIds:
  * `getHealth`, `searchPlaces`, `getLayer`, `login`, `register`, `logout`,
  * `getTargetRegion`, `putTargetRegion`, `listStores`, `createStore`,
- * `updateStore`, `deleteStore`, `listStoreRevenue`, `putStoreRevenue`.
+ * `updateStore`, `deleteStore`, `listStoreRevenue`, `putStoreRevenue`,
+ * `getAnalysisInput`, `createAnalysisRun`, `getAnalysisRun`, `getAnalysisPattern`,
+ * `getRecommendations`, `createRecommendations`.
  */
 export interface RuehrApi {
   health(): Promise<HealthResponse>;
@@ -33,4 +40,10 @@ export interface RuehrApi {
   deleteStore(id: string): Promise<void>;
   listStoreRevenue(id: string): Promise<MonthlyRevenuePoint[]>;
   putStoreRevenue(id: string, points: MonthlyRevenuePointWrite[]): Promise<MonthlyRevenuePoint[]>;
+  getAnalysisInput(): Promise<AnalysisInput>;
+  createAnalysisRun(): Promise<AnalysisRun>;
+  getAnalysisRun(id: string): Promise<AnalysisRun>;
+  getAnalysisPattern(): Promise<AnalysisPatternResponse | null>;
+  getRecommendations(): Promise<RecommendationSet | null>;
+  createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet>;
 }

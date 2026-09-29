@@ -1,12 +1,23 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import type {
+  AnalysisBrain,
+  AnalysisInput,
+  AnalysisPattern,
+  AnalysisPatternResponse,
+  AnalysisRun,
   Credentials,
+  CriterionDirection,
   ErrorResponse,
   FeatureCollection as ContractFeatureCollection,
   HealthResponse,
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
+  Recommendation,
+  RecommendationCreate,
+  RecommendationEvidence,
+  RecommendationSet,
+  RevenueDirection,
   SearchHit,
   SearchResponse,
   StoreList,
@@ -29,9 +40,8 @@ export interface HttpApiOptions {
 }
 
 export function apiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  const base = configured && configured.length > 0 ? configured : DEFAULT_API_BASE_URL;
-  return base.replace(/\/+$/, "");
+  if (env.NEXT_PUBLIC_API_BASE_URL === undefined) return DEFAULT_API_BASE_URL;
+  return env.NEXT_PUBLIC_API_BASE_URL.trim().replace(/\/+$/, "");
 }
 
 export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
@@ -182,6 +192,46 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       });
       return parseRevenueSeries(body);
     },
+
+    async getAnalysisInput(): Promise<AnalysisInput> {
+      const body = await request<AnalysisInput>("/analysis/input", { auth: true });
+      return parseAnalysisInput(body);
+    },
+
+    async createAnalysisRun(): Promise<AnalysisRun> {
+      const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
+      return parseAnalysisRun(body);
+    },
+
+    async getAnalysisRun(id: string): Promise<AnalysisRun> {
+      const body = await request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { auth: true });
+      return parseAnalysisRun(body);
+    },
+
+    async getAnalysisPattern(): Promise<AnalysisPatternResponse | null> {
+      const body = await request<AnalysisPatternResponse | null>("/analysis/pattern", {
+        auth: true,
+        nullOn404: true,
+      });
+      return body ? parseAnalysisPatternResponse(body) : null;
+    },
+
+    async getRecommendations(): Promise<RecommendationSet | null> {
+      const body = await request<RecommendationSet | null>("/recommendations", {
+        auth: true,
+        nullOn404: true,
+      });
+      return body ? parseRecommendationSet(body) : null;
+    },
+
+    async createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet> {
+      const created = await request<RecommendationSet>("/recommendations", {
+        method: "POST",
+        auth: true,
+        body: body?.runId ? JSON.stringify({ runId: body.runId }) : undefined,
+      });
+      return parseRecommendationSet(created);
+    },
   };
 }
 
@@ -270,12 +320,16 @@ export function toMapFeatureCollection(layer: ContractFeatureCollection): Featur
 }
 
 function buildUrl(baseUrl: string, path: string, query?: Record<string, string | undefined>): string {
-  const url = new URL(path.replace(/^\//, ""), `${baseUrl}/`);
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(baseUrl);
+  const url = absolute
+    ? new URL(path.replace(/^\//, ""), `${baseUrl}/`)
+    : new URL(`${baseUrl}${path.startsWith("/") ? path : `/${path}`}`, "http://same-origin.invalid");
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) url.searchParams.set(key, value);
     }
   }
+  if (!absolute) return `${url.pathname}${url.search}`;
   return url.toString();
 }
 
@@ -309,6 +363,182 @@ function parseHits(body: SearchResponse): SearchHit[] {
       lat: coords?.lat ?? null,
     };
   });
+}
+
+const REVENUE_DIRECTIONS = new Set<RevenueDirection>(["up", "down", "flat"]);
+const CRITERION_DIRECTIONS = new Set<CriterionDirection>(["up", "down", "flat", "unknown"]);
+const BRAIN_MODES = new Set<AnalysisBrain["mode"]>(["vector", "sql"]);
+const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason"]>>([
+  "embeddings_disabled",
+  "embeddings_unconfigured",
+  "embeddings_unreachable",
+  "embeddings_rejected",
+  "vector_query_failed",
+  "no_embeddings_in_region",
+  "features_unavailable",
+]);
+const PATTERN_SOURCES = new Set<AnalysisPattern["source"]>(["llm", "heuristic"]);
+
+function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"): AnalysisInput {
+  if (
+    !body ||
+    !body.region ||
+    typeof body.region.label !== "string" ||
+    typeof body.region.updatedAt !== "string" ||
+    !Array.isArray(body.stores) ||
+    !isRevenueDirection(body.revenueDirection) ||
+    typeof body.capturedAt !== "string"
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const store of body.stores) {
+    if (
+      !store ||
+      typeof store.id !== "string" ||
+      typeof store.street !== "string" ||
+      typeof store.postalCode !== "string" ||
+      typeof store.city !== "string" ||
+      !Array.isArray(store.points) ||
+      !Array.isArray(store.changes)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const point of store.points) {
+      if (
+        !point ||
+        typeof point.year !== "number" ||
+        typeof point.month !== "number" ||
+        !(point.revenueEur === null || typeof point.revenueEur === "number")
+      ) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
+  return body;
+}
+
+function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
+  const route = "/analysis/runs";
+  if (!body || typeof body.id !== "string" || body.status !== "completed" || typeof body.createdAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseAnalysisInput(body.input, route);
+  parseAnalysisBrain(body.brain, route);
+  parseAnalysisPattern(body.pattern, route);
+  return body;
+}
+
+function parseAnalysisBrain(body: AnalysisBrain, route: string): AnalysisBrain {
+  if (!body || !BRAIN_MODES.has(body.mode) || typeof body.factCount !== "number" || !Array.isArray(body.facts)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.vectorUnavailableReason != null && !BRAIN_REASONS.has(body.vectorUnavailableReason)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  return body;
+}
+
+function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPattern {
+  if (
+    !body ||
+    !PATTERN_SOURCES.has(body.source) ||
+    typeof body.summary !== "string" ||
+    !isRevenueDirection(body.revenueDirection) ||
+    !Array.isArray(body.criteria)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const criterion of body.criteria) {
+    if (
+      !criterion ||
+      typeof criterion.key !== "string" ||
+      typeof criterion.label !== "string" ||
+      typeof criterion.evidence !== "string" ||
+      !CRITERION_DIRECTIONS.has(criterion.direction)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+  }
+  return body;
+}
+
+function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPatternResponse {
+  if (!body || typeof body.runId !== "string" || typeof body.createdAt !== "string") {
+    throw new ApiError("Antwort von GET /analysis/pattern ist ungültig.", 502);
+  }
+  parseAnalysisPattern(body.pattern, "GET /analysis/pattern");
+  return body;
+}
+
+const MONTH_STAMP = /^[0-9]{4}-[0-9]{2}$/;
+
+function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
+  const route = "/recommendations";
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.runId !== "string" ||
+    typeof body.createdAt !== "string" ||
+    !body.window ||
+    !MONTH_STAMP.test(body.window.from) ||
+    !MONTH_STAMP.test(body.window.to) ||
+    typeof body.count !== "number" ||
+    !(body.reason === null || typeof body.reason === "string") ||
+    !Array.isArray(body.items) ||
+    body.items.length > 3 ||
+    body.count !== body.items.length
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseAnalysisPattern(body.pattern, route);
+  body.items.forEach((item) => parseRecommendation(item, route));
+  return body;
+}
+
+function parseRecommendation(body: Recommendation, route: string): Recommendation {
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.rank !== "number" ||
+    body.rank < 1 ||
+    body.rank > 3 ||
+    typeof body.title !== "string" ||
+    typeof body.score !== "number" ||
+    typeof body.rationale !== "string" ||
+    !PATTERN_SOURCES.has(body.source) ||
+    !Array.isArray(body.criteriaEvidence) ||
+    !body.location ||
+    typeof body.location.geoKey !== "string" ||
+    !isGrain(body.location.grain) ||
+    !isNullableNumber(body.location.lon) ||
+    !isNullableNumber(body.location.lat) ||
+    !(body.location.name === null || typeof body.location.name === "string")
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
+  return body;
+}
+
+function parseRecommendationEvidence(body: RecommendationEvidence, route: string): void {
+  if (
+    !body ||
+    typeof body.key !== "string" ||
+    typeof body.label !== "string" ||
+    typeof body.evidence !== "string" ||
+    !CRITERION_DIRECTIONS.has(body.direction) ||
+    !CRITERION_DIRECTIONS.has(body.patternDirection)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || typeof value === "number";
+}
+
+function isRevenueDirection(value: unknown): value is RevenueDirection {
+  return typeof value === "string" && REVENUE_DIRECTIONS.has(value as RevenueDirection);
 }
 
 function parseLayer(body: ContractFeatureCollection): ContractFeatureCollection {

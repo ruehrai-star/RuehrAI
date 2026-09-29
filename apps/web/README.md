@@ -6,7 +6,7 @@ Map, search, and Standort-Eingaben for Standortberatung. The UI calls the Backen
 
 Search, layers, and Standort-Eingaben send `Authorization: Bearer`. Anmelden and Registrieren store the JWT from `TokenResponse` in `sessionStorage` under `ruehrai.session`. **Abmelden** calls `POST /auth/logout` (revokes the token id) and then removes that record, returning to `/login`. If the revoke call fails, the browser token is still cleared.
 
-Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**.
+Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Musteranalyse**.
 
 ## Run against the Backend
 
@@ -30,8 +30,10 @@ Open http://localhost:3001.
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. `GET` returns 404 until one is saved. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |
+| Musteranalyse | `/musteranalyse` | `GET /analysis/input`, `POST /analysis/runs`, `GET /analysis/runs/{id}`, `GET /analysis/pattern`. The page shows the input summary, Brain-Suche status (`vector` or SQL filter), and the derived pattern (Kurzfassung). After a pattern exists, **Empfehlungen** opens the Top-3 page. It does not call oMLX. |
+| Empfehlungen | `/empfehlungen` | `GET /recommendations`, `POST /recommendations`. Shows **Top 3 in Ihrer Zielregion**, the pattern's Kurzkriterien, and cards with Rang, Adresse, Begründung, and Details. Fewer than three matches show the thin-region hint plus the Backend `reason`. |
 
-These calls use `@ruehrai/api-contracts` OpenAPI 0.2.0. There is no client fixture. A missing Backend shows an error, not Demo-Daten.
+These calls use [`@ruehrai/api-contracts`](../../packages/api-contracts/README.md) from this repo. There is no client fixture and no separate copy of the OpenAPI document. A missing Backend shows an error, not Demo-Daten.
 
 To point at another API:
 
@@ -40,6 +42,14 @@ NEXT_PUBLIC_API_BASE_URL=https://api.example.com pnpm --filter @ruehrai/web dev
 ```
 
 `NEXT_PUBLIC_*` is baked in at build time. Set it before `pnpm --filter @ruehrai/web build` for a deployed bundle.
+
+STAGE on the public edge `http://217.160.164.239` uses a same-origin base so the browser talks to nginx on Ubuntu, which proxies to Nest on Eule:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=/api
+```
+
+An empty value is also relative (requests go to the site root). Do not put a Tailscale address in `NEXT_PUBLIC_*`.
 
 `pnpm install` copies the MapLibre worker into `apps/web/public/maplibre` (gitignored). The map loads that file because the Next bundler does not expose the worker as a JavaScript module.
 

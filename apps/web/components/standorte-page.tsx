@@ -198,6 +198,11 @@ export function StandortePage() {
         <a href="#filialadressen">Filialadressen</a>
         <a href="#umsatz">Umsatz</a>
       </nav>
+      <div className="auth-actions">
+        <Link href="/musteranalyse" className="button">
+          Musteranalyse
+        </Link>
+      </div>
       {loading ? <p className="message">Standorte werden geladen …</p> : null}
       {loadError ? (
         <p className="message message-error" role="alert">
