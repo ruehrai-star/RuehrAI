@@ -15,13 +15,27 @@ export function pointFromGeometry(geometry: {
   return null;
 }
 
+/**
+ * Usable WGS84 pair. Finite numbers are kept. Numeric strings from JSON are
+ * kept too; null, blank, and non-numeric values are not a pin.
+ */
 export function coordinatesOf(value: {
-  lon?: number | null;
-  lat?: number | null;
+  lon?: unknown;
+  lat?: unknown;
 }): { lon: number; lat: number } | null {
-  if (typeof value.lon !== "number" || typeof value.lat !== "number") return null;
-  if (!Number.isFinite(value.lon) || !Number.isFinite(value.lat)) return null;
-  return { lon: value.lon, lat: value.lat };
+  const lon = finiteCoord(value.lon);
+  const lat = finiteCoord(value.lat);
+  if (lon === null || lat === null) return null;
+  return { lon, lat };
+}
+
+function finiteCoord(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function position(value: unknown): { lon: number; lat: number } | null {

@@ -34,7 +34,13 @@ test("padding, legend and pin colors stay distinct and readable", () => {
   assert.notEqual(PIN_COLOR, EMPFEHLUNG_COLOR);
   assert.notEqual(PIN_COLOR, REGION_FILL);
   assert.notEqual(EMPFEHLUNG_COLOR, REGION_FILL);
-  for (const label of [NO_STORES_LABEL, LEGEND_LABEL, "Empfehlung"]) {
+  for (const label of [
+    NO_STORES_LABEL,
+    LEGEND_LABEL,
+    "Empfehlung",
+    "1 Filialadresse ohne Koordinaten.",
+    "3 Filialadressen ohne Koordinaten. Deshalb erscheinen sie nicht auf der Karte.",
+  ]) {
     assert.doesNotMatch(label, /\b(pin|marker|store|target region|area)\b/i);
   }
 });
@@ -68,7 +74,7 @@ test("saved addresses become Stecknadeln with a German address popup", () => {
   }
 });
 
-test("addresses without coordinates are skipped and explained in German", () => {
+test("addresses without coordinates stay pinned when a pair exists and are not the empty state", () => {
   const stores = [
     store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 }),
     store({ id: "2", street: "Weg 2", lon: null, lat: null }),
@@ -77,17 +83,58 @@ test("addresses without coordinates are skipped and explained in German", () => 
     stores,
     region: null,
     recommendations: [],
-    addressesKnownEmpty: false,
+    addressesKnownEmpty: true,
   });
   assert.deepEqual(
     model.pins.map((pin) => pin.id),
     ["1"],
   );
-  assert.equal(coordinateGapLabel(stores), "Für 1 Filialadresse liegen keine Koordinaten vor.");
+  assert.equal(model.showEmptyAddresses, false);
+  assert.equal(model.coordinateGapLabel, "1 Filialadresse ohne Koordinaten.");
+  assert.notEqual(model.coordinateGapLabel, NO_STORES_LABEL);
+  assert.equal(model.camera.kind, "bounds");
+  assert.equal(coordinateGapLabel(stores), model.coordinateGapLabel);
+});
+
+test("saved addresses with no coordinates use the coordinate hint, not the empty copy", () => {
+  const model = buildKarte({
+    stores: [
+      store({ id: "1", street: "Weg 1", lon: null, lat: null }),
+      store({ id: "2", street: "Weg 2", lon: null, lat: null }),
+      store({ id: "3", street: "Weg 3", lon: null, lat: null }),
+    ],
+    region: null,
+    recommendations: [],
+    addressesKnownEmpty: true,
+  });
+  assert.equal(model.pins.length, 0);
+  assert.equal(model.showEmptyAddresses, false);
+  assert.equal(model.coordinateGapLabel, "3 Filialadressen ohne Koordinaten. Deshalb erscheinen sie nicht auf der Karte.");
   assert.equal(
-    coordinateGapLabel([stores[1]!, store({ id: "3", street: "Weg 3", lon: null, lat: null })]),
-    "Für 2 Filialadressen liegen keine Koordinaten vor.",
+    coordinateGapLabel([store({ id: "1", street: "Weg 1", lon: null, lat: null })]),
+    "1 Filialadresse ohne Koordinaten. Deshalb erscheint sie nicht auf der Karte.",
   );
+  assert.notEqual(model.coordinateGapLabel, NO_STORES_LABEL);
+  assert.equal(model.camera.kind, "germany");
+  assert.doesNotMatch(model.coordinateGapLabel ?? "", /\b(pin|marker|store|geocod)/i);
+});
+
+test("a numeric coordinate string is a pin and a blank pair is not", () => {
+  const model = buildKarte({
+    stores: [
+      store({ id: "1", street: "Weg 1", lon: "11.575" as unknown as number, lat: "48.137" as unknown as number }),
+      store({ id: "2", street: "Weg 2", lon: " " as unknown as number, lat: "" as unknown as number }),
+    ],
+    region: null,
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(model.pins.length, 1);
+  assert.equal(model.pins[0]?.id, "1");
+  assert.equal(model.pins[0]?.lon, 11.575);
+  assert.equal(model.pins[0]?.lat, 48.137);
+  assert.equal(model.showEmptyAddresses, false);
+  assert.equal(model.coordinateGapLabel, "1 Filialadresse ohne Koordinaten.");
 });
 
 test("no saved addresses use the empty label and the Germany overview", () => {

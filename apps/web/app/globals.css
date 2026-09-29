@@ -451,20 +451,12 @@ input {
 
 .map-empty,
 .map-gap {
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-}
-
-.map-empty {
   top: 14px;
+  left: 50%;
+  max-width: min(36rem, calc(100% - 32px));
+  transform: translateX(-50%);
   font-weight: 650;
-}
-
-.map-gap {
-  top: 58px;
-  color: var(--ink-soft);
-  font-size: 13px;
+  text-align: center;
 }
 
 .map-legend {
