@@ -116,7 +116,7 @@ export function EmpfehlungenPage() {
           {actionError}
         </p>
       ) : null}
-      {visible && !visibleSet && phase !== "failed" ? <p className="message">{RECOMMENDATION_COPY.noneYet}</p> : null}
+      {visible && !visibleSet && phase === "idle" ? <p className="message">{RECOMMENDATION_COPY.noneYet}</p> : null}
 
       <div className="auth-actions">
         <button type="button" className="button" onClick={onCreate} disabled={phase === "loading" || phase === "running"}>
