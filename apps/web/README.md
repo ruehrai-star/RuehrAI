@@ -6,7 +6,7 @@ Map, search, and Standort-Eingaben for Standortberatung. The UI calls the Backen
 
 Search, layers, and Standort-Eingaben send `Authorization: Bearer`. Anmelden and Registrieren store the JWT from `TokenResponse` in `sessionStorage` under `ruehrai.session`. **Abmelden** calls `POST /auth/logout` (revokes the token id) and then removes that record, returning to `/login`. If the revoke call fails, the browser token is still cleared.
 
-Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Musteranalyse**.
+Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Musteranalyse**, **Zielregion**, **Noch keine Filialadressen**.
 
 ## Run against the Backend
 
@@ -26,7 +26,7 @@ Open http://localhost:3001.
 | Registrieren | `/register` | `POST /auth/register` (201, JWT). The map opens signed in. |
 | Anmelden | `/login` | `POST /auth/login`. Invalid credentials stay on the form with an error. |
 | Abmelden | header | Clears `sessionStorage` and opens `/login`. |
-| Karte + Suche | `/` | `GET /layers/demo-gemeinden` (default layer) and `GET /search`. |
+| Karte + Suche | `/` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. Saved Filialadressen with `lon`/`lat` are Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion is a translucent fill when `geometry` or `bounds` is on the region. The first view, and later data changes, fit addresses and the region (48px padding). An empty pair stays on a Germany overview. |
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. `GET` returns 404 until one is saved. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |

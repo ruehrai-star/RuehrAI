@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection } from "geojson";
+import type { Recommendation, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import {
   ApiError,
   coordinatesOf,
@@ -12,6 +13,14 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { grainLabel } from "@/lib/format";
+import {
+  LEGEND_LABEL,
+  NO_STORES_LABEL,
+  REGION_FILL,
+  REGION_LINE,
+  buildKarte,
+} from "@/lib/map/karte";
+import { errorText } from "@/lib/user-message";
 import { SearchPanel } from "./search-panel";
 import { useSession } from "./session-provider";
 
@@ -19,6 +28,8 @@ const MapView = dynamic(() => import("./map-view").then((mod) => mod.MapView), {
   ssr: false,
   loading: () => <div className="map-status">Karte wird geladen …</div>,
 });
+
+const EMPTY_LAYER: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export function MapPage() {
   const { session } = useSession();
@@ -32,6 +43,14 @@ export function MapPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selection, setSelection] = useState<SearchHit | null>(null);
   const [fitNonce, setFitNonce] = useState(0);
+  const [snapshot, setSnapshot] = useState<{
+    token: string;
+    stores: StoreLocation[] | null;
+    region: TargetRegion | null;
+    recommendations: Recommendation[];
+    error: string | null;
+    ready: boolean;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,8 +75,7 @@ export function MapPage() {
       .getLayer(DEFAULT_LAYER_ID)
       .then((collection) => {
         if (cancelled) return;
-        const mapLayer = toMapFeatureCollection(collection);
-        setLayer(mapLayer);
+        setLayer(toMapFeatureCollection(collection));
         setLayerName(collection.name ?? DEFAULT_LAYER_ID);
         setLayerError(null);
       })
@@ -69,6 +87,56 @@ export function MapPage() {
       });
     return () => {
       cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    const token = session?.accessToken;
+    if (!token) return;
+
+    let cancelled = false;
+    let request = 0;
+
+    const load = () => {
+      const current = ++request;
+      const api = getApi();
+      Promise.all([
+        api.listStores(),
+        api.getTargetRegion(),
+        api.getRecommendations().catch(() => null),
+      ])
+        .then(([nextStores, nextRegion, nextRecommendations]) => {
+          if (cancelled || current !== request) return;
+          setSnapshot({
+            token,
+            stores: nextStores,
+            region: nextRegion,
+            recommendations: nextRecommendations?.items ?? [],
+            error: null,
+            ready: true,
+          });
+        })
+        .catch((error: unknown) => {
+          if (cancelled || current !== request) return;
+          setSnapshot({
+            token,
+            stores: null,
+            region: null,
+            recommendations: [],
+            error: errorText(error, "Filialadressen konnten nicht geladen werden."),
+            ready: true,
+          });
+        });
+    };
+
+    load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [session]);
 
@@ -109,11 +177,24 @@ export function MapPage() {
     };
   }, [query]);
 
+  const mine = snapshot && session?.accessToken === snapshot.token ? snapshot : null;
+  const karte = useMemo(
+    () =>
+      buildKarte({
+        stores: mine?.stores ?? [],
+        region: mine?.region ?? null,
+        recommendations: mine?.recommendations ?? [],
+        addressesKnownEmpty: Boolean(mine?.ready && mine.stores && mine.stores.length === 0),
+      }),
+    [mine],
+  );
+
   const selectionPoint = selection ? coordinatesOf(selection) : null;
   const trimmedQuery = query.trim();
   const queryActive = trimmedQuery.length >= 2;
   const searching = queryActive && resultQuery !== trimmedQuery;
   const visibleResults = queryActive && resultQuery === trimmedQuery ? results : [];
+  const cameraKey = !session || mine?.ready ? karte.cameraKey : null;
 
   function fitLayer() {
     setSelection(null);
@@ -135,11 +216,39 @@ export function MapPage() {
         layerStatus={layerStatus}
       />
       <div className="map-stage">
-        {visibleLayer ? (
-          <MapView layer={visibleLayer} selection={selection} onSelect={setSelection} fitNonce={fitNonce} />
-        ) : (
-          <div className="map-status">{layerStatus}</div>
-        )}
+        <MapView
+          layer={visibleLayer ?? EMPTY_LAYER}
+          selection={selection}
+          onSelect={setSelection}
+          fitNonce={fitNonce}
+          pins={karte.pins}
+          empfehlungen={karte.empfehlungen}
+          region={karte.region}
+          cameraKey={cameraKey}
+          camera={karte.camera}
+          markerKey={karte.markerKey}
+          regionKey={karte.regionKey}
+        />
+        {karte.showEmptyAddresses ? (
+          <p className="map-empty" role="status">
+            {NO_STORES_LABEL}
+          </p>
+        ) : null}
+        {karte.coordinateGapLabel ? (
+          <p className="map-gap" role="status">
+            {karte.coordinateGapLabel}
+          </p>
+        ) : null}
+        {mine?.error ? <p className="message message-error map-banner">{mine.error}</p> : null}
+        {karte.showLegend ? (
+          <div className="map-legend">
+            <span
+              className="legend-swatch"
+              style={{ backgroundColor: REGION_FILL, borderColor: REGION_LINE }}
+            />
+            <span>{LEGEND_LABEL}</span>
+          </div>
+        ) : null}
         {selection ? (
           <div className="callout">
             <span className="badge">{grainLabel(selection.grain)}</span>

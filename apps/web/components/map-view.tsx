@@ -5,14 +5,29 @@ import {
   GeoJSONSource,
   LngLatBounds,
   Map,
+  Marker,
+  Popup,
   type MapGeoJSONFeature,
   NavigationControl,
   ScaleControl,
   setWorkerUrl,
 } from "maplibre-gl";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { coordinatesOf, isGrain, type SearchHit } from "@/lib/api";
 import { zoomForGrain } from "@/lib/format";
+import {
+  EMPFEHLUNG_COLOR,
+  FIT_MAX_ZOOM,
+  FIT_PADDING_PX,
+  GERMANY_VIEW,
+  PIN_COLOR,
+  REGION_FILL,
+  REGION_FILL_OPACITY,
+  REGION_LINE,
+  type EmpfehlungPin,
+  type MapCamera,
+  type StorePin,
+} from "@/lib/map/karte";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
@@ -24,6 +39,14 @@ interface MapViewProps {
   selection: SearchHit | null;
   onSelect: (hit: SearchHit) => void;
   fitNonce: number;
+  pins: StorePin[];
+  empfehlungen: EmpfehlungPin[];
+  region: FeatureCollection;
+  /** Null while Filialadressen and the Zielregion are still loading. */
+  cameraKey: string | null;
+  camera: MapCamera;
+  markerKey: string;
+  regionKey: string;
 }
 
 function walkPositions(coordinates: unknown, visit: (position: Position) => void): void {
@@ -99,13 +122,124 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) {
+function addressLines(primary: string, secondary: string): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "pin-popup";
+  const title = document.createElement("strong");
+  title.textContent = primary;
+  const place = document.createElement("span");
+  place.textContent = secondary;
+  root.append(title, place);
+  return root;
+}
+
+function germanPopup(primary: string, secondary: string): Popup {
+  const popup = new Popup({ offset: 18, closeButton: true, maxWidth: "260px" }).setDOMContent(
+    addressLines(primary, secondary),
+  );
+  popup.on("open", () => {
+    popup.getElement()?.querySelector(".maplibregl-popup-close-button")?.setAttribute("aria-label", "Schließen");
+  });
+  return popup;
+}
+
+function storeButton(pin: StorePin): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "steckadel";
+  button.setAttribute("aria-label", pin.ariaLabel);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 36");
+  svg.setAttribute("width", "24");
+  svg.setAttribute("height", "36");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 12 18.6 0 12 0z");
+  path.setAttribute("fill", PIN_COLOR);
+  path.setAttribute("stroke", "#fffaf3");
+  path.setAttribute("stroke-width", "1.5");
+  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  circle.setAttribute("cx", "12");
+  circle.setAttribute("cy", "12");
+  circle.setAttribute("r", "4.5");
+  circle.setAttribute("fill", "#fffaf3");
+  svg.append(path, circle);
+  button.append(svg);
+  return button;
+}
+
+function empfehlungButton(pin: EmpfehlungPin): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "empfehlung-punkt";
+  button.setAttribute("aria-label", pin.ariaLabel);
+  button.style.borderColor = EMPFEHLUNG_COLOR;
+  button.style.boxShadow = "0 0 0 3px rgba(216, 90, 42, 0.35)";
+  return button;
+}
+
+function addStorePin(map: Map, pin: StorePin): Marker {
+  return new Marker({ element: storeButton(pin), anchor: "bottom" })
+    .setLngLat([pin.lon, pin.lat])
+    .setPopup(germanPopup(pin.street, pin.place))
+    .addTo(map);
+}
+
+function addEmpfehlungPin(map: Map, pin: EmpfehlungPin): Marker {
+  return new Marker({ element: empfehlungButton(pin), anchor: "center" })
+    .setLngLat([pin.lon, pin.lat])
+    .setPopup(germanPopup(pin.title, "Empfehlung"))
+    .addTo(map);
+}
+
+function applyCamera(map: Map, camera: MapCamera, animate: boolean): void {
+  const duration = animate && !prefersReducedMotion() ? 700 : 0;
+  if (camera.kind === "germany") {
+    const view = {
+      center: [GERMANY_VIEW.lon, GERMANY_VIEW.lat] as [number, number],
+      zoom: GERMANY_VIEW.zoom,
+    };
+    if (duration === 0) map.jumpTo(view);
+    else map.easeTo({ ...view, duration, essential: true });
+    return;
+  }
+  const { west, south, east, north } = camera.bounds;
+  map.fitBounds(
+    [
+      [west, south],
+      [east, north],
+    ],
+    { padding: FIT_PADDING_PX, maxZoom: FIT_MAX_ZOOM, duration },
+  );
+}
+
+export function MapView({
+  layer,
+  selection,
+  onSelect,
+  fitNonce,
+  pins,
+  empfehlungen,
+  region,
+  cameraKey,
+  camera,
+  markerKey,
+  regionKey,
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
+  const markersRef = useRef<Marker[]>([]);
   const selectionRef = useRef(selection);
   const selectedFeatureId = useRef<string | number | null>(null);
   const onSelectRef = useRef(onSelect);
-  const readyRef = useRef(false);
+  const layerRef = useRef(layer);
+  const regionRef = useRef(region);
+  const pinsRef = useRef(pins);
+  const empfehlungenRef = useRef(empfehlungen);
+  const cameraRef = useRef(camera);
+  const cameraKeyRef = useRef(cameraKey);
+  const appliedCamera = useRef<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -114,6 +248,15 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  useEffect(() => {
+    layerRef.current = layer;
+    regionRef.current = region;
+    pinsRef.current = pins;
+    empfehlungenRef.current = empfehlungen;
+    cameraRef.current = camera;
+    cameraKeyRef.current = cameraKey;
+  }, [layer, region, pins, empfehlungen, camera, cameraKey]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -127,8 +270,8 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
     const map = new Map({
       container,
       style: BASEMAP_STYLE,
-      center: [10.4, 51.1],
-      zoom: 5.2,
+      center: [GERMANY_VIEW.lon, GERMANY_VIEW.lat],
+      zoom: GERMANY_VIEW.zoom,
     });
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
@@ -141,55 +284,27 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
     map.on("load", () => {
       map.addSource("layer", {
         type: "geojson",
-        data: layer,
+        data: layerRef.current,
         promoteId: "id",
       });
       map.addLayer({
         id: "layer-fill",
         type: "fill",
         source: "layer",
-        filter: [
-          "any",
-          ["==", ["geometry-type"], "Polygon"],
-          ["==", ["geometry-type"], "MultiPolygon"],
-        ],
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
-          "fill-color": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            "#d85a2a",
-            "#1f7a72",
-          ],
-          "fill-opacity": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            0.72,
-            0.48,
-          ],
+          "fill-color": ["case", ["boolean", ["feature-state", "selected"], false], "#d85a2a", "#1f7a72"],
+          "fill-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.72, 0.48],
         },
       });
       map.addLayer({
         id: "layer-line",
         type: "line",
         source: "layer",
-        filter: [
-          "any",
-          ["==", ["geometry-type"], "Polygon"],
-          ["==", ["geometry-type"], "MultiPolygon"],
-        ],
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
-          "line-color": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            "#8a3414",
-            "#143f3c",
-          ],
-          "line-width": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            2.5,
-            1,
-          ],
+          "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#8a3414", "#143f3c"],
+          "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 2.5, 1],
         },
       });
       map.addLayer({
@@ -198,20 +313,31 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
         source: "layer",
         filter: ["==", ["geometry-type"], "Point"],
         paint: {
-          "circle-radius": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            9,
-            6,
-          ],
-          "circle-color": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            "#d85a2a",
-            "#1f7a72",
-          ],
+          "circle-radius": ["case", ["boolean", ["feature-state", "selected"], false], 9, 6],
+          "circle-color": ["case", ["boolean", ["feature-state", "selected"], false], "#d85a2a", "#1f7a72"],
           "circle-stroke-width": 2,
           "circle-stroke-color": "#fffaf3",
+        },
+      });
+      map.addSource("zielregion", { type: "geojson", data: regionRef.current });
+      map.addLayer({
+        id: "zielregion-fill",
+        type: "fill",
+        source: "zielregion",
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "fill-color": REGION_FILL,
+          "fill-opacity": REGION_FILL_OPACITY,
+        },
+      });
+      map.addLayer({
+        id: "zielregion-line",
+        type: "line",
+        source: "zielregion",
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "line-color": REGION_LINE,
+          "line-width": 2,
         },
       });
       map.addSource("selection", { type: "geojson", data: EMPTY });
@@ -243,38 +369,75 @@ export function MapView({ layer, selection, onSelect, fitNonce }: MapViewProps) 
         });
       }
 
-      readyRef.current = true;
-      const bounds = boundsOf(layer);
-      if (bounds) {
-        map.fitBounds(bounds, { padding: 72, maxZoom: 15.5, duration: 0 });
-      }
       applySelection(map, selectionRef.current, selectedFeatureId, false);
+      if (cameraKeyRef.current != null) {
+        appliedCamera.current = cameraKeyRef.current;
+        applyCamera(map, cameraRef.current, false);
+      }
+      setMapReady(true);
     });
 
     mapRef.current = map;
     return () => {
-      readyRef.current = false;
+      setMapReady(false);
+      appliedCamera.current = null;
+      for (const marker of markersRef.current) marker.remove();
+      markersRef.current = [];
       resize.disconnect();
       map.remove();
       mapRef.current = null;
       selectedFeatureId.current = null;
     };
-  }, [layer]);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !readyRef.current) return;
+    if (!map || !mapReady) return;
+    const source = map.getSource("layer");
+    if (source && "setData" in source) (source as GeoJSONSource).setData(layer);
+    applySelection(map, selectionRef.current, selectedFeatureId, false);
+  }, [layer, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const source = map.getSource("zielregion");
+    if (source && "setData" in source) (source as GeoJSONSource).setData(region);
+  }, [region, regionKey, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    for (const marker of markersRef.current) marker.remove();
+    markersRef.current = [
+      ...pinsRef.current.map((pin) => addStorePin(map, pin)),
+      ...empfehlungenRef.current.map((pin) => addEmpfehlungPin(map, pin)),
+    ];
+  }, [markerKey, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || cameraKey == null) return;
+    if (appliedCamera.current === cameraKey) return;
+    const animate = appliedCamera.current != null;
+    appliedCamera.current = cameraKey;
+    applyCamera(map, camera, animate);
+  }, [camera, cameraKey, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
     applySelection(map, selection, selectedFeatureId, true);
-  }, [selection]);
+  }, [selection, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !readyRef.current || fitNonce === 0) return;
+    if (!map || !mapReady || fitNonce === 0) return;
     const bounds = boundsOf(layer);
     if (!bounds) return;
     const duration = prefersReducedMotion() ? 0 : 700;
-    map.fitBounds(bounds, { padding: 72, maxZoom: 15.5, duration });
-  }, [fitNonce, layer]);
+    map.fitBounds(bounds, { padding: 72, maxZoom: FIT_MAX_ZOOM, duration });
+  }, [fitNonce, layer, mapReady]);
 
   return <div ref={containerRef} className="map-canvas" />;
 }
@@ -301,13 +464,13 @@ function applySelection(
   map.setFeatureState({ source: "layer", id: selection.id }, { selected: true });
   selectedFeatureId.current = selection.id;
 
-  const camera = {
+  const view = {
     center: [point.lon, point.lat] as [number, number],
     zoom: zoomForGrain(selection.grain),
   };
   if (!animate || prefersReducedMotion()) {
-    map.jumpTo(camera);
+    map.jumpTo(view);
   } else {
-    map.flyTo({ ...camera, essential: true });
+    map.flyTo({ ...view, essential: true });
   }
 }
