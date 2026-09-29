@@ -23,9 +23,15 @@ test("revenue input treats empty as missing and zero as a value", () => {
   assert.equal(parseRevenueInput("0"), 0);
   assert.equal(parseRevenueInput("12,50"), 12.5);
   assert.equal(parseRevenueInput("1.234,50"), 1234.5);
+  assert.equal(parseRevenueInput("5.000"), 5000);
+  assert.equal(parseRevenueInput("5.000,50"), 5000.5);
+  assert.equal(parseRevenueInput("5000"), 5000);
+  assert.equal(parseRevenueInput("5000,5"), 5000.5);
   assert.equal(parseRevenueInput("12.345"), 12345);
   assert.equal(parseRevenueInput("1.234.567,89"), 1234567.89);
   assert.equal(parseRevenueInput("-1"), "invalid");
+  assert.equal(parseRevenueInput("abc"), "invalid");
+  assert.equal(parseRevenueInput("5.000,50,1"), "invalid");
   assert.equal(parseRevenueInput("12,345"), "invalid");
   assert.equal(parseRevenueInput("12.34"), "invalid");
 });
