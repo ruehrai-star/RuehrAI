@@ -4,6 +4,7 @@ import {
   draftsForPoints,
   formatMonthName,
   formatMonthNumber,
+  formatRevenueInput,
   parseRevenueInput,
   revenueYears,
   rowsForYear,
@@ -22,8 +23,37 @@ test("revenue input treats empty as missing and zero as a value", () => {
   assert.equal(parseRevenueInput("0"), 0);
   assert.equal(parseRevenueInput("12,50"), 12.5);
   assert.equal(parseRevenueInput("1.234,50"), 1234.5);
+  assert.equal(parseRevenueInput("5.000"), 5000);
+  assert.equal(parseRevenueInput("5.000,50"), 5000.5);
+  assert.equal(parseRevenueInput("5000"), 5000);
+  assert.equal(parseRevenueInput("5000,5"), 5000.5);
+  assert.equal(parseRevenueInput("12.345"), 12345);
+  assert.equal(parseRevenueInput("1.234.567,89"), 1234567.89);
   assert.equal(parseRevenueInput("-1"), "invalid");
-  assert.equal(parseRevenueInput("12.345"), "invalid");
+  assert.equal(parseRevenueInput("abc"), "invalid");
+  assert.equal(parseRevenueInput("5.000,50,1"), "invalid");
+  assert.equal(parseRevenueInput("12,345"), "invalid");
+  assert.equal(parseRevenueInput("12.34"), "invalid");
+});
+
+test("revenue display formatting round-trips German thousands separators", () => {
+  assert.equal(formatRevenueInput(5000), "5.000");
+  assert.equal(parseRevenueInput("5.000"), 5000);
+  assert.equal(parseRevenueInput(formatRevenueInput(5000)), 5000);
+  const parsed = parseRevenueInput("5.000");
+  assert.equal(typeof parsed === "number" ? formatRevenueInput(parsed) : parsed, "5.000");
+  assert.equal(formatRevenueInput(1234.5), "1.234,5");
+  assert.equal(parseRevenueInput(formatRevenueInput(1234.5)), 1234.5);
+});
+
+test("formatted saved revenue stays valid in the year grid", () => {
+  const saved = [{ year: 2026, month: 1, revenueEur: 5000, updatedAt: "2026-02-01T00:00:00.000Z" }];
+  const drafts = draftsForPoints(saved);
+  assert.equal(drafts["2026-01"], "5.000");
+  const rows = rowsForYear(2026, saved, drafts);
+  assert.equal(rows[0]?.invalid, false);
+  assert.equal(rows[0]?.missing, false);
+  assert.equal(rows[0]?.revenueEur, 5000);
 });
 
 test("a year grid marks gaps, keeps zero, and shows Jahr plus Monat", () => {
