@@ -39,9 +39,13 @@ export interface HttpApiOptions {
   getAccessToken?: () => string | null;
 }
 
-export function apiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.NEXT_PUBLIC_API_BASE_URL === undefined) return DEFAULT_API_BASE_URL;
-  return env.NEXT_PUBLIC_API_BASE_URL.trim().replace(/\/+$/, "");
+// Next.js inlines NEXT_PUBLIC_* only for a static `process.env.NEXT_PUBLIC_*`
+// member. Reading the value off a passed-in `process.env` object stays
+// undefined in the client bundle and falls back to the localhost default.
+export function apiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (configured === undefined) return DEFAULT_API_BASE_URL;
+  return configured.trim().replace(/\/+$/, "");
 }
 
 export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
