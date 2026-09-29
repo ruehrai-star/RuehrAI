@@ -163,7 +163,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the signed-in user's store addresses */
+        /**
+         * List the signed-in user's store addresses
+         * @description A read persists `lon`/`lat` when the stored pair is null, or when an
+         *     address match in Data-Scout replaces a pin that still sits on a PLZ
+         *     centroid. An explicit pair is returned unchanged. Resolution order is
+         *     the same as create.
+         */
         get: operations["listStores"];
         put?: never;
         /**
@@ -171,11 +177,21 @@ export interface paths {
          * @description German address (`postalCode` is PLZ5, `countryCode` is `DE`).
          *     `street` includes the house number. `lon` and `lat` are WGS84
          *     (EPSG:4326) for the map pin. Send both or neither. When both are
-         *     omitted, the API sets them to the PLZ centroid from `app.search_places`
-         *     (seed or loaded catalog), then a Point in `app.map_features` with that
-         *     PLZ. They stay null only when that postal code has no catalog point.
-         *     No external geocoder is called. The same fill runs on update and on
-         *     read when a stored row still has no coordinates.
+         *     omitted, resolution order is:
+         *
+         *     1. Data-Scout `geo_ref_address` (`strasse` + `hnr` parsed from `street`,
+         *        plus `plz`). Berlin OSM coverage. This is the house-number pin.
+         *     2. Data-Scout `geo_ref_plz` centroid when the address misses or the
+         *        postal code is outside that table.
+         *     3. PLZ centroid from `app.search_places`, then a Point in
+         *        `app.map_features` with that PLZ.
+         *
+         *     Steps 1 and 2 run only when `DATASCOUT_DATABASE_URL` is set and the
+         *     read succeeds. Otherwise the API uses step 3. Coordinates stay null
+         *     only when none of the steps hit. No external geocoder is called.
+         *     Update uses the same order. A read persists a filled null pair, and
+         *     replaces a stored PLZ centroid when step 1 hits. An explicit pair
+         *     sent on create or update is stored unchanged.
          */
         post: operations["createStore"];
         delete?: never;
@@ -201,8 +217,10 @@ export interface paths {
         get: operations["getStore"];
         /**
          * Replace a store address
-         * @description Same coordinate rule as create: omit `lon` and `lat` together to fill
-         *     the PLZ centroid, or send both to keep an explicit WGS84 pin.
+         * @description Same coordinate rule as create. Omit `lon` and `lat` together to
+         *     resolve Data-Scout `geo_ref_address`, then `geo_ref_plz`, then the
+         *     `app.search_places` / `app.map_features` PLZ stub. Send both to keep
+         *     an explicit WGS84 pin.
          */
         put: operations["updateStore"];
         post?: never;
@@ -639,14 +657,16 @@ export interface components {
             countryCode: "DE";
             /**
              * Format: double
-             * @description WGS84 longitude for the map pin. Filled from the PLZ centroid when
-             *     a write omits both coordinates and the catalog has that postal code.
+             * @description WGS84 longitude for the map pin. Resolved, when a write omits both
+             *     coordinates, from Data-Scout `geo_ref_address`, then `geo_ref_plz`,
+             *     then the PLZ stub in `app.search_places` or `app.map_features`.
              */
             lon?: number | null;
             /**
              * Format: double
-             * @description WGS84 latitude for the map pin. Filled from the PLZ centroid when
-             *     a write omits both coordinates and the catalog has that postal code.
+             * @description WGS84 latitude for the map pin. Resolved, when a write omits both
+             *     coordinates, from Data-Scout `geo_ref_address`, then `geo_ref_plz`,
+             *     then the PLZ stub in `app.search_places` or `app.map_features`.
              */
             lat?: number | null;
             /** Format: date-time */
@@ -666,12 +686,14 @@ export interface components {
             countryCode: "DE";
             /**
              * Format: double
-             * @description WGS84 longitude. Omit together with `lat` to fill from the PLZ centroid.
+             * @description WGS84 longitude. Omit together with `lat` to resolve
+             *     `geo_ref_address`, then `geo_ref_plz`, then the PLZ stub.
              */
             lon?: number | null;
             /**
              * Format: double
-             * @description WGS84 latitude. Omit together with `lon` to fill from the PLZ centroid.
+             * @description WGS84 latitude. Omit together with `lon` to resolve
+             *     `geo_ref_address`, then `geo_ref_plz`, then the PLZ stub.
              */
             lat?: number | null;
         };

@@ -10,7 +10,8 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "test": "jest",
-    "db:migrate": "tsx src/database/migrate.ts"
+    "db:migrate": "tsx src/database/migrate.ts",
+    "store-pins:backfill": "tsx src/stores/backfill-store-pins.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
