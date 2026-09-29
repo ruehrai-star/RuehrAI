@@ -43,6 +43,14 @@ NEXT_PUBLIC_API_BASE_URL=https://api.example.com pnpm --filter @ruehrai/web dev
 
 `NEXT_PUBLIC_*` is baked in at build time. Set it before `pnpm --filter @ruehrai/web build` for a deployed bundle.
 
+STAGE on the public edge `http://217.160.164.239` uses a same-origin base so the browser talks to nginx on Ubuntu, which proxies to Nest on Eule:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=/api
+```
+
+An empty value is also relative (requests go to the site root). Do not put a Tailscale address in `NEXT_PUBLIC_*`.
+
 `pnpm install` copies the MapLibre worker into `apps/web/public/maplibre` (gitignored). The map loads that file because the Next bundler does not expose the worker as a JavaScript module.
 
 ## Checks

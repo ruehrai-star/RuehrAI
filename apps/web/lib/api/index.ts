@@ -7,6 +7,7 @@ export const DEFAULT_LAYER_ID = "demo-gemeinden";
 /**
  * HTTP client for the Backend described by `@ruehrai/api-contracts`.
  * Base URL: `NEXT_PUBLIC_API_BASE_URL`, default `http://localhost:3000`.
+ * A relative value such as `/api` stays on the page origin.
  */
 export function createRuehrApi(): RuehrApi {
   return createHttpApi({

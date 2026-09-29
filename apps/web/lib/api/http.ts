@@ -40,9 +40,8 @@ export interface HttpApiOptions {
 }
 
 export function apiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  const base = configured && configured.length > 0 ? configured : DEFAULT_API_BASE_URL;
-  return base.replace(/\/+$/, "");
+  if (env.NEXT_PUBLIC_API_BASE_URL === undefined) return DEFAULT_API_BASE_URL;
+  return env.NEXT_PUBLIC_API_BASE_URL.trim().replace(/\/+$/, "");
 }
 
 export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
@@ -321,12 +320,16 @@ export function toMapFeatureCollection(layer: ContractFeatureCollection): Featur
 }
 
 function buildUrl(baseUrl: string, path: string, query?: Record<string, string | undefined>): string {
-  const url = new URL(path.replace(/^\//, ""), `${baseUrl}/`);
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(baseUrl);
+  const url = absolute
+    ? new URL(path.replace(/^\//, ""), `${baseUrl}/`)
+    : new URL(`${baseUrl}${path.startsWith("/") ? path : `/${path}`}`, "http://same-origin.invalid");
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) url.searchParams.set(key, value);
     }
   }
+  if (!absolute) return `${url.pathname}${url.search}`;
   return url.toString();
 }
 

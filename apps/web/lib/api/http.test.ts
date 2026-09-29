@@ -11,6 +11,22 @@ test("api base URL defaults to the Backend local port and strips a trailing slas
   );
 });
 
+test("a same-origin STAGE base stays a relative /api path", async () => {
+  assert.equal(apiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "/api/" } as NodeJS.ProcessEnv), "/api");
+  assert.equal(apiBaseUrl({ NEXT_PUBLIC_API_BASE_URL: "" } as NodeJS.ProcessEnv), "");
+  const seen: string[] = [];
+  const api = createHttpApi({
+    baseUrl: "/api",
+    getAccessToken: () => "jwt-1",
+    fetch: async (input) => {
+      seen.push(String(input));
+      return jsonResponse({ id: "1", runId: "2", createdAt: "2026-09-29T12:00:00.000Z", window: { from: "2026-04", to: "2026-09" }, count: 0, reason: null, pattern: { source: "heuristic", summary: "Kurz", revenueDirection: "flat", criteria: [] }, items: [] });
+    },
+  });
+  await api.getRecommendations();
+  assert.equal(seen[0], "/api/recommendations");
+});
+
 test("GET /search sends q and the bearer token", async () => {
   const seen: { url?: string; authorization?: string } = {};
   const api = createHttpApi({
