@@ -1,9 +1,9 @@
 import { PoolConfig } from "pg";
 
 /**
- * Defaults for Nest on Eule talking to Brain Postgres.
- * A 5s connect timeout was short enough for a loaded Brain to abort checkout
- * with "Connection terminated due to connection timeout".
+ * Defaults when the pool env vars are unset.
+ * Longer connect timeout and TCP keepalive only soften a dropped socket.
+ * They do not grant Postgres.app trust or change `pg_hba`.
  */
 export const PG_POOL_DEFAULTS = {
   max: 10,
