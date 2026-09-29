@@ -1,4 +1,4 @@
-function readCode(error: unknown): string | undefined {
+function pgErrorCode(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
     return undefined;
   }
@@ -6,44 +6,63 @@ function readCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-/** SQLSTATE on the error, or on `cause` when a driver wraps the pg error. */
-function pgErrorCode(error: unknown): string | undefined {
-  return readCode(error) ?? readCode(causeOf(error));
-}
+const TRANSIENT_NODE_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
+
+/** Postgres shutdown / cannot-connect-now. Not a bad request. */
+const TRANSIENT_PG_CODES = new Set(["57P01", "57P02", "57P03"]);
 
 function causeOf(error: unknown): unknown {
   if (typeof error !== "object" || error === null || !("cause" in error)) return undefined;
   return (error as { cause: unknown }).cause;
 }
 
-function pgRecord(error: unknown): Record<string, unknown> | undefined {
-  const direct = readCode(error);
-  if (direct && typeof error === "object" && error !== null) {
-    return error as Record<string, unknown>;
-  }
-  const cause = causeOf(error);
-  if (readCode(cause) && typeof cause === "object" && cause !== null) {
-    return cause as Record<string, unknown>;
-  }
-  return undefined;
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error !== "object" || error === null || !("message" in error)) return "";
+  const message = (error as { message: unknown }).message;
+  return typeof message === "string" ? message : "";
 }
 
-/** SQLSTATE and constraint identifiers. Omits `detail`, which can contain the row. */
-export function pgErrorSummary(error: unknown): string {
-  const record = pgRecord(error);
-  if (!record) return "no sqlstate";
-  const parts = ["code", "constraint", "table", "schema", "routine"]
-    .filter((key) => typeof record[key] === "string")
-    .map((key) => `${key}=${record[key] as string}`);
-  return parts.length > 0 ? parts.join(" ") : "no sqlstate";
+/**
+ * Pool connect timeout, a dropped socket, or Postgres refusing the session.
+ * Unique violations and validation failures are not transient.
+ */
+export function isTransientConnectionError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; current != null && depth < 4 && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const code = pgErrorCode(current);
+    if (
+      code &&
+      (TRANSIENT_NODE_CODES.has(code) || TRANSIENT_PG_CODES.has(code) || code.startsWith("08"))
+    ) {
+      return true;
+    }
+    const message = errorMessage(current).toLowerCase();
+    if (
+      message.includes("connection terminated") ||
+      message.includes("connection timeout") ||
+      message.includes("timeout exceeded when trying to connect") ||
+      message.includes("timeout expired")
+    ) {
+      return true;
+    }
+    current = causeOf(current);
+  }
+  return false;
 }
 
 export function isUniqueViolation(error: unknown): boolean {
   return pgErrorCode(error) === "23505";
-}
-
-export function isCheckViolation(error: unknown): boolean {
-  return pgErrorCode(error) === "23514";
 }
 
 export function isForeignKeyViolation(error: unknown): boolean {

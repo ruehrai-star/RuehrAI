@@ -103,16 +103,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: |
+            The database connection failed after a short retry. The credentials
+            were not rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /auth/register:
     post:
       tags: [Auth]
       operationId: register
       summary: Create a user and return a JWT
       description: |
-        Password hashing is bcrypt (cost 10) in the API process. Stored hashes
-        use the modular-crypt form, including rows written earlier by Postgres
-        `pgcrypto` (`bf`, `$2a$`). The row is stored in `app.users`. Minimum
-        password length is 8. The response matches `POST /auth/login`.
+        Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is
+        stored in `app.users`. Minimum password length is 8. The response matches
+        `POST /auth/login`.
       security: []
       requestBody:
         required: true
@@ -131,6 +138,14 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           description: Email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: |
+            The database connection failed after a short retry. The body was
+            not rejected and the email was not reported as a duplicate.
           content:
             application/json:
               schema:
