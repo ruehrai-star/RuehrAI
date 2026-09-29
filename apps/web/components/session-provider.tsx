@@ -14,6 +14,7 @@ import { readStoredSession, subscribeSession, writeStoredSession } from "@/lib/s
 interface SessionContextValue {
   session: Session | null;
   login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -36,13 +37,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const register = useCallback(async (email: string, password: string) => {
+    try {
+      const next = await getApi().register({ email, password });
+      writeStoredSession(next);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError("Registrierung fehlgeschlagen.", 500);
+    }
+  }, []);
+
   const logout = useCallback(() => {
     writeStoredSession(null);
   }, []);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ session, login, logout }),
-    [session, login, logout],
+    () => ({ session, login, register, logout }),
+    [session, login, register, logout],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

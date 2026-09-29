@@ -13,8 +13,9 @@ export type {
 } from "@ruehrai/api-contracts";
 
 /**
- * Browser session derived from `POST /auth/login` (`TokenResponse`).
- * The contract has no logout route; clearing this record is local.
+ * Browser session derived from `POST /auth/login` or `POST /auth/register`
+ * (`TokenResponse`). Abmelden deletes this record from sessionStorage.
+ * The contract has no logout route, so the JWT is only cleared locally.
  */
 export interface Session {
   accessToken: string;

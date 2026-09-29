@@ -80,25 +80,44 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return parseLayer(body);
     },
 
-    async login(credentials: Credentials): Promise<Session> {
-      const token = await request<TokenResponse>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify(credentials),
-      });
-      if (
-        typeof token?.accessToken !== "string" ||
-        token.tokenType !== "Bearer" ||
-        typeof token.expiresIn !== "number"
-      ) {
-        throw new ApiError("Antwort von POST /auth/login ist ungültig.", 502);
-      }
-      return {
-        accessToken: token.accessToken,
-        tokenType: "Bearer",
-        expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
-        email: credentials.email,
-      };
+    login(credentials: Credentials): Promise<Session> {
+      return sessionFromToken("/auth/login", credentials, () =>
+        request<TokenResponse>("/auth/login", {
+          method: "POST",
+          body: JSON.stringify(credentials),
+        }),
+      );
     },
+
+    register(credentials: Credentials): Promise<Session> {
+      return sessionFromToken("/auth/register", credentials, () =>
+        request<TokenResponse>("/auth/register", {
+          method: "POST",
+          body: JSON.stringify(credentials),
+        }),
+      );
+    },
+  };
+}
+
+async function sessionFromToken(
+  route: string,
+  credentials: Credentials,
+  read: () => Promise<TokenResponse>,
+): Promise<Session> {
+  const token = await read();
+  if (
+    typeof token?.accessToken !== "string" ||
+    token.tokenType !== "Bearer" ||
+    typeof token.expiresIn !== "number"
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  return {
+    accessToken: token.accessToken,
+    tokenType: "Bearer",
+    expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
+    email: credentials.email.trim().toLowerCase(),
   };
 }
 

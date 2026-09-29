@@ -89,6 +89,42 @@ test("GET /layers/{id} keeps the contract collection and adds a map centroid", a
   assert.equal(mapLayer.features[0]?.properties?.lat, 48.5);
 });
 
+test("POST /auth/register maps 201 TokenResponse and does not send a bearer token", async () => {
+  const seen: { url?: string; method?: string; authorization?: string | null; body?: unknown } = {};
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "should-not-be-sent",
+    fetch: async (input, init) => {
+      seen.url = String(input);
+      seen.method = init?.method;
+      seen.authorization = new Headers(init?.headers).get("authorization");
+      seen.body = JSON.parse(String(init?.body));
+      return jsonResponse({ accessToken: "new-jwt", tokenType: "Bearer", expiresIn: 28800 }, 201);
+    },
+  });
+
+  const session = await api.register({ email: "  Neu@Kunde.example ", password: "secret-pass" });
+  assert.equal(seen.url, "http://backend.test/auth/register");
+  assert.equal(seen.method, "POST");
+  assert.equal(seen.authorization, null);
+  assert.deepEqual(seen.body, { email: "  Neu@Kunde.example ", password: "secret-pass" });
+  assert.equal(session.accessToken, "new-jwt");
+  assert.equal(session.email, "neu@kunde.example");
+  assert.equal(session.tokenType, "Bearer");
+});
+
+test("POST /auth/register reports a duplicate email", async () => {
+  const api = createHttpApi({
+    fetch: async () => jsonResponse({ statusCode: 409, message: "Email already registered" }, 409),
+  });
+  await assert.rejects(api.register({ email: "dev@ruehrai.local", password: "dev-password" }), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 409);
+    assert.equal(error.message, "Email already registered");
+    return true;
+  });
+});
+
 test("POST /auth/login maps TokenResponse into a session", async () => {
   const api = createHttpApi({
     baseUrl: "http://backend.test",

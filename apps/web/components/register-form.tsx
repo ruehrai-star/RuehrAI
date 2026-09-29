@@ -7,23 +7,28 @@ import { authErrorMessage } from "@/lib/user-message";
 import { useSession } from "./session-provider";
 import { SignedInPanel } from "./signed-in-panel";
 
-export function LoginForm() {
+export function RegisterForm() {
   const router = useRouter();
-  const { session, login } = useSession();
+  const { session, register } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (password !== confirm) {
+      setError("Die Passwörter stimmen nicht überein.");
+      return;
+    }
     setPending(true);
     setError(null);
     try {
-      await login(email.trim(), password);
+      await register(email.trim(), password);
       router.push("/");
     } catch (caught) {
-      setError(authErrorMessage(caught, "login"));
+      setError(authErrorMessage(caught, "register"));
     } finally {
       setPending(false);
     }
@@ -42,39 +47,49 @@ export function LoginForm() {
   return (
     <>
       <p className="stub-kicker">Konto</p>
-      <h1>Anmelden</h1>
+      <h1>Registrieren</h1>
       <form className="auth-card" onSubmit={onSubmit}>
-        <p className="stub-copy">Mit E-Mail und Passwort anmelden. Danach öffnet sich die Karte.</p>
-        <label htmlFor="login-email">E-Mail</label>
+        <p className="stub-copy">Neues Konto anlegen. Danach ist das Konto angemeldet und die Karte öffnet sich.</p>
+        <label htmlFor="register-email">E-Mail</label>
         <input
-          id="login-email"
+          id="register-email"
           type="email"
-          autoComplete="username"
+          autoComplete="email"
           required
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
-        <label htmlFor="login-password">Passwort</label>
+        <label htmlFor="register-password">Passwort</label>
         <input
-          id="login-password"
+          id="register-password"
           type="password"
-          autoComplete="current-password"
+          autoComplete="new-password"
           required
           minLength={8}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-        <p className="hint">Mindestens 8 Zeichen. Lokal: dev@ruehrai.local / dev-password.</p>
+        <label htmlFor="register-confirm">Passwort wiederholen</label>
+        <input
+          id="register-confirm"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={confirm}
+          onChange={(event) => setConfirm(event.target.value)}
+        />
+        <p className="hint">Mindestens 8 Zeichen.</p>
         {error ? (
           <p className="message message-error" role="alert">
             {error}
           </p>
         ) : null}
         <button type="submit" className="button" disabled={pending}>
-          {pending ? "Anmelden …" : "Anmelden"}
+          {pending ? "Registrieren …" : "Registrieren"}
         </button>
         <p className="auth-switch">
-          Noch kein Konto? <Link href="/register">Registrieren</Link>
+          Schon ein Konto? <Link href="/login">Anmelden</Link>
         </p>
       </form>
     </>

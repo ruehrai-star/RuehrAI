@@ -1,28 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "./session-provider";
 
-const LINKS = [
+const LINKS: { href: string; label: string; signedIn?: boolean }[] = [
   { href: "/", label: "Karte" },
+  { href: "/standorte", label: "Standorte", signedIn: true },
   { href: "/dashboard", label: "Übersicht" },
   { href: "/onboarding", label: "Einstieg" },
 ];
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { session, logout } = useSession();
-  const [pending, setPending] = useState(false);
 
-  async function onLogout() {
-    setPending(true);
-    try {
-      await logout();
-    } finally {
-      setPending(false);
-    }
+  function onLogout() {
+    logout();
+    router.push("/login");
   }
 
   return (
@@ -40,7 +36,7 @@ export function AppHeader() {
         </span>
       </Link>
       <nav className="nav" aria-label="Hauptnavigation">
-        {LINKS.map((link) => {
+        {LINKS.filter((link) => !link.signedIn || session).map((link) => {
           const active = pathname === link.href;
           return (
             <Link
@@ -60,8 +56,8 @@ export function AppHeader() {
             <span className="account-email" title={session.email}>
               {session.email}
             </span>
-            <button type="button" className="button button-quiet" onClick={onLogout} disabled={pending}>
-              {pending ? "Abmelden …" : "Abmelden"}
+            <button type="button" className="button button-quiet" onClick={onLogout}>
+              Abmelden
             </button>
           </>
         ) : (
