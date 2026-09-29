@@ -108,12 +108,50 @@ describe("StoresService", () => {
     ]);
   });
 
-  it("returns catalog coordinates for a stored address that has no pair yet", async () => {
-    query.mockResolvedValue({ rows: [storeRow()] });
+  it("persists a catalog pin when a stored address has no pair yet", async () => {
+    query
+      .mockResolvedValueOnce({ rows: [storeRow()] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "3", updated_at: new Date("2026-04-01T00:00:00.000Z") }],
+      });
     plzCentroids.mockResolvedValue(new Map([["80331", { lon: 11.576, lat: 48.137 }]]));
     await expect(service.list("9")).resolves.toEqual({
-      stores: [expect.objectContaining({ lon: 11.576, lat: 48.137, postalCode: "80331" })],
+      stores: [
+        expect.objectContaining({
+          lon: 11.576,
+          lat: 48.137,
+          postalCode: "80331",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        }),
+      ],
     });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toContain("UPDATE app.store_locations");
+    expect(query.mock.calls[1]?.[0]).toContain("s.lon IS NULL");
+    expect(query.mock.calls[1]?.[1]).toEqual([["3"], [11.576], [48.137]]);
+  });
+
+  it("persists a catalog pin when reading one store", async () => {
+    query
+      .mockResolvedValueOnce({ rows: [storeRow()] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "3", updated_at: new Date("2026-04-01T00:00:00.000Z") }],
+      });
+    plzCentroids.mockResolvedValue(new Map([["80331", { lon: 11.576, lat: 48.137 }]]));
+    await expect(service.get("9", "3")).resolves.toEqual(
+      expect.objectContaining({ lon: 11.576, lat: 48.137, updatedAt: "2026-04-01T00:00:00.000Z" }),
+    );
+    expect(query.mock.calls[1]?.[0]).toContain("UPDATE app.store_locations");
+  });
+
+  it("leaves null coordinates when the catalog has no PLZ", async () => {
+    query.mockResolvedValue({ rows: [storeRow()] });
+    plzCentroids.mockResolvedValue(new Map());
+    await expect(service.list("9")).resolves.toEqual({
+      stores: [expect.objectContaining({ lon: null, lat: null, postalCode: "80331" })],
+    });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[0]).not.toContain("UPDATE app.store_locations");
   });
 
   it("returns null revenue for a month marked missing", async () => {

@@ -258,6 +258,11 @@ export class StoresService {
     return found.get(postalCode) ?? coords;
   }
 
+  /**
+   * Fills a missing pair from the PLZ catalog and writes that pair onto
+   * `app.store_locations`. Create and update still resolve coordinates
+   * before insert. A later read persists a hit that those writes missed.
+   */
   private async fillMissingCoords(stores: StoreLocation[]): Promise<void> {
     const missing = [
       ...new Set(
@@ -266,12 +271,33 @@ export class StoresService {
     ];
     if (missing.length === 0) return;
     const found = await this.catalog.plzCentroids(missing);
+    const hits: StoreLocation[] = [];
     for (const store of stores) {
       if (store.lon !== null && store.lat !== null) continue;
       const point = found.get(store.postalCode);
       if (!point) continue;
       store.lon = point.lon;
       store.lat = point.lat;
+      hits.push(store);
+    }
+    if (hits.length === 0) return;
+    const saved = await this.db.query<{ id: string; updated_at: Date | string }>(
+      `UPDATE app.store_locations AS s
+       SET lon = v.lon,
+           lat = v.lat,
+           updated_at = now()
+       FROM unnest($1::bigint[], $2::double precision[], $3::double precision[])
+         AS v(id, lon, lat)
+       WHERE s.id = v.id
+         AND s.lon IS NULL
+         AND s.lat IS NULL
+       RETURNING s.id::text AS id, s.updated_at`,
+      [hits.map((store) => store.id), hits.map((store) => store.lon), hits.map((store) => store.lat)],
+    );
+    const updatedAt = new Map(saved.rows.map((row) => [row.id, toIso(row.updated_at)]));
+    for (const store of hits) {
+      const at = updatedAt.get(store.id);
+      if (at) store.updatedAt = at;
     }
   }
 
