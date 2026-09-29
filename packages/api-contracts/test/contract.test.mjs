@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0 covers health, auth, search, layers, and customer inputs", () => {
+test("v0.3 covers health, auth, search, layers, customer inputs, and analysis", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.2.0");
+  assert.equal(doc.info.version, "0.3.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -45,6 +45,17 @@ test("v0 covers health, auth, search, layers, and customer inputs", () => {
   const hitRequired = doc.components.schemas.SearchHit.required;
   assert.deepEqual(hitRequired, ["id", "label", "grain"]);
   assert.equal(doc.components.schemas.FeatureCollection.properties.type.enum[0], "FeatureCollection");
+
+  assert.equal(doc.paths["/analysis/input"].get.operationId, "getAnalysisInput");
+  assert.equal(doc.paths["/analysis/runs"].post.operationId, "createAnalysisRun");
+  assert.equal(doc.paths["/analysis/runs/{id}"].get.operationId, "getAnalysisRun");
+  assert.equal(doc.paths["/analysis/pattern"].get.operationId, "getAnalysisPattern");
+  assert.equal(doc.paths["/analysis/input"].get.security, undefined);
+  assert.equal(doc.paths["/recommendations"], undefined);
+  assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("heuristic"), true);
+  assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("llm"), true);
+  assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("vector"), true);
+  assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("sql"), true);
 });
 
 test("the contract does not mention Supabase", () => {

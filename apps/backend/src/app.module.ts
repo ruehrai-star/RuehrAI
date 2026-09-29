@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { AnalysisModule } from "./analysis/analysis.module";
 import { AuthModule } from "./auth/auth.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
@@ -18,6 +19,7 @@ import { TargetRegionModule } from "./target-region/target-region.module";
     LayersModule,
     TargetRegionModule,
     StoresModule,
+    AnalysisModule,
   ],
 })
 export class AppModule {}

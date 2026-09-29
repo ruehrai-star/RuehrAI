@@ -391,4 +391,111 @@ async function dropFeaturesFixture(): Promise<void> {
       await admin.end();
     }
   });
+
+  it("runs Musteranalyse for the signed-in user and keeps Brain facts inside the region", async () => {
+    const adminUrl = process.env.DATABASE_URL;
+    if (!adminUrl) throw new Error("DATABASE_URL is required");
+    const admin = new Pool({ connectionString: adminUrl, max: 1 });
+    const email = `analysis-${Date.now()}@ruehrai.local`;
+
+    try {
+      await admin.query("DROP SCHEMA IF EXISTS features CASCADE");
+      await admin.query("CREATE SCHEMA features");
+      await admin.query(`
+        CREATE TABLE features.location_feature_docs (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          geo_key text NOT NULL,
+          grain text NOT NULL,
+          ref_period text,
+          name text,
+          title text NOT NULL,
+          content text,
+          metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+          source_theme text
+        )
+      `);
+      await admin.query(`
+        CREATE VIEW features.v_location_search AS
+        SELECT id, geo_key, grain, ref_period, name, title, content, metadata, source_theme
+        FROM features.location_feature_docs
+      `);
+      await admin.query(
+        `INSERT INTO features.location_feature_docs
+           (geo_key, grain, ref_period, name, title, content, metadata, source_theme)
+         VALUES
+           ('09162000', 'ags', '2022-05', 'München', 'Gemeinde München',
+            'Bevölkerung der Gemeinde München.',
+            '{"einwohner": 1500000, "gemeinde_name": "München"}'::jsonb, 'zensus'),
+           ('11000000', 'ags', '2022-05', 'Berlin', 'Gemeinde Berlin',
+            'Bevölkerung von Berlin.', '{"einwohner": 3700000}'::jsonb, 'zensus'),
+           ('80331', 'plz5', '2022-05', '80331', 'PLZ 80331',
+            'Haushalte in der PLZ.', '{"haushalte": 9000}'::jsonb, 'zensus')`,
+      );
+
+      const token = await register(email);
+      const auth = { authorization: `Bearer ${token}` };
+      const server = app.getHttpServer();
+      const missing = await request(server).get("/analysis/input").set(auth).expect(404);
+      expect(missing.body.message).toContain("Zielregion");
+
+      await request(server)
+        .put("/target-region")
+        .set(auth)
+        .send({ label: "München", grain: "ags", geoKey: "09162000", ags: "09162000" })
+        .expect(200);
+      const created = await request(server)
+        .post("/stores")
+        .set(auth)
+        .send({ street: "Marienplatz 1", postalCode: "80331", city: "München" })
+        .expect(201);
+      const storeId = created.body.id as string;
+      await request(server)
+        .put(`/stores/${storeId}/revenue`)
+        .set(auth)
+        .send({ points: [{ year: 2025, month: 1, revenueEur: 100 }] })
+        .expect(200);
+      const tooThin = await request(server).post("/analysis/runs").set(auth).expect(400);
+      expect(tooThin.body.message).toContain("Monatsumsätze");
+
+      await request(server)
+        .put(`/stores/${storeId}/revenue`)
+        .set(auth)
+        .send({ points: [{ year: 2025, month: 2, revenueEur: 140 }] })
+        .expect(200);
+
+      const run = await request(server).post("/analysis/runs").set(auth).expect(201);
+      expect(run.body.status).toBe("completed");
+      expect(run.body.input.revenueDirection).toBe("up");
+      expect(run.body.brain.mode).toBe("sql");
+      expect(run.body.pattern.source).toBe("heuristic");
+      const geoKeys = (run.body.brain.facts as Array<{ geoKey: string }>).map((fact) => fact.geoKey);
+      expect(geoKeys).toContain("09162000");
+      expect(geoKeys).toContain("80331");
+      expect(geoKeys).not.toContain("11000000");
+      expect(run.body.pattern.criteria).toEqual(
+        expect.arrayContaining([expect.objectContaining({ key: "einwohner", direction: "unknown" })]),
+      );
+
+      const pattern = await request(server).get("/analysis/pattern").set(auth).expect(200);
+      expect(pattern.body.runId).toBe(run.body.id);
+      const again = await request(server)
+        .get(`/analysis/runs/${run.body.id}`)
+        .set(auth)
+        .expect(200);
+      expect(again.body.pattern.source).toBe("heuristic");
+
+      const other = await register(`analysis-other-${Date.now()}@ruehrai.local`);
+      await request(server)
+        .get(`/analysis/runs/${run.body.id}`)
+        .set({ authorization: `Bearer ${other}` })
+        .expect(404);
+      await request(server)
+        .get("/analysis/pattern")
+        .set({ authorization: `Bearer ${other}` })
+        .expect(404);
+    } finally {
+      await admin.query("DROP SCHEMA IF EXISTS features CASCADE");
+      await admin.end();
+    }
+  });
 });

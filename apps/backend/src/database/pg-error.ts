@@ -33,3 +33,25 @@ export function isMissingFeaturesRelation(error: unknown): boolean {
   const code = pgErrorCode(error);
   return code === "42P01" || code === "3F000";
 }
+
+/** Connected user or backend_ro_features may not read this relation. */
+export function isFeaturesAccessDenied(error: unknown): boolean {
+  return pgErrorCode(error) === "42501";
+}
+
+/**
+ * pgvector query cannot run: missing operator/column, dimension mismatch,
+ * or the embedding column is not a vector. Used only around the optional
+ * vector SELECT so the SQL filter path can still answer.
+ */
+export function isVectorQueryFailure(error: unknown): boolean {
+  const code = pgErrorCode(error);
+  return (
+    code === "22000" ||
+    code === "42703" ||
+    code === "42804" ||
+    code === "42883" ||
+    code === "42P01" ||
+    code === "42501"
+  );
+}

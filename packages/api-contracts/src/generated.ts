@@ -304,6 +304,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analysis/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Structured analysis input for the signed-in user
+         * @description Builds the Musteranalyse input from the user's saved target region,
+         *     store addresses, and monthly revenue (at most 36 months per store).
+         *     A revenue change counts only between two successive calendar months
+         *     that both have a non-null amount. `404` when no target region is
+         *     saved. `400` when no store has two adjacent months with revenue.
+         */
+        get: operations["getAnalysisInput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Snapshot input, search Brain, and persist a pattern
+         * @description Same preconditions as `GET /analysis/input`. On success the run is
+         *     stored for this user and includes the Brain facts used (region filter,
+         *     plus store postal codes) and the derived pattern. The pattern is the
+         *     input a later Top-3 step can read. This operation does not recommend
+         *     addresses.
+         */
+        post: operations["createAnalysisRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one analysis run of the signed-in user */
+        get: operations["getAnalysisRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis/pattern": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest persisted pattern for the signed-in user
+         * @description Returns the pattern from the newest completed run. `404` when the
+         *     user has not completed an analysis yet.
+         */
+        get: operations["getAnalysisPattern"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -481,6 +567,144 @@ export interface components {
         };
         MonthlyRevenueWrite: {
             points: components["schemas"]["MonthlyRevenuePointWrite"][];
+        };
+        /**
+         * @description Snapshot of customer inputs used for Musteranalyse. `stores[].points`
+         *     holds up to 36 months. `changes` links only successive calendar months
+         *     that both have a revenue.
+         */
+        AnalysisInput: {
+            region: components["schemas"]["TargetRegion"];
+            stores: components["schemas"]["AnalysisStore"][];
+            revenueDirection: components["schemas"]["RevenueDirection"];
+            /** Format: date-time */
+            capturedAt: string;
+        };
+        AnalysisStore: {
+            id: string;
+            label?: string | null;
+            street: string;
+            postalCode: string;
+            city: string;
+            /** Format: double */
+            lon?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            points: components["schemas"]["AnalysisRevenuePoint"][];
+            changes: components["schemas"]["AnalysisRevenueChange"][];
+        };
+        AnalysisRevenuePoint: {
+            year: number;
+            month: number;
+            /** Format: double */
+            revenueEur: number | null;
+        };
+        AnalysisRevenueChange: {
+            fromYear: number;
+            fromMonth: number;
+            toYear: number;
+            toMonth: number;
+            /** Format: double */
+            fromRevenueEur: number;
+            /** Format: double */
+            toRevenueEur: number;
+            /**
+             * Format: double
+             * @description toRevenueEur minus fromRevenueEur, rounded to cents.
+             */
+            changeEur: number;
+        };
+        /**
+         * @description Sign of the summed month-to-month revenue changes. Flat means the sum is zero.
+         * @enum {string}
+         */
+        RevenueDirection: "up" | "down" | "flat";
+        /**
+         * @description Direction of one Brain criterion. `unknown` means the facts do not
+         *     show a change over time (often a single reference period).
+         * @enum {string}
+         */
+        CriterionDirection: "up" | "down" | "flat" | "unknown";
+        AnalysisRun: {
+            /** @description Run id as a decimal string. */
+            id: string;
+            /** @enum {string} */
+            status: "completed";
+            /** Format: date-time */
+            createdAt: string;
+            input: components["schemas"]["AnalysisInput"];
+            brain: components["schemas"]["AnalysisBrain"];
+            pattern: components["schemas"]["AnalysisPattern"];
+        };
+        /**
+         * @description Facts retrieved for this run. `vector` means cosine similarity over
+         *     Brain embeddings, filtered to the target region and store postal
+         *     codes. `sql` means the same filters without a vector (embeddings
+         *     unset, unreachable, or not usable). This is not a raw Brain dump.
+         */
+        AnalysisBrain: {
+            /** @enum {string} */
+            mode: "vector" | "sql";
+            /**
+             * @description Why `mode` is `sql`. Null when `mode` is `vector`.
+             * @enum {string|null}
+             */
+            vectorUnavailableReason?: "embeddings_disabled" | "embeddings_unconfigured" | "embeddings_unreachable" | "embeddings_rejected" | "vector_query_failed" | "no_embeddings_in_region" | "features_unavailable" | null;
+            /** @description Number of facts included on this run. */
+            factCount: number;
+            facts: components["schemas"]["BrainFact"][];
+        };
+        BrainFact: {
+            id: string;
+            geoKey: string;
+            grain: components["schemas"]["Grain"];
+            title: string;
+            name?: string | null;
+            refPeriod?: string | null;
+            /** @description Short prose from the feature document, or the title when no prose is stored. */
+            excerpt: string;
+            /**
+             * Format: double
+             * @description Cosine distance when mode is vector. Null for the SQL filter.
+             */
+            distance?: number | null;
+            /**
+             * @description `region` matches the target region ags, plz, or geoKey.
+             *     `store` matches a store postal code.
+             *     `label` is the text fallback when the region has no geo key.
+             * @enum {string}
+             */
+            matchedBy: "region" | "store" | "label";
+            signals: components["schemas"]["BrainSignal"][];
+        };
+        BrainSignal: {
+            key: string;
+            value: string;
+        };
+        /**
+         * @description Persisted pattern for a later Top-3 step. `source` is `llm` when the
+         *     criteria were taken from the language model and checked against the
+         *     retrieved facts, otherwise `heuristic`.
+         */
+        AnalysisPattern: {
+            /** @enum {string} */
+            source: "llm" | "heuristic";
+            summary: string;
+            revenueDirection: components["schemas"]["RevenueDirection"];
+            criteria: components["schemas"]["PatternCriterion"][];
+        };
+        PatternCriterion: {
+            key: string;
+            label: string;
+            direction: components["schemas"]["CriterionDirection"];
+            /** @description Grounded in the retrieved Brain facts or the stored revenue series. */
+            evidence: string;
+        };
+        AnalysisPatternResponse: {
+            runId: string;
+            /** Format: date-time */
+            createdAt: string;
+            pattern: components["schemas"]["AnalysisPattern"];
         };
         ErrorResponse: {
             statusCode?: number;
@@ -1138,6 +1362,176 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAnalysisInput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Input that a run would snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisInput"];
+                };
+            };
+            /** @description Region exists, but monthly revenue is not sufficient. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 400,
+                     *       "message": "Die Monatsumsätze reichen für eine Musteranalyse nicht aus. Mindestens eine Filiale braucht zwei aufeinanderfolgende Monate mit gesetztem Umsatz.",
+                     *       "error": "Bad Request"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description This user has not saved a target region. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 404,
+                     *       "message": "Keine Zielregion gespeichert. Bitte zuerst eine Zielregion anlegen.",
+                     *       "error": "Not Found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAnalysisRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed analysis run. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRun"];
+                };
+            };
+            /** @description Monthly revenue is not sufficient for a pattern. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description This user has not saved a target region. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAnalysisRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run id as a decimal string. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run, including input, Brain facts, and pattern. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisRun"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No run with this id for the token's user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 404,
+                     *       "message": "Die Analyse wurde nicht gefunden.",
+                     *       "error": "Not Found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAnalysisPattern: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest pattern. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisPatternResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description No completed analysis run for this user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 404,
+                     *       "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+                     *       "error": "Not Found"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
