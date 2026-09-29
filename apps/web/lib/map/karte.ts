@@ -1,20 +1,18 @@
-import type { Recommendation, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
+import type { Recommendation, RegionGeometry, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { coordinatesOf } from "../api/geo.ts";
 
 /**
- * Map model for the Karte page (KAN-48, KAN-50, KAN-51).
+ * Map model for the Karte page (KAN-48, KAN-50, KAN-51) on OpenAPI 0.5.0.
  *
- * Store coordinates are `StoreLocation.lon` / `lat` (OpenAPI 0.4.0, WGS84,
- * nullable until the Backend geocodes the address).
+ * Pins use `StoreLocation.lon` / `lat` from `GET /stores` (WGS84). The Backend
+ * fills a missing pair from the PLZ centroid. Null stays unpinned.
  *
- * Zielregion overlay and fit read the Backend members added for KAN-52/53
- * when present on `GET /target-region`:
- * - `bounds`: `{ west, south, east, north }` or a GeoJSON bbox `[west, south, east, north]`
- * - `geometry`: GeoJSON Polygon or MultiPolygon, or a Feature / FeatureCollection of those
+ * `GET` / `PUT /target-region` returns:
+ * - `bounds`: `LonLatBounds` `{ west, south, east, north }` for fitBounds
+ * - `geometry`: GeoJSON Polygon or MultiPolygon for the colored overlay
  *
- * OpenAPI 0.4.0 does not declare those two members yet. The JSON is kept as
- * returned; missing or invalid values draw no overlay.
+ * Both are null when the region has no outline and no catalog point.
  */
 
 export const NO_STORES_LABEL = "Noch keine Filialadressen";
@@ -150,11 +148,11 @@ export function regionOverlay(region: TargetRegion | null): {
   bounds: Bounds | null;
 } {
   if (!region) return { collection: EMPTY_REGION, bounds: null };
-  const extra = region as TargetRegion & { bounds?: unknown; geometry?: unknown };
-  const contractBounds = readContractBounds(extra.bounds);
-  const areas = areaFeatures(extra.geometry);
+  const contractBounds = readContractBounds(region.bounds);
+  const geometry = readRegionGeometry(region.geometry);
+  const areas = geometry ? areaFeatures(geometry) : [];
   let bounds = contractBounds;
-  for (const position of positionsOf(extra.geometry)) {
+  for (const position of geometry ? positionsOf(geometry) : []) {
     bounds = extendBounds(bounds, position.lon, position.lat);
   }
   const point = coordinatesOf(region);
@@ -167,13 +165,21 @@ export function regionOverlay(region: TargetRegion | null): {
   };
 }
 
+/** `LonLatBounds` from OpenAPI 0.5.0. A bbox array is not the contract. */
 export function readContractBounds(value: unknown): Bounds | null {
-  if (Array.isArray(value)) {
-    return boundsFromNumbers(value[0], value[1], value[2], value[3]);
-  }
-  if (!value || typeof value !== "object") return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   return boundsFromNumbers(raw.west, raw.south, raw.east, raw.north);
+}
+
+/** `RegionGeometry`: Polygon or MultiPolygon. Other GeoJSON types are ignored. */
+export function readRegionGeometry(value: unknown): RegionGeometry | null {
+  const record = asRecord(value);
+  if (!record || (record.type !== "Polygon" && record.type !== "MultiPolygon")) return null;
+  if (!geometryPositions(record).ok) return null;
+  return record.type === "Polygon"
+    ? { type: "Polygon", coordinates: record.coordinates }
+    : { type: "MultiPolygon", coordinates: record.coordinates };
 }
 
 function boundsFromNumbers(west: unknown, south: unknown, east: unknown, north: unknown): Bounds | null {
@@ -246,30 +252,19 @@ function extendBounds(bounds: Bounds | null, lon: number, lat: number): Bounds {
   };
 }
 
-function areaFeatures(value: unknown): Feature[] {
-  const record = asRecord(value);
-  if (!record) return [];
-  if (record.type === "FeatureCollection" && Array.isArray(record.features)) {
-    return record.features.flatMap((feature) => areaFeatures(feature));
-  }
-  if (record.type === "Feature") return areaFeatures(record.geometry);
-  if (record.type !== "Polygon" && record.type !== "MultiPolygon") return [];
-  const walked = geometryPositions(record);
-  if (!walked.ok) return [];
-  const geometry =
+function areaFeatures(geometry: RegionGeometry): Feature[] {
+  const record = asRecord(geometry);
+  if (!record || !geometryPositions(record).ok) return [];
+  const shape =
     record.type === "Polygon"
       ? { type: "Polygon" as const, coordinates: record.coordinates as Polygon["coordinates"] }
       : { type: "MultiPolygon" as const, coordinates: record.coordinates as Polygon["coordinates"][] };
-  return [{ type: "Feature", properties: { name: LEGEND_LABEL }, geometry }];
+  return [{ type: "Feature", properties: { name: LEGEND_LABEL }, geometry: shape }];
 }
 
-function positionsOf(value: unknown): { lon: number; lat: number }[] {
-  const record = asRecord(value);
+function positionsOf(geometry: RegionGeometry): { lon: number; lat: number }[] {
+  const record = asRecord(geometry);
   if (!record) return [];
-  if (record.type === "FeatureCollection" && Array.isArray(record.features)) {
-    return record.features.flatMap((feature) => positionsOf(feature));
-  }
-  if (record.type === "Feature") return positionsOf(record.geometry);
   return geometryPositions(record).positions;
 }
 

@@ -133,18 +133,26 @@ test("Zielregion geometry is a fill and the camera frames addresses plus the are
   }
 });
 
-test("a GeoJSON bbox array frames the region the same way as named bounds", () => {
-  const model = buildKarte({
+test("OpenAPI LonLatBounds frame the region and a bbox array does not", () => {
+  const named = buildKarte({
+    stores: [],
+    region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(named.showLegend, true);
+  if (named.camera.kind === "bounds") {
+    assert.deepEqual(named.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
+  }
+
+  const arrayBounds = buildKarte({
     stores: [],
     region: region({ bounds: [11, 48, 12, 49] }),
     recommendations: [],
     addressesKnownEmpty: false,
   });
-  assert.equal(model.showLegend, true);
-  assert.equal(model.camera.kind, "bounds");
-  if (model.camera.kind === "bounds") {
-    assert.deepEqual(model.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
-  }
+  assert.equal(arrayBounds.showLegend, false);
+  assert.equal(arrayBounds.camera.kind, "germany");
 });
 
 test("bounds alone draw a rectangle and a point-only region does not", () => {
@@ -176,7 +184,31 @@ test("bounds alone draw a rectangle and a point-only region does not", () => {
   }
 });
 
-test("a FeatureCollection geometry is accepted and invalid geometry is ignored", () => {
+test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored", () => {
+  const multi = buildKarte({
+    stores: [],
+    region: region({
+      geometry: {
+        type: "MultiPolygon",
+        coordinates: [
+          [
+            [
+              [11, 48],
+              [12, 48],
+              [12, 49],
+              [11, 49],
+              [11, 48],
+            ],
+          ],
+        ],
+      },
+    }),
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(multi.showLegend, true);
+  assert.equal(multi.region.features[0]?.geometry.type, "MultiPolygon");
+
   const wrapped = buildKarte({
     stores: [],
     region: region({
@@ -188,7 +220,8 @@ test("a FeatureCollection geometry is accepted and invalid geometry is ignored",
     recommendations: [],
     addressesKnownEmpty: false,
   });
-  assert.equal(wrapped.showLegend, true);
+  assert.equal(wrapped.showLegend, false);
+  assert.equal(wrapped.camera.kind, "germany");
 
   const broken = buildKarte({
     stores: [],

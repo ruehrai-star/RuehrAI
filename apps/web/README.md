@@ -26,7 +26,7 @@ Open http://localhost:3001.
 | Registrieren | `/register` | `POST /auth/register` (201, JWT). The map opens signed in. |
 | Anmelden | `/login` | `POST /auth/login`. Invalid credentials stay on the form with an error. |
 | Abmelden | header | Clears `sessionStorage` and opens `/login`. |
-| Karte + Suche | `/` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. Saved Filialadressen with `lon`/`lat` are Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion is a translucent fill when `geometry` or `bounds` is on the region. The first view, and later data changes, fit addresses and the region (48px padding). An empty pair stays on a Germany overview. |
+| Karte + Suche | `/` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. OpenAPI 0.5.0: Filialadressen use `lon`/`lat` (PLZ centroid when the write omits both) as Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion `geometry` (Polygon or MultiPolygon) is a translucent fill plus outline and the legend **Zielregion**. `bounds` (`west`, `south`, `east`, `north`) is unioned with the pins for fit (48px padding) on first open and when that data changes. An empty pair stays on a Germany overview. |
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. `GET` returns 404 until one is saved. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |

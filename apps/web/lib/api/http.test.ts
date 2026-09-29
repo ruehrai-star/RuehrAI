@@ -384,6 +384,11 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
   assert.equal(stores[0]?.lat, 48.137);
   assert.equal(stores[1]?.street, "Alexanderplatz 1");
   const region = await api.getTargetRegion();
+  assert.equal(region?.bounds?.west, 11.3);
+  assert.equal(region?.bounds?.south, 48);
+  assert.equal(region?.bounds?.east, 11.8);
+  assert.equal(region?.bounds?.north, 48.3);
+  assert.equal(region?.geometry?.type, "Polygon");
   const model = buildKarte({
     stores,
     region,
