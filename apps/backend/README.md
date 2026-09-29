@@ -18,7 +18,7 @@ pnpm db:migrate
 pnpm start:dev
 ```
 
-`pnpm db:migrate` wendet `db/migrations/*.sql` an und merkt sich angewendete Dateien in `app.schema_migrations`. Die Migrationen legen Schema `app` an und brauchen kein `pgcrypto`.
+`pnpm db:migrate` wendet `db/migrations/*.sql` an und merkt sich angewendete Dateien in `app.schema_migrations`. Der Compose-User ist Superuser und darf `CREATE EXTENSION pgcrypto`.
 
 `.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings).
 
@@ -31,33 +31,15 @@ Die Migration legt einen Dev-Account an:
 | E-Mail | `dev@ruehrai.local` |
 | Passwort | `dev-password` |
 
-Alternativ legt `POST /auth/register` weitere Nutzer in derselben Datenbank an. Passwörter hasht der API-Prozess mit bcrypt (Kosten 10). Bestehende `pgcrypto`-Hashes (`$2a$`) bleiben gültig.
+Alternativ legt `POST /auth/register` weitere Nutzer in derselben Datenbank an. Passwörter hasht Postgres (`pgcrypto`, bcrypt).
 
-### Registrierung oder Login antwortet mit 500
+### Pool und 503 bei Login und Registrierung
 
-`POST /auth/register` liefert `400`, wenn der Body ungültig ist, und `409`, wenn die E-Mail schon in `app.users` steht. `POST /auth/login` liefert `401` bei unbekannter E-Mail oder falschem Passwort. `500` heißt: die Abfrage auf `app.users` ist in Postgres fehlgeschlagen. Das Prozess-Log nennt SQLSTATE und Constraint, nicht das Passwort.
+Der `pg`-Pool ist für STAGE ausgelegt (Nest und Brain-Postgres auf Eule). Ohne gesetzte Variablen gelten die Defaults aus `.env.example`: `max` 10, `idleTimeoutMillis` 20000, `connectionTimeoutMillis` 10000, TCP-`keepAlive` an, erster Keepalive nach 10000 ms. Ein Connect-Timeout von 5 s hat auf STAGE den Checkout abgebrochen.
 
-Ein früherer Stand hat `crypt()` und `gen_salt()` aus `pgcrypto` unqualifiziert aufgerufen. Liegt die Extension nicht im `search_path` (typisch `search_path=app`), antwortet Postgres mit SQLSTATE `42883` (`function gen_salt(unknown, integer) does not exist` bzw. `function crypt(unknown, text) does not exist`). Das trifft Login und Register, auch für eine unbekannte E-Mail. Ein ungültiger Body bleibt `400`.
+`POST /auth/login` und `POST /auth/register` wiederholen einen abgebrochenen Verbindungsaufbau zweimal (100 ms, dann 200 ms). Danach ist die Antwort **503** mit dem bestehenden `ErrorResponse` (`statusCode`, `message`: `Database temporarily unavailable`, `error`: `Service Unavailable`). Das ist kein Fehler der Angaben (`400`), kein unbekanntes Passwort (`401`) und keine schon vergebene E-Mail (`409`).
 
-Wenn STAGE nach diesem Stand weiter `500` liefert, prüft Release-Manager die STAGE-Datenbank. Nicht PROD.
-
-```sql
-SELECT to_regclass('app.users') AS users_table;
-SELECT column_name, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = 'app' AND table_name = 'users'
-ORDER BY ordinal_position;
-```
-
-Erwartete Spalten: `id` (bigint identity), `email`, `password_hash`, `created_at`. Ist `users_table` null, Migrationen aus diesem Repo anwenden (`pnpm db:migrate`) mit einer Rolle, die Schema `app` anlegen darf.
-
-SQLSTATE `42501` (Recht fehlt): Login braucht `SELECT`. Register braucht zusätzlich `INSERT` und `USAGE` auf der Identity-Sequenz.
-
-```sql
-GRANT USAGE ON SCHEMA app TO <database_url_user>;
-GRANT SELECT, INSERT ON app.users TO <database_url_user>;
-GRANT USAGE, SELECT ON SEQUENCE app.users_id_seq TO <database_url_user>;
-```
+Das STAGE-Log `Connection terminated due to connection timeout` mit Ursache `Connection terminated unexpectedly` ist dieser Fall. Bleibt nach dem Deploy `503`, prüft Release-Manager Erreichbarkeit und Last von Brain-Postgres auf Eule. Nicht PROD.
 
 ## Endpunkte
 

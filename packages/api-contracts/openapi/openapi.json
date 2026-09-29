@@ -115,6 +115,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The database connection failed after a short retry. The credentials\nwere not rejected.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -126,7 +136,7 @@
         ],
         "operationId": "register",
         "summary": "Create a user and return a JWT",
-        "description": "Password hashing is bcrypt (cost 10) in the API process. Stored hashes\nuse the modular-crypt form, including rows written earlier by Postgres\n`pgcrypto` (`bf`, `$2a$`). The row is stored in `app.users`. Minimum\npassword length is 8. The response matches `POST /auth/login`.\n",
+        "description": "Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is\nstored in `app.users`. Minimum password length is 8. The response matches\n`POST /auth/login`.\n",
         "security": [],
         "requestBody": {
           "required": true,
@@ -154,6 +164,16 @@
           },
           "409": {
             "description": "Email is already registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database connection failed after a short retry. The body was\nnot rejected and the email was not reported as a duplicate.\n",
             "content": {
               "application/json": {
                 "schema": {

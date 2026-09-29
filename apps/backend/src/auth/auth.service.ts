@@ -2,23 +2,22 @@ import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { QueryResultRow } from "pg";
 import { DatabaseService } from "../database/database.service";
-import {
-  isCheckViolation,
-  isForeignKeyViolation,
-  isUniqueViolation,
-  pgErrorSummary,
-} from "../database/pg-error";
+import { isForeignKeyViolation, isTransientConnectionError, isUniqueViolation } from "../database/pg-error";
 import { TOKEN_TTL_SECONDS } from "./auth.constants";
 import { AuthUser, TokenResponse, UserResponse } from "./auth.types";
 import { CredentialsDto } from "./dto";
-import { hashPassword, verifyPassword } from "./password-hash";
+
+/** One try plus two retries. Backoff stays short so a flap does not sit on the client. */
+const AUTH_DB_RETRIES = 2;
+const AUTH_DB_BACKOFF_MS = [100, 200];
 
 const JTI =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -26,10 +25,6 @@ const JTI =
 interface UserRow {
   id: string;
   email: string;
-}
-
-interface LoginRow extends UserRow {
-  password_hash: string;
 }
 
 @Injectable()
@@ -42,58 +37,67 @@ export class AuthService {
   ) {}
 
   async login(dto: CredentialsDto): Promise<TokenResponse> {
-    let user: LoginRow | undefined;
-    try {
-      const result = await this.db.query<LoginRow>(
-        `SELECT id::text AS id, email, password_hash
-         FROM app.users
-         WHERE email = $1`,
-        [normalizeEmail(dto.email)],
-      );
-      user = result.rows[0];
-    } catch (error) {
-      this.logger.error(
-        `login failed (${pgErrorSummary(error)})`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    }
-    if (!user || !(await verifyPassword(dto.password, user.password_hash))) {
+    const result = await this.queryUsers<UserRow>(
+      `SELECT id::text AS id, email
+       FROM app.users
+       WHERE email = $1
+         AND password_hash = crypt($2, password_hash)`,
+      [normalizeEmail(dto.email), dto.password],
+    );
+    const user = result.rows[0];
+    if (!user) {
       throw new UnauthorizedException("Invalid email or password");
     }
     return this.issueToken(user);
   }
 
   async register(dto: CredentialsDto): Promise<TokenResponse> {
-    const passwordHash = await hashPassword(dto.password);
-    let user: UserRow | undefined;
     try {
-      const result = await this.db.query<UserRow>(
+      const result = await this.queryUsers<UserRow>(
         `INSERT INTO app.users (email, password_hash)
-         VALUES ($1, $2)
+         VALUES ($1, crypt($2, gen_salt('bf', 10)))
          RETURNING id::text AS id, email`,
-        [normalizeEmail(dto.email), passwordHash],
+        [normalizeEmail(dto.email), dto.password],
       );
-      user = result.rows[0];
+      const user = result.rows[0];
+      if (!user) {
+        throw new UnauthorizedException();
+      }
+      return this.issueToken(user);
     } catch (error) {
-      if (error instanceof HttpException) throw error;
       if (isUniqueViolation(error)) {
         throw new ConflictException("Email already registered");
       }
-      if (isCheckViolation(error)) {
-        this.logger.warn(`register rejected by check constraint (${pgErrorSummary(error)})`);
-        throw new BadRequestException("Invalid email or password");
-      }
-      this.logger.error(
-        `register failed (${pgErrorSummary(error)})`,
-        error instanceof Error ? error.stack : undefined,
-      );
       throw error;
     }
-    if (!user) {
-      throw new UnauthorizedException();
+  }
+
+  /**
+   * Login and register only. A dropped or timed-out pool connection is retried.
+   * Still failing is 503, not a client error and not an opaque 500.
+   */
+  private async queryUsers<T extends QueryResultRow>(
+    text: string,
+    params: unknown[],
+  ): Promise<{ rows: T[] }> {
+    let last: unknown;
+    for (let attempt = 0; attempt <= AUTH_DB_RETRIES; attempt += 1) {
+      try {
+        return await this.db.query<T>(text, params);
+      } catch (error) {
+        last = error;
+        if (!isTransientConnectionError(error) || attempt === AUTH_DB_RETRIES) break;
+        this.logger.warn(
+          `Database connection failed during auth; retrying (${attempt + 1}/${AUTH_DB_RETRIES})`,
+        );
+        await delay(AUTH_DB_BACKOFF_MS[attempt] ?? 200);
+      }
     }
-    return this.issueToken(user);
+    if (isTransientConnectionError(last)) {
+      this.logger.error(`Database connection failed during auth (${connectionErrorText(last)})`);
+      throw new ServiceUnavailableException("Database temporarily unavailable");
+    }
+    throw last;
   }
 
   /**
@@ -167,4 +171,20 @@ export class AuthService {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function connectionErrorText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 3 && current instanceof Error; depth += 1) {
+    parts.push(current.message);
+    current = "cause" in current ? (current as { cause: unknown }).cause : undefined;
+  }
+  return parts.join("; ") || "unknown";
 }

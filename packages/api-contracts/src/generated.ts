@@ -56,10 +56,9 @@ export interface paths {
         put?: never;
         /**
          * Create a user and return a JWT
-         * @description Password hashing is bcrypt (cost 10) in the API process. Stored hashes
-         *     use the modular-crypt form, including rows written earlier by Postgres
-         *     `pgcrypto` (`bf`, `$2a$`). The row is stored in `app.users`. Minimum
-         *     password length is 8. The response matches `POST /auth/login`.
+         * @description Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is
+         *     stored in `app.users`. Minimum password length is 8. The response matches
+         *     `POST /auth/login`.
          */
         post: operations["register"];
         delete?: never;
@@ -1039,6 +1038,18 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /**
+             * @description The database connection failed after a short retry. The credentials
+             *     were not rejected.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     register: {
@@ -1066,6 +1077,18 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description Email is already registered. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description The database connection failed after a short retry. The body was
+             *     not rejected and the email was not reported as a duplicate.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

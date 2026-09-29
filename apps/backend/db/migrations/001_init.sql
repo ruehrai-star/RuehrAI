@@ -3,11 +3,12 @@
 -- is created outside this migration. Do not put app tables in public.
 --
 -- App schema for the Dev-Team API slice.
--- Password hashes are bcrypt ($2a$ or $2b$, cost 10). The API hashes them;
--- this file does not call pgcrypto. The seeded user is a local-dev fixture
--- (dev@ruehrai.local / dev-password), not a production account.
+-- Password hashes use pgcrypto crypt()/bf (bcrypt). The seeded user is a
+-- local-dev fixture (dev@ruehrai.local / dev-password), not a production account.
 -- Geometries below are synthetic stubs so /search and /layers/{id} return data
 -- before official boundaries are loaded. They are not amtliche Grenzen.
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS app;
 
@@ -75,10 +76,7 @@ CREATE TABLE app.map_features (
 CREATE INDEX map_features_layer_id_idx ON app.map_features (layer_id);
 
 INSERT INTO app.users (email, password_hash)
-VALUES (
-  'dev@ruehrai.local',
-  '$2b$10$LkvtVNUa/4XnV0hsdefSBe/yZzAkPUz2YVqr5h1adGQKIUBZl0zZ6'
-)
+VALUES ('dev@ruehrai.local', crypt('dev-password', gen_salt('bf', 10)))
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO app.search_places (id, label, grain, ags, plz, address, lon, lat)
