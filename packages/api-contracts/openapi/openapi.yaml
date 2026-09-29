@@ -97,6 +97,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: |
+            The database connection failed after a short retry. The credentials
+            were not rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /auth/register:
     post:
       tags: [Auth]
@@ -124,6 +132,14 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           description: Email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: |
+            The database connection failed after a short retry. The body was
+            not rejected and the email was not reported as a duplicate.
           content:
             application/json:
               schema:

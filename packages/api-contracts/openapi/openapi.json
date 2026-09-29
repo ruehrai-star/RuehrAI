@@ -115,6 +115,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The database connection failed after a short retry. The credentials\nwere not rejected.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -154,6 +164,16 @@
           },
           "409": {
             "description": "Email is already registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database connection failed after a short retry. The body was\nnot rejected and the email was not reported as a duplicate.\n",
             "content": {
               "application/json": {
                 "schema": {

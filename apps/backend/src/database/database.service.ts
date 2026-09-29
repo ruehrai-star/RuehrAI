@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { isFeaturesRoleUnusable } from "./pg-error";
+import { readPgPoolOptions } from "./pool-options";
 
 export type SqlQuery = <T extends QueryResultRow = QueryResultRow>(
   text: string,
@@ -26,10 +27,8 @@ export class DatabaseService implements OnModuleDestroy {
 
     this.pool = new Pool({
       connectionString,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
       application_name: "ruehrai-backend",
+      ...readPgPoolOptions((key) => config.get<string>(key)),
     });
     this.pool.on("error", (error) => {
       this.logger.error("Unexpected Postgres client error", error.stack);
