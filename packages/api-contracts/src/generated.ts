@@ -56,9 +56,10 @@ export interface paths {
         put?: never;
         /**
          * Create a user and return a JWT
-         * @description Password hashing is done in Postgres (`pgcrypto` bcrypt) and the row is
-         *     stored in `app.users`. Minimum password length is 8. The response matches
-         *     `POST /auth/login`.
+         * @description Password hashing is bcrypt (cost 10) in the API process. Stored hashes
+         *     use the modular-crypt form, including rows written earlier by Postgres
+         *     `pgcrypto` (`bf`, `$2a$`). The row is stored in `app.users`. Minimum
+         *     password length is 8. The response matches `POST /auth/login`.
          */
         post: operations["register"];
         delete?: never;

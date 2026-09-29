@@ -1,4 +1,4 @@
-function pgErrorCode(error: unknown): string | undefined {
+function readCode(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
     return undefined;
   }
@@ -6,8 +6,44 @@ function pgErrorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/** SQLSTATE on the error, or on `cause` when a driver wraps the pg error. */
+function pgErrorCode(error: unknown): string | undefined {
+  return readCode(error) ?? readCode(causeOf(error));
+}
+
+function causeOf(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || !("cause" in error)) return undefined;
+  return (error as { cause: unknown }).cause;
+}
+
+function pgRecord(error: unknown): Record<string, unknown> | undefined {
+  const direct = readCode(error);
+  if (direct && typeof error === "object" && error !== null) {
+    return error as Record<string, unknown>;
+  }
+  const cause = causeOf(error);
+  if (readCode(cause) && typeof cause === "object" && cause !== null) {
+    return cause as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/** SQLSTATE and constraint identifiers. Omits `detail`, which can contain the row. */
+export function pgErrorSummary(error: unknown): string {
+  const record = pgRecord(error);
+  if (!record) return "no sqlstate";
+  const parts = ["code", "constraint", "table", "schema", "routine"]
+    .filter((key) => typeof record[key] === "string")
+    .map((key) => `${key}=${record[key] as string}`);
+  return parts.length > 0 ? parts.join(" ") : "no sqlstate";
+}
+
 export function isUniqueViolation(error: unknown): boolean {
   return pgErrorCode(error) === "23505";
+}
+
+export function isCheckViolation(error: unknown): boolean {
+  return pgErrorCode(error) === "23514";
 }
 
 export function isForeignKeyViolation(error: unknown): boolean {
