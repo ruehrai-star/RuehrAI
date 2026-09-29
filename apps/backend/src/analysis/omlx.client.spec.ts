@@ -1,5 +1,8 @@
+import { Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { OmlxClient } from "./omlx.client";
+
+const FIXTURE_KEY = "omlx-unit-test-key";
 
 function client(env: Record<string, string | undefined>): OmlxClient {
   const config = {
@@ -98,4 +101,86 @@ describe("OmlxClient", () => {
       "http://127.0.0.1:8000/v1/chat/completions",
     );
   });
+
+  it("sends Authorization Bearer on embeddings and chat when OMLX_API_KEY is set", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: [{ embedding: [0.1, 0.2] }],
+        choices: [{ message: { content: "ok" } }],
+      }),
+    });
+    const configured = client({
+      EMBEDDINGS_BASE_URL: "http://localhost:8000/v1",
+      EMBEDDING_DIM: "2",
+      LLM_MODEL: "local-chat",
+      OMLX_API_KEY: `  ${FIXTURE_KEY}  `,
+    });
+
+    await configured.embed("query");
+    await configured.complete("system", "user");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      assertBearerOnly(call, FIXTURE_KEY);
+    }
+  });
+
+  it("omits Authorization when OMLX_API_KEY is unset or blank", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ embedding: [0.1, 0.2] }] }),
+    });
+    await client({
+      EMBEDDINGS_BASE_URL: "http://localhost:8000/v1",
+      EMBEDDING_DIM: "2",
+    }).embed("query");
+    await client({
+      EMBEDDINGS_BASE_URL: "http://localhost:8000/v1",
+      EMBEDDING_DIM: "2",
+      OMLX_API_KEY: "   ",
+    }).embed("query");
+
+    for (const call of fetchMock.mock.calls) {
+      const headers = call[1]?.headers as Record<string, string>;
+      expect(headers.authorization).toBeUndefined();
+      expect(headers["content-type"]).toBe("application/json");
+      expect(JSON.stringify(call)).not.toContain("Bearer");
+    }
+  });
+
+  it("does not log or otherwise echo OMLX_API_KEY when oMLX returns 401", async () => {
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: FIXTURE_KEY }),
+    });
+    const outcome = await client({
+      EMBEDDINGS_BASE_URL: "http://localhost:8000/v1",
+      LLM_BASE_URL: "http://localhost:8000/v1",
+      LLM_MODEL: "local-chat",
+      OMLX_API_KEY: FIXTURE_KEY,
+    }).complete("system", "user");
+
+    expect(outcome).toEqual({ ok: false, reason: "llm_rejected" });
+    expect(warn).toHaveBeenCalled();
+    const logged = warn.mock.calls.flat().map((part) => String(part)).join("\n");
+    expect(logged).not.toContain(FIXTURE_KEY);
+    expect(logged).toContain("HTTP 401");
+    warn.mockRestore();
+  });
 });
+
+function assertBearerOnly(call: unknown[], secret: string): void {
+  const [url, init] = call as [string, { headers?: Record<string, string>; body?: string }];
+  const headers = { ...(init.headers ?? {}) };
+  expect(url).not.toContain(secret);
+  expect(init.body ?? "").not.toContain(secret);
+  expect(headers.authorization).toBe(`Bearer ${secret}`);
+  expect(headers["content-type"]).toBe("application/json");
+  delete headers.authorization;
+  expect(JSON.stringify({ url, headers, body: init.body })).not.toContain(secret);
+}

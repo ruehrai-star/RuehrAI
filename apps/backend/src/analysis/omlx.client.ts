@@ -22,7 +22,13 @@ export type ChatOutcome = { ok: true; content: string } | { ok: false; reason: s
 /**
  * Local OpenAI-compatible client for oMLX on Eule (`/v1/embeddings`,
  * `/v1/chat/completions`). Clients never call this host; only the backend does.
- * A missing or unreachable server is a normal STAGE/CI case.
+ *
+ * When `OMLX_API_KEY` is set, every request sends `Authorization: Bearer`.
+ * oMLX also accepts `x-api-key` (Anthropic SDK); Bearer is the OpenAI path
+ * and is enough for both endpoints. The key is never logged.
+ *
+ * A missing key, missing server, or HTTP 401 is a normal STAGE/CI case.
+ * Callers keep the SQL and heuristic fallbacks.
  */
 @Injectable()
 export class OmlxClient {
@@ -47,7 +53,7 @@ export class OmlxClient {
     try {
       const response = await fetch(`${baseUrl}/embeddings`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.requestHeaders(),
         body: JSON.stringify({
           model: this.config.get<string>("EMBEDDING_MODEL")?.trim() || DEFAULT_EMBEDDING_MODEL,
           input,
@@ -90,7 +96,7 @@ export class OmlxClient {
     try {
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.requestHeaders(),
         body: JSON.stringify({
           model,
           temperature: 0,
@@ -139,6 +145,14 @@ export class OmlxClient {
     const raw = this.config.get<string>(key)?.trim();
     if (!raw) return null;
     return raw.replace(/\/+$/, "");
+  }
+
+  /** Bearer only. An unset or blank key omits the header so local oMLX without auth still works. */
+  private requestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const apiKey = this.config.get<string>("OMLX_API_KEY")?.trim();
+    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    return headers;
   }
 
   private flagOff(key: string): boolean {

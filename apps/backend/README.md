@@ -149,7 +149,11 @@ CTO-Korrektur 2026-09-29: STAGE läuft auf Eule (`168.192.2.194`) mit lokalem oM
 | Modell | `rg113/jina-embeddings-v5-text-small-retrieval-mlx-oQ8` |
 | Vektor-Dimension | `1024` |
 
-Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL` und `EMBEDDING_DIM`. Optional: `LLM_BASE_URL` (sonst dieselbe Basis wie `EMBEDDINGS_BASE_URL`) und `LLM_MODEL` (oMLX-Modellname für `/v1/chat/completions`). `ANALYSIS_VECTOR_SEARCH=0` schaltet die Vektorsuche ab, auch wenn die URL gesetzt ist.
+Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` und `OMLX_API_KEY`. Optional: `LLM_BASE_URL` (sonst dieselbe Basis wie `EMBEDDINGS_BASE_URL`) und `LLM_MODEL` (oMLX-Modellname für `/v1/chat/completions`). `ANALYSIS_VECTOR_SEARCH=0` schaltet die Vektorsuche ab, auch wenn die URL gesetzt ist.
+
+Auf Eule verlangt oMLX einen API-Key. Den Wert aus `~/.omlx/settings.json` (`auth.api_key`) nach `OMLX_API_KEY` in `apps/backend/.env` kopieren. Den echten Wert nicht committen. Ist die Variable gesetzt, schickt dieses Service bei jedem oMLX-Aufruf (`POST …/embeddings` und `POST …/chat/completions`) den Header `Authorization: Bearer` mit diesem Key. oMLX akzeptiert denselben Key auch als `x-api-key`; dieser Client sendet nur Bearer. Clients rufen oMLX nicht auf.
+
+Fehlt `OMLX_API_KEY` oder ist sie leer, startet der Prozess trotzdem. Der Aufruf geht ohne Authorization-Header raus. Verlangt oMLX den Key, antwortet es mit HTTP 401. Musteranalyse und Empfehlungen bleiben dann auf dem SQL- und Heuristik-Pfad. Query-Embeddings und `source=llm` (Muster und Begründungen) brauchen den Key.
 
 `GET /search` bleibt ein SQL-Filter auf `features.v_location_search` (ohne Zeilen in der View: `app.search_places`) und ruft oMLX nicht auf. Schreibseitige Embeddings gehören Brain und Data-Engineer. Es gibt keinen OpenAI-Client.
 
@@ -161,7 +165,7 @@ Die Musteranalyse darf oMLX lesen, nur serverseitig:
 | Muster (KAN-35) | `POST $LLM_BASE_URL/chat/completions`, nur wenn `LLM_MODEL` gesetzt ist | Deterministisches Muster aus Umsatzreihe und Brain-Signalen, `pattern.source: heuristic`. Ein LLM-Muster wird verworfen, wenn ein Kriterium nicht in den gelesenen Fakten steht. |
 | Begründung (KAN-42) | derselbe Chat-Aufruf, höchstens drei Standorte | Deutscher Heuristik-Text, `source: heuristic`. Ein LLM-Text wird verworfen, wenn er eine Zahl nennt, die nicht in der Kriterien-Evidenz steht. |
 
-Die Vektorsuche sortiert mit Kosinus-Distanz (`embedding <=>`). Ein HNSW-Index auf Brain wird vom Planner genutzt, wenn er zur Filterung passt. Dieses Service legt den Index nicht an. Fehlt die Spalte `embedding`, schlägt die Dimension fehl oder ist oMLX nicht erreichbar, bleibt der SQL-Pfad.
+Die Vektorsuche sortiert mit Kosinus-Distanz (`embedding <=>`). Ein HNSW-Index auf Brain wird vom Planner genutzt, wenn er zur Filterung passt. Dieses Service legt den Index nicht an. Fehlt die Spalte `embedding`, schlägt die Dimension fehl, fehlt `OMLX_API_KEY` bei eingeschalteter oMLX-Auth (HTTP 401) oder ist oMLX nicht erreichbar, bleibt der SQL-Pfad. `source=llm` entsteht nur nach einem erfolgreichen Chat mit gesetztem `LLM_MODEL` und akzeptiertem `OMLX_API_KEY`.
 
 ### Lesen von `features`
 
