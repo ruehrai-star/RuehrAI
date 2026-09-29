@@ -2,15 +2,23 @@ import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { DatabaseService } from "../database/database.service";
-import { isForeignKeyViolation, isUniqueViolation } from "../database/pg-error";
+import {
+  isCheckViolation,
+  isForeignKeyViolation,
+  isUniqueViolation,
+  pgErrorSummary,
+} from "../database/pg-error";
 import { TOKEN_TTL_SECONDS } from "./auth.constants";
 import { AuthUser, TokenResponse, UserResponse } from "./auth.types";
 import { CredentialsDto } from "./dto";
+import { hashPassword, verifyPassword } from "./password-hash";
 
 const JTI =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,47 +28,72 @@ interface UserRow {
   email: string;
 }
 
+interface LoginRow extends UserRow {
+  password_hash: string;
+}
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly jwt: JwtService,
   ) {}
 
   async login(dto: CredentialsDto): Promise<TokenResponse> {
-    const result = await this.db.query<UserRow>(
-      `SELECT id::text AS id, email
-       FROM app.users
-       WHERE email = $1
-         AND password_hash = crypt($2, password_hash)`,
-      [normalizeEmail(dto.email), dto.password],
-    );
-    const user = result.rows[0];
-    if (!user) {
+    let user: LoginRow | undefined;
+    try {
+      const result = await this.db.query<LoginRow>(
+        `SELECT id::text AS id, email, password_hash
+         FROM app.users
+         WHERE email = $1`,
+        [normalizeEmail(dto.email)],
+      );
+      user = result.rows[0];
+    } catch (error) {
+      this.logger.error(
+        `login failed (${pgErrorSummary(error)})`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+    if (!user || !(await verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException("Invalid email or password");
     }
     return this.issueToken(user);
   }
 
   async register(dto: CredentialsDto): Promise<TokenResponse> {
+    const passwordHash = await hashPassword(dto.password);
+    let user: UserRow | undefined;
     try {
       const result = await this.db.query<UserRow>(
         `INSERT INTO app.users (email, password_hash)
-         VALUES ($1, crypt($2, gen_salt('bf', 10)))
+         VALUES ($1, $2)
          RETURNING id::text AS id, email`,
-        [normalizeEmail(dto.email), dto.password],
+        [normalizeEmail(dto.email), passwordHash],
       );
-      const user = result.rows[0];
-      if (!user) {
-        throw new UnauthorizedException();
-      }
-      return this.issueToken(user);
+      user = result.rows[0];
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       if (isUniqueViolation(error)) {
         throw new ConflictException("Email already registered");
       }
+      if (isCheckViolation(error)) {
+        this.logger.warn(`register rejected by check constraint (${pgErrorSummary(error)})`);
+        throw new BadRequestException("Invalid email or password");
+      }
+      this.logger.error(
+        `register failed (${pgErrorSummary(error)})`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw error;
     }
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    return this.issueToken(user);
   }
 
   /**

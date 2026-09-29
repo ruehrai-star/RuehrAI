@@ -1,9 +1,12 @@
-import { INestApplication } from "@nestjs/common";
+import { ConflictException, INestApplication, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { JwtModule } from "@nestjs/jwt";
 import { Test } from "@nestjs/testing";
 import { Pool } from "pg";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
+import { TOKEN_TTL_SECONDS } from "../src/auth/auth.constants";
+import { AuthService } from "../src/auth/auth.service";
 import { configureApp } from "../src/configure-app";
 import { DatabaseService } from "../src/database/database.service";
 import { SearchService } from "../src/search/search.service";
@@ -678,7 +681,66 @@ async function dropFeaturesFixture(): Promise<void> {
       await admin.end();
     }
   });
+
+  it("registers and logs in when pgcrypto is not on the search_path", async () => {
+    const adminUrl = process.env.DATABASE_URL;
+    if (!adminUrl) throw new Error("DATABASE_URL is required");
+    const admin = new Pool({ connectionString: adminUrl, max: 1 });
+    const role = "auth_path_user";
+    let restricted: DatabaseService | undefined;
+    try {
+      await dropLoginRole(admin, role);
+      await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD 'auth-path-test' NOSUPERUSER`);
+      await admin.query(`GRANT USAGE ON SCHEMA app TO ${role}`);
+      await admin.query(`GRANT SELECT, INSERT ON app.users TO ${role}`);
+      await admin.query(`GRANT USAGE, SELECT ON SEQUENCE app.users_id_seq TO ${role}`);
+      await admin.query(`ALTER ROLE ${role} SET search_path TO app`);
+
+      const url = new URL(adminUrl);
+      url.username = role;
+      url.password = "auth-path-test";
+      restricted = new DatabaseService({
+        get: (key: string) => (key === "DATABASE_URL" ? url.toString() : undefined),
+      } as ConfigService);
+      await expect(restricted.query("SELECT crypt('x', gen_salt('bf', 10))")).rejects.toThrow(
+        /gen_salt|crypt/,
+      );
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          JwtModule.register({
+            secret: "test-jwt-secret-not-for-production",
+            signOptions: { expiresIn: TOKEN_TTL_SECONDS },
+          }),
+        ],
+        providers: [AuthService, { provide: DatabaseService, useValue: restricted }],
+      }).compile();
+      const auth = moduleRef.get(AuthService);
+      const email = `path-${Date.now()}@ruehrai.local`;
+      const created = await auth.register({ email, password: "dev-password" });
+      expect(created.tokenType).toBe("Bearer");
+      const loggedIn = await auth.login({ email, password: "dev-password" });
+      expect(loggedIn.tokenType).toBe("Bearer");
+      await expect(auth.register({ email, password: "dev-password" })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      await expect(
+        auth.login({ email: "missing-path@ruehrai.local", password: "dev-password" }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    } finally {
+      await restricted?.onModuleDestroy().catch(() => undefined);
+      await dropLoginRole(admin, role);
+      await admin.end();
+    }
+  });
 });
+
+async function dropLoginRole(admin: Pool, role: string): Promise<void> {
+  const existing = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+  if ((existing.rowCount ?? 0) === 0) return;
+  await admin.query(`DROP OWNED BY ${role}`);
+  await admin.query(`DROP ROLE ${role}`);
+}
 
 function sixMonths(): string[] {
   const now = new Date();
