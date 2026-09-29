@@ -22,7 +22,7 @@ pnpm start:dev
 
 `006_berlin_plz_centroids.sql` legt PLZ5-Stubs für 12247, 12169 und 12209 an (Berlin, AGS `11000000`, `stub: true` auf dem Point) und stellt `plz5:10115` mit dem Schwerpunkt aus `001_init.sql` sicher (`13.3870`, `52.5320`). Vorhandene Koordinaten bleiben. Danach schreibt die Migration fehlende `store_locations.lon`/`lat` aus dem passenden `search_places`-Schwerpunkt (`grain = plz5`).
 
-`.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings).
+`.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. `DATASCOUT_DATABASE_URL` bleibt auskommentiert: ohne sie liegen Filial-Pins auf dem PLZ-Stub. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings). Filial-Koordinaten: [Filial-Pins](#filial-pins-data-scout).
 
 ## Seed-Nutzer
 
@@ -100,7 +100,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/auth/logo
 
 Musteranalyse (OpenAPI 0.3.0) liest dieselben Daten. `GET /analysis/input` und `POST /analysis/runs` antworten `404`, wenn keine Zielregion gespeichert ist, und `400`, wenn keine Filiale zwei aufeinanderfolgende Monate mit gesetztem Umsatz hat. Ein Lauf speichert Input, die benutzten Brain-Fakten und das Muster in `app.analysis_runs`. `GET /analysis/pattern` liefert das neueste Muster.
 
-Karte (OpenAPI 0.5.0): `GET /stores` liefert `lon`/`lat` in WGS84. Fehlt das Paar, setzen Create und Update den PLZ-Schwerpunkt aus `app.search_places` (danach ein Point in `app.map_features`) und speichern ihn. Trifft das Lesen denselben Katalog, schreibt es `lon`/`lat` nach `app.store_locations`, damit der nächste Abruf und die Datenbank dasselbe Paar haben. Ein explizites Paar bleibt unverändert. `GET /target-region` liefert zusätzlich `bounds` (`west`, `south`, `east`, `north`) und `geometry` (GeoJSON Polygon oder MultiPolygon, Länge dann Breite). Das Web setzt `fitBounds` auf die Filialpunkte vereinigt mit `bounds` und zeichnet `geometry` halbtransparent mit Umriss. Beschriftungen bleiben im Client. Ohne Geometrie im PUT kommt die Fläche aus `app.map_features` (derselbe Stub wie `/layers/{id}`, für München der Kasten) oder als Rechteck um den Katalogpunkt. Ein mitgeschicktes Polygon gewinnt; `bounds` ohne Polygon wird zum Rechteck.
+Karte (OpenAPI 0.5.0): `GET /stores` liefert `lon`/`lat` in WGS84. Fehlt das Paar, gilt beim Schreiben und beim Lesen die Reihenfolge aus [Filial-Pins](#filial-pins-data-scout). Create und Update speichern das Paar. Trifft das Lesen einen Treffer, schreibt es `lon`/`lat` nach `app.store_locations` (fehlendes Paar, oder ein Adresstreffer statt eines PLZ-Schwerpunkts), damit der nächste Abruf und die Datenbank dasselbe Paar haben. Ein explizites Paar bleibt unverändert. `GET /target-region` liefert zusätzlich `bounds` (`west`, `south`, `east`, `north`) und `geometry` (GeoJSON Polygon oder MultiPolygon, Länge dann Breite). Das Web setzt `fitBounds` auf die Filialpunkte vereinigt mit `bounds` und zeichnet `geometry` halbtransparent mit Umriss. Beschriftungen bleiben im Client. Ohne Geometrie im PUT kommt die Fläche aus `app.map_features` (derselbe Stub wie `/layers/{id}`, für München der Kasten) oder als Rechteck um den Katalogpunkt. Ein mitgeschicktes Polygon gewinnt; `bounds` ohne Polygon wird zum Rechteck.
 
 Top-3-Empfehlungen (OpenAPI 0.4.0) lesen dieses Muster. `POST /recommendations` sucht in der Zielregion Brain-Standorte, deren Kriterien sich in den letzten sechs Kalendermonaten (UTC) in die Richtung des Musters bewegt haben, und speichert höchstens drei Treffer. Ein oder zwei Treffer sind kein Fehler: `reason` erklärt das auf Deutsch. Ohne abgeschlossenes Muster antwortet der Aufruf `404`. `GET /recommendations` liefert das neueste Set dieses Nutzers. `source` an jeder Begründung ist `llm` oder `heuristic`.
 
@@ -140,7 +140,38 @@ Zwei Schemas. `public` bleibt für App-Tabellen ungenutzt.
 
 Die View-Spalten, die `/search` benutzt: `id`, `geo_key`, `grain`, `name`, `title`, `lon`, `lat`. `ref_period` liegt auf der View, filtert dieser Slice nicht. Koordinaten und Embeddings können leer sein.
 
-Verbindung: `pg.Pool` (max. 10) mit `DATABASE_URL`. Autorisierung der HTTP-Routen prüft das Backend am JWT.
+Verbindung: `pg.Pool` (max. 10) mit `DATABASE_URL`. Autorisierung der HTTP-Routen prüft das Backend am JWT. `app.store_locations` bleibt auf dieser Datenbank. Data-Scout ist ein zweiter Pool, siehe unten.
+
+### Filial-Pins (Data-Scout)
+
+KAN-56 Option A. Create und Update suchen ohne Koordinaten in Data-Scout `geo_ref_address` (`strasse`, `hnr` aus `street`, `plz`). Der PLZ5-Schwerpunkt ist nur der Fallback ohne Adresstreffer. Ein mitgeschicktes `lon`/`lat`-Paar gewinnt, ist aber keine Pflicht und nicht die primäre Quelle. Kein öffentlicher Geocoder, kein Supabase. Verbindung: [`data-engineer/docs/data-scout-db-connection.md`](../../data-engineer/docs/data-scout-db-connection.md).
+
+| Schritt | Quelle |
+| --- | --- |
+| optional | Explizites `lon`/`lat` im Request, beide gesetzt. Sonst übersprungen |
+| 1 | `geo_ref_address` (`strasse`, `hnr` aus `street`, `plz`) → `lon`/`lat` EPSG:4326. Index `geo_ref_address_plz_idx`. Berlin, OSM |
+| 2 | `geo_ref_plz` Schwerpunkt (`centroid_lon` / `centroid_lat`), nur ohne Adresstreffer |
+| 3 | `app.search_places`, danach ein Point in `app.map_features`, nur ohne Adresstreffer und ohne `geo_ref_plz` |
+
+`DATASCOUT_DATABASE_URL` leer oder die Abfrage schlägt fehl: Schritte 1 und 2 entfallen, Schritt 3 bleibt. Der Data-Scout-Pool liest nur (`default_transaction_read_only`). Schema `app` wird dort nicht geschrieben.
+
+`GET /stores` und `GET /stores/{id}` schreiben die Koordinate nach `app.store_locations`, wenn sie vorher null war, oder wenn ein Adresstreffer einen gespeicherten PLZ-Schwerpunkt ersetzt. Ein abweichender expliziter Pin bleibt.
+
+Backfill bestehender Berliner Filialen (PLZ 12247, 12169, 12209, 10115) läuft nach dem Deploy. Der Release-Manager führt ihn auf Eule aus. Bevorzugt das SQL, das Brain schreibt und Data-Scout nur liest:
+
+```bash
+psql "$DATABASE_URL" -v datascout_conn="$DATASCOUT_DATABASE_URL" \
+  -f apps/backend/db/ops/kan-56-backfill-store-pins.sql
+```
+
+`dblink` muss einmal als Superuser existieren (`CREATE EXTENSION dblink`). Ohne die Extension, derselbe Abgleich über das API-Parsing:
+
+```bash
+pnpm --filter @ruehrai/backend store-pins:backfill -- --dry-run
+pnpm --filter @ruehrai/backend store-pins:backfill
+```
+
+Das SQL liegt nicht in `db/migrations` und läuft nicht bei `pnpm db:migrate`.
 
 ### STAGE / Embeddings
 

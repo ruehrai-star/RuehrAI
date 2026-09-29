@@ -3,7 +3,7 @@
   "info": {
     "title": "RuehrAI API",
     "version": "0.5.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. When a store write omits both, they are filled\nfrom the PLZ centroid in `app.search_places` (or a matching Point in\n`app.map_features`). Target-region `bounds` (west, south, east, north) is\nthe extent for map fitBounds together with those pins. `geometry` is a\nGeoJSON Polygon or MultiPolygon (EPSG:4326, longitude then latitude) for a\nsemi-transparent fill and outline. Labels stay client-side. Clients call\nonly this API.\n"
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nTarget-region `bounds` (west, south, east, north) is\nthe extent for map fitBounds together with those pins. `geometry` is a\nGeoJSON Polygon or MultiPolygon (EPSG:4326, longitude then latitude) for a\nsemi-transparent fill and outline. Labels stay client-side. Clients call\nonly this API.\n"
   },
   "servers": [
     {
@@ -320,6 +320,7 @@
         ],
         "operationId": "listStores",
         "summary": "List the signed-in user's store addresses",
+        "description": "A read persists `lon`/`lat` when the stored pair is null, or when an\naddress match in Data-Scout replaces a pin that still sits on a PLZ\ncentroid. An explicit pair is returned unchanged. Resolution order is\nthe same as create.\n",
         "responses": {
           "200": {
             "description": "Stores owned by the token's user, oldest first.",
@@ -342,7 +343,7 @@
         ],
         "operationId": "createStore",
         "summary": "Add a store address",
-        "description": "German address (`postalCode` is PLZ5, `countryCode` is `DE`).\n`street` includes the house number. `lon` and `lat` are WGS84\n(EPSG:4326) for the map pin. Send both or neither. When both are\nomitted, the API sets them to the PLZ centroid from `app.search_places`\n(seed or loaded catalog), then a Point in `app.map_features` with that\nPLZ. They stay null only when that postal code has no catalog point.\nNo external geocoder is called. The same fill runs on update and on\nread when a stored row still has no coordinates.\n",
+        "description": "German address (`postalCode` is PLZ5, `countryCode` is `DE`).\n`street` includes the house number. `lon` and `lat` are optional WGS84\n(EPSG:4326) for the map pin. Clients are not required to send them.\nSend both or neither. KAN-56 Option A, when both are omitted:\n\n1. Data-Scout `geo_ref_address` (`strasse` + `hnr` parsed from `street`,\n   plus `plz`). Berlin OSM coverage. This is the house-number pin.\n2. Data-Scout `geo_ref_plz` centroid, only when step 1 misses.\n3. PLZ centroid from `app.search_places`, then a Point in\n   `app.map_features` with that PLZ, only when steps 1 and 2 miss.\n\nSteps 1 and 2 run only when `DATASCOUT_DATABASE_URL` is set and the\nread succeeds. Otherwise the API uses step 3. Coordinates stay null\nonly when none of the steps hit. No public geocoder is called.\nUpdate uses the same order. A pair sent by the client is stored\nunchanged; it is an optional override, not the primary source.\nA read persists a filled null pair, and replaces a stored PLZ centroid\nwhen step 1 hits.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -427,7 +428,7 @@
         ],
         "operationId": "updateStore",
         "summary": "Replace a store address",
-        "description": "Same coordinate rule as create: omit `lon` and `lat` together to fill\nthe PLZ centroid, or send both to keep an explicit WGS84 pin.\n",
+        "description": "Same coordinate rule as create. Omit `lon` and `lat` together to\nresolve Data-Scout `geo_ref_address`, then `geo_ref_plz`, then the\n`app.search_places` / `app.map_features` PLZ stub. Send both to keep\nan explicit WGS84 pin.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -1731,7 +1732,7 @@
             "nullable": true,
             "minimum": -180,
             "maximum": 180,
-            "description": "WGS84 longitude for the map pin. Filled from the PLZ centroid when\na write omits both coordinates and the catalog has that postal code.\n"
+            "description": "WGS84 longitude for the map pin. Resolved, when a write omits both\ncoordinates, from Data-Scout `geo_ref_address`, then `geo_ref_plz`,\nthen the PLZ stub in `app.search_places` or `app.map_features`.\n"
           },
           "lat": {
             "type": "number",
@@ -1739,7 +1740,7 @@
             "nullable": true,
             "minimum": -90,
             "maximum": 90,
-            "description": "WGS84 latitude for the map pin. Filled from the PLZ centroid when\na write omits both coordinates and the catalog has that postal code.\n"
+            "description": "WGS84 latitude for the map pin. Resolved, when a write omits both\ncoordinates, from Data-Scout `geo_ref_address`, then `geo_ref_plz`,\nthen the PLZ stub in `app.search_places` or `app.map_features`.\n"
           },
           "createdAt": {
             "type": "string",
@@ -1792,7 +1793,7 @@
             "nullable": true,
             "minimum": -180,
             "maximum": 180,
-            "description": "WGS84 longitude. Omit together with `lat` to fill from the PLZ centroid."
+            "description": "WGS84 longitude. Omit together with `lat` to resolve\n`geo_ref_address`, then `geo_ref_plz`, then the PLZ stub.\n"
           },
           "lat": {
             "type": "number",
@@ -1800,7 +1801,7 @@
             "nullable": true,
             "minimum": -90,
             "maximum": 90,
-            "description": "WGS84 latitude. Omit together with `lon` to fill from the PLZ centroid."
+            "description": "WGS84 latitude. Omit together with `lon` to resolve\n`geo_ref_address`, then `geo_ref_plz`, then the PLZ stub.\n"
           }
         }
       },

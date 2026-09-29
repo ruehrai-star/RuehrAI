@@ -12,6 +12,8 @@ import {
   toRevenue,
   toRevenueParam,
 } from "../customer/values";
+import { AddressGeocoderService } from "../geo/address-geocoder.service";
+import { nextStoredPin, PinPoint } from "../geo/pin-resolution";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
 import { MonthlyRevenueWriteDto, StoreLocationWriteDto } from "./dto";
 
@@ -80,6 +82,7 @@ export class StoresService {
   constructor(
     private readonly db: DatabaseService,
     private readonly catalog: PlaceCatalogService,
+    private readonly geocoder: AddressGeocoderService,
   ) {}
 
   async list(userId: string): Promise<{ stores: StoreLocation[] }> {
@@ -247,40 +250,85 @@ export class StoresService {
     ];
   }
 
-  /** Explicit WGS84 pair is kept. Otherwise the PLZ centroid from the local catalog. */
+  /**
+   * KAN-56 Option A. An optional explicit pair wins when both are sent.
+   * Otherwise Data-Scout `geo_ref_address`. PLZ5 (`geo_ref_plz`, then
+   * `search_places` / `map_features`) only when that address misses.
+   */
   private async resolveCoords(
     dto: StoreLocationWriteDto,
   ): Promise<{ lon: number | null; lat: number | null }> {
     const coords = normalizeCoordPair(dto.lon, dto.lat);
     if (coords.lon !== null && coords.lat !== null) return coords;
     const postalCode = dto.postalCode.trim();
+    const address = await this.geocoder.lookupAddress(dto.street, postalCode);
+    if (address) return address;
+    const plz = await this.geocoder.lookupPlzCentroid(postalCode);
+    if (plz) return plz;
     const found = await this.catalog.plzCentroids([postalCode]);
     return found.get(postalCode) ?? coords;
   }
 
   /**
-   * Fills a missing pair from the PLZ catalog and writes that pair onto
-   * `app.store_locations`. Create and update still resolve coordinates
-   * before insert. A later read persists a hit that those writes missed.
+   * Fills a missing pair and writes it onto `app.store_locations`.
+   * An address hit also replaces a stored PLZ centroid. Explicit pins stay.
+   * Create and update still resolve coordinates before insert.
    */
   private async fillMissingCoords(stores: StoreLocation[]): Promise<void> {
-    const missing = [
+    const addressById = new Map<string, PinPoint | null>();
+    await Promise.all(
+      stores.map(async (store) => {
+        addressById.set(
+          store.id,
+          await this.geocoder.lookupAddress(store.street, store.postalCode),
+        );
+      }),
+    );
+
+    const postalCodes = [
       ...new Set(
-        stores.filter((store) => store.lon === null || store.lat === null).map((store) => store.postalCode),
+        stores
+          .filter((store) => needsPlzCentroid(store, addressById.get(store.id) ?? null))
+          .map((store) => store.postalCode),
       ),
     ];
-    if (missing.length === 0) return;
-    const found = await this.catalog.plzCentroids(missing);
-    const hits: StoreLocation[] = [];
+    const catalog =
+      postalCodes.length > 0
+        ? await this.catalog.plzCentroids(postalCodes)
+        : new Map<string, PinPoint>();
+    const geoPlz = new Map<string, PinPoint>();
+    await Promise.all(
+      postalCodes.map(async (postalCode) => {
+        const point = await this.geocoder.lookupPlzCentroid(postalCode);
+        if (point) geoPlz.set(postalCode, point);
+      }),
+    );
+
+    const nullFills: StoreLocation[] = [];
     for (const store of stores) {
-      if (store.lon !== null && store.lat !== null) continue;
-      const point = found.get(store.postalCode);
-      if (!point) continue;
-      store.lon = point.lon;
-      store.lat = point.lat;
-      hits.push(store);
+      const next = nextStoredPin({
+        stored: store,
+        address: addressById.get(store.id) ?? null,
+        plzCentroids: [geoPlz.get(store.postalCode), catalog.get(store.postalCode)],
+      });
+      if (!next) continue;
+      if (store.lon === null || store.lat === null) {
+        store.lon = next.point.lon;
+        store.lat = next.point.lat;
+        nullFills.push(store);
+        continue;
+      }
+      const written = await this.persistPin(store, next.point);
+      if (!written) continue;
+      store.lon = next.point.lon;
+      store.lat = next.point.lat;
     }
-    if (hits.length === 0) return;
+    await this.persistNullPins(nullFills);
+  }
+
+  /** Batch write from #25: only rows that are still null, so a concurrent pin is kept. */
+  private async persistNullPins(stores: StoreLocation[]): Promise<void> {
+    if (stores.length === 0) return;
     const saved = await this.db.query<{ id: string; updated_at: Date | string }>(
       `UPDATE app.store_locations AS s
        SET lon = v.lon,
@@ -292,13 +340,43 @@ export class StoresService {
          AND s.lon IS NULL
          AND s.lat IS NULL
        RETURNING s.id::text AS id, s.updated_at`,
-      [hits.map((store) => store.id), hits.map((store) => store.lon), hits.map((store) => store.lat)],
+      [
+        stores.map((store) => store.id),
+        stores.map((store) => store.lon),
+        stores.map((store) => store.lat),
+      ],
     );
     const updatedAt = new Map(saved.rows.map((row) => [row.id, toIso(row.updated_at)]));
-    for (const store of hits) {
+    for (const store of stores) {
       const at = updatedAt.get(store.id);
       if (at) store.updatedAt = at;
     }
+  }
+
+  /** `$4`/`$5` are the coordinates just read, so a newer explicit pin is not replaced. */
+  private async persistPin(store: StoreLocation, point: PinPoint): Promise<boolean> {
+    const result = await this.db.query<{ updated_at: Date | string }>(
+      `UPDATE app.store_locations
+       SET lon = $2, lat = $3, updated_at = now()
+       WHERE id = $1::bigint
+         AND (
+           lon IS NULL
+           OR lat IS NULL
+           OR (abs(lon - $4::float8) < 0.0001 AND abs(lat - $5::float8) < 0.0001)
+         )
+         AND (
+           lon IS NULL
+           OR lat IS NULL
+           OR abs(lon - $2::float8) >= 0.0001
+           OR abs(lat - $3::float8) >= 0.0001
+         )
+       RETURNING updated_at`,
+      [store.id, point.lon, point.lat, store.lon, store.lat],
+    );
+    const row = result.rows[0];
+    if (!row) return false;
+    store.updatedAt = toIso(row.updated_at);
+    return true;
   }
 
   private async readPoints(query: SqlQuery, storeId: string): Promise<MonthlyRevenuePoint[]> {
@@ -316,6 +394,12 @@ export class StoresService {
       updatedAt: toIso(row.updated_at),
     }));
   }
+}
+
+function needsPlzCentroid(store: StoreLocation, address: PinPoint | null): boolean {
+  const missing = store.lon === null || store.lat === null;
+  if (address && missing) return false;
+  return missing || address !== null;
 }
 
 function assertUniqueMonths(points: { year: number; month: number }[]): void {
