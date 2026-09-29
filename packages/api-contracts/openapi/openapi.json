@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.2.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n"
+    "version": "0.3.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nClients call only this API. A later Top-3 recommendation step is not\npart of this version; there is no recommendations endpoint.\n"
   },
   "servers": [
     {
@@ -29,6 +29,9 @@
     },
     {
       "name": "Stores"
+    },
+    {
+      "name": "Analysis"
     }
   ],
   "security": [
@@ -832,6 +835,200 @@
           }
         }
       }
+    },
+    "/analysis/input": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "operationId": "getAnalysisInput",
+        "summary": "Structured analysis input for the signed-in user",
+        "description": "Builds the Musteranalyse input from the user's saved target region,\nstore addresses, and monthly revenue (at most 36 months per store).\nA revenue change counts only between two successive calendar months\nthat both have a non-null amount. `404` when no target region is\nsaved. `400` when no store has two adjacent months with revenue.\n",
+        "responses": {
+          "200": {
+            "description": "Input that a run would snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisInput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Region exists, but monthly revenue is not sufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": "Die Monatsumsätze reichen für eine Musteranalyse nicht aus. Mindestens eine Filiale braucht zwei aufeinanderfolgende Monate mit gesetztem Umsatz.",
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "This user has not saved a target region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Keine Zielregion gespeichert. Bitte zuerst eine Zielregion anlegen.",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/runs": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "operationId": "createAnalysisRun",
+        "summary": "Snapshot input, search Brain, and persist a pattern",
+        "description": "Same preconditions as `GET /analysis/input`. On success the run is\nstored for this user and includes the Brain facts used (region filter,\nplus store postal codes) and the derived pattern. The pattern is the\ninput a later Top-3 step can read. This operation does not recommend\naddresses.\n",
+        "responses": {
+          "201": {
+            "description": "Completed analysis run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Monthly revenue is not sufficient for a pattern.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "This user has not saved a target region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/runs/{id}": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "operationId": "getAnalysisRun",
+        "summary": "Read one analysis run of the signed-in user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            },
+            "description": "Run id as a decimal string."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run, including input, Brain facts, and pattern.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No run with this id for the token's user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Die Analyse wurde nicht gefunden.",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/pattern": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "operationId": "getAnalysisPattern",
+        "summary": "Latest persisted pattern for the signed-in user",
+        "description": "Returns the pattern from the newest completed run. `404` when the\nuser has not completed an analysis yet.\n",
+        "responses": {
+          "200": {
+            "description": "Latest pattern.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisPatternResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No completed analysis run for this user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1453,6 +1650,413 @@
             "items": {
               "$ref": "#/components/schemas/MonthlyRevenuePointWrite"
             }
+          }
+        }
+      },
+      "AnalysisInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "region",
+          "stores",
+          "revenueDirection",
+          "capturedAt"
+        ],
+        "description": "Snapshot of customer inputs used for Musteranalyse. `stores[].points`\nholds up to 36 months. `changes` links only successive calendar months\nthat both have a revenue.\n",
+        "properties": {
+          "region": {
+            "$ref": "#/components/schemas/TargetRegion"
+          },
+          "stores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisStore"
+            }
+          },
+          "revenueDirection": {
+            "$ref": "#/components/schemas/RevenueDirection"
+          },
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AnalysisStore": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "street",
+          "postalCode",
+          "city",
+          "points",
+          "changes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "street": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string",
+            "pattern": "^[0-9]{5}$"
+          },
+          "city": {
+            "type": "string"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "lat": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "points": {
+            "type": "array",
+            "maxItems": 36,
+            "items": {
+              "$ref": "#/components/schemas/AnalysisRevenuePoint"
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisRevenueChange"
+            }
+          }
+        }
+      },
+      "AnalysisRevenuePoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "year",
+          "month",
+          "revenueEur"
+        ],
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 1990,
+            "maximum": 2100
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "revenueEur": {
+            "type": "number",
+            "format": "double",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "AnalysisRevenueChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fromYear",
+          "fromMonth",
+          "toYear",
+          "toMonth",
+          "fromRevenueEur",
+          "toRevenueEur",
+          "changeEur"
+        ],
+        "properties": {
+          "fromYear": {
+            "type": "integer"
+          },
+          "fromMonth": {
+            "type": "integer"
+          },
+          "toYear": {
+            "type": "integer"
+          },
+          "toMonth": {
+            "type": "integer"
+          },
+          "fromRevenueEur": {
+            "type": "number",
+            "format": "double"
+          },
+          "toRevenueEur": {
+            "type": "number",
+            "format": "double"
+          },
+          "changeEur": {
+            "type": "number",
+            "format": "double",
+            "description": "toRevenueEur minus fromRevenueEur, rounded to cents."
+          }
+        }
+      },
+      "RevenueDirection": {
+        "type": "string",
+        "description": "Sign of the summed month-to-month revenue changes. Flat means the sum is zero.",
+        "enum": [
+          "up",
+          "down",
+          "flat"
+        ]
+      },
+      "CriterionDirection": {
+        "type": "string",
+        "description": "Direction of one Brain criterion. `unknown` means the facts do not\nshow a change over time (often a single reference period).\n",
+        "enum": [
+          "up",
+          "down",
+          "flat",
+          "unknown"
+        ]
+      },
+      "AnalysisRun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "createdAt",
+          "input",
+          "brain",
+          "pattern"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Run id as a decimal string."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "input": {
+            "$ref": "#/components/schemas/AnalysisInput"
+          },
+          "brain": {
+            "$ref": "#/components/schemas/AnalysisBrain"
+          },
+          "pattern": {
+            "$ref": "#/components/schemas/AnalysisPattern"
+          }
+        }
+      },
+      "AnalysisBrain": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "factCount",
+          "facts"
+        ],
+        "description": "Facts retrieved for this run. `vector` means cosine similarity over\nBrain embeddings, filtered to the target region and store postal\ncodes. `sql` means the same filters without a vector (embeddings\nunset, unreachable, or not usable). This is not a raw Brain dump.\n",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "vector",
+              "sql"
+            ]
+          },
+          "vectorUnavailableReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "embeddings_disabled",
+              "embeddings_unconfigured",
+              "embeddings_unreachable",
+              "embeddings_rejected",
+              "vector_query_failed",
+              "no_embeddings_in_region",
+              "features_unavailable"
+            ],
+            "description": "Why `mode` is `sql`. Null when `mode` is `vector`.\n"
+          },
+          "factCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of facts included on this run."
+          },
+          "facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrainFact"
+            }
+          }
+        }
+      },
+      "BrainFact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "geoKey",
+          "grain",
+          "title",
+          "excerpt",
+          "matchedBy",
+          "signals"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "geoKey": {
+            "type": "string"
+          },
+          "grain": {
+            "$ref": "#/components/schemas/Grain"
+          },
+          "title": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "refPeriod": {
+            "type": "string",
+            "nullable": true
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "Short prose from the feature document, or the title when no prose is stored."
+          },
+          "distance": {
+            "type": "number",
+            "format": "double",
+            "nullable": true,
+            "description": "Cosine distance when mode is vector. Null for the SQL filter."
+          },
+          "matchedBy": {
+            "type": "string",
+            "enum": [
+              "region",
+              "store",
+              "label"
+            ],
+            "description": "`region` matches the target region ags, plz, or geoKey.\n`store` matches a store postal code.\n`label` is the text fallback when the region has no geo key.\n"
+          },
+          "signals": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "$ref": "#/components/schemas/BrainSignal"
+            }
+          }
+        }
+      },
+      "BrainSignal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "AnalysisPattern": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "summary",
+          "revenueDirection",
+          "criteria"
+        ],
+        "description": "Persisted pattern for a later Top-3 step. `source` is `llm` when the\ncriteria were taken from the language model and checked against the\nretrieved facts, otherwise `heuristic`.\n",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "heuristic"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "revenueDirection": {
+            "$ref": "#/components/schemas/RevenueDirection"
+          },
+          "criteria": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/PatternCriterion"
+            }
+          }
+        }
+      },
+      "PatternCriterion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "label",
+          "direction",
+          "evidence"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "label": {
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/CriterionDirection"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Grounded in the retrieved Brain facts or the stored revenue series."
+          }
+        }
+      },
+      "AnalysisPatternResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId",
+          "createdAt",
+          "pattern"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pattern": {
+            "$ref": "#/components/schemas/AnalysisPattern"
           }
         }
       },

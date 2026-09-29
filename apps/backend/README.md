@@ -49,6 +49,10 @@ Alternativ legt `POST /auth/register` weitere Nutzer in derselben Datenbank an. 
 | `GET` / `PUT` / `DELETE` | `/stores/{id}` | Bearer JWT |
 | `GET` / `PUT` | `/stores/{id}/revenue` | Bearer JWT, Monatsumsatz (max. 36 Monate) |
 | `DELETE` | `/stores/{id}/revenue/{year}/{month}` | Bearer JWT |
+| `GET` | `/analysis/input` | Bearer JWT, strukturierter Analyse-Input (KAN-31) |
+| `POST` | `/analysis/runs` | Bearer JWT, Snapshot, Brain-Suche, Muster (KAN-31/32/35) |
+| `GET` | `/analysis/runs/{id}` | Bearer JWT, ein Lauf des Nutzers |
+| `GET` | `/analysis/pattern` | Bearer JWT, zuletzt persistiertes Muster |
 
 Geschützte Routen ohne gültiges Bearer-Token antworten mit `401`.
 
@@ -90,6 +94,19 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/auth/logo
 
 `revenueEur: null` markiert den Monat als fehlend. Ein Monat ohne Zeile ist noch nicht erfasst. Pro Filiale liegen höchstens 36 Monate.
 
+Musteranalyse (OpenAPI 0.3.0) liest dieselben Daten. `GET /analysis/input` und `POST /analysis/runs` antworten `404`, wenn keine Zielregion gespeichert ist, und `400`, wenn keine Filiale zwei aufeinanderfolgende Monate mit gesetztem Umsatz hat. Ein Lauf speichert Input, die benutzten Brain-Fakten und das Muster in `app.analysis_runs`. `GET /analysis/pattern` liefert das neueste Muster. Top-3-Empfehlungen (`/recommendations`) sind nicht Teil dieses Schnitts.
+
+```bash
+curl -s http://localhost:3000/analysis/input \
+  -H "authorization: Bearer $TOKEN"
+
+curl -s -X POST http://localhost:3000/analysis/runs \
+  -H "authorization: Bearer $TOKEN"
+
+curl -s http://localhost:3000/analysis/pattern \
+  -H "authorization: Bearer $TOKEN"
+```
+
 Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Stubs (Punkte und ein grober Polygon-Kasten), keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
 
 `/search` liest `features.v_location_search`, sobald die View mindestens eine Zeile hat. Treffer kommen aus `name` (sonst `title` oder `geo_key`), `grain` und `geo_key`. `lon`/`lat` dürfen null sein. Filter: `q`, `type` (`address` | `ags` | `plz`), `address`, `ags`, `plz`, `geoKey`, `grain`.
@@ -102,7 +119,7 @@ Zwei Schemas. `public` bleibt für App-Tabellen ungenutzt.
 
 | Schema | Wer | Inhalt |
 | --- | --- | --- |
-| `app` | diese Migrationen | `users` (Login, `bigint identity`), `revoked_tokens` (Logout-`jti`), `target_regions` (eine Zielregion je Nutzer), `store_locations` (Filialadressen), `store_monthly_revenue` (Umsatz je Monat; `NULL` = als fehlend markiert), `search_places` (Such-Fallback), `map_layers` / `map_features` (GeoJSON-Stubs) |
+| `app` | diese Migrationen | `users` (Login, `bigint identity`), `revoked_tokens` (Logout-`jti`), `target_regions` (eine Zielregion je Nutzer), `store_locations` (Filialadressen), `store_monthly_revenue` (Umsatz je Monat; `NULL` = als fehlend markiert), `analysis_runs` (Snapshot, Brain-Fakten, Muster als JSON), `search_places` (Such-Fallback), `map_layers` / `map_features` (GeoJSON-Stubs) |
 | `features` | Data-Engineer, Brain | `location_feature_docs`, `embedding_jobs`, View `v_location_search` |
 
 Die View-Spalten, die `/search` benutzt: `id`, `geo_key`, `grain`, `name`, `title`, `lon`, `lat`. `ref_period` liegt auf der View, filtert dieser Slice nicht. Koordinaten und Embeddings können leer sein.
@@ -120,9 +137,18 @@ CTO-Korrektur 2026-09-29: STAGE läuft auf Eule (`168.192.2.194`) mit lokalem oM
 | Modell | `rg113/jina-embeddings-v5-text-small-retrieval-mlx-oQ8` |
 | Vektor-Dimension | `1024` |
 
-Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL` und `EMBEDDING_DIM`.
+Die Werte stehen auskommentiert in `.env.example` als `EMBEDDINGS_BASE_URL`, `EMBEDDING_MODEL` und `EMBEDDING_DIM`. Optional: `LLM_BASE_URL` (sonst dieselbe Basis wie `EMBEDDINGS_BASE_URL`) und `LLM_MODEL` (oMLX-Modellname für `/v1/chat/completions`). `ANALYSIS_VECTOR_SEARCH=0` schaltet die Vektorsuche ab, auch wenn die URL gesetzt ist.
 
-Das Backend ruft diesen Endpoint nicht auf. Schreibseitige Embeddings gehören Brain und Data-Engineer. `GET /search` bleibt ein SQL-Filter auf `features.v_location_search` (ohne Zeilen in der View: `app.search_places`). Es gibt keinen OpenAI-Client in diesem Service.
+`GET /search` bleibt ein SQL-Filter auf `features.v_location_search` (ohne Zeilen in der View: `app.search_places`) und ruft oMLX nicht auf. Schreibseitige Embeddings gehören Brain und Data-Engineer. Es gibt keinen OpenAI-Client.
+
+Die Musteranalyse darf oMLX lesen, nur serverseitig:
+
+| Schritt | Aufruf | Wenn der Dienst fehlt |
+| --- | --- | --- |
+| Query-Embedding (KAN-32) | `POST $EMBEDDINGS_BASE_URL/embeddings` | SQL-Filter auf `features.v_location_search` oder `features.location_feature_docs` (AGS, PLZ, `geo_key`). Der Lauf meldet `brain.mode: sql` und einen `vectorUnavailableReason`. |
+| Muster (KAN-35) | `POST $LLM_BASE_URL/chat/completions`, nur wenn `LLM_MODEL` gesetzt ist | Deterministisches Muster aus Umsatzreihe und Brain-Signalen, `pattern.source: heuristic`. Ein LLM-Muster wird verworfen, wenn ein Kriterium nicht in den gelesenen Fakten steht. |
+
+Die Vektorsuche sortiert mit Kosinus-Distanz (`embedding <=>`). Ein HNSW-Index auf Brain wird vom Planner genutzt, wenn er zur Filterung passt. Dieses Service legt den Index nicht an. Fehlt die Spalte `embedding`, schlägt die Dimension fehl oder ist oMLX nicht erreichbar, bleibt der SQL-Pfad.
 
 ### Lesen von `features`
 
