@@ -73,8 +73,8 @@ export class AnalysisService {
 
   /**
    * Snapshots region, stores, and revenue, searches Brain, and stores the
-   * pattern on the run. A later Top-3 endpoint (KAN-5, `/recommendations`)
-   * is intentionally not part of this service.
+   * pattern on the run. Top-3 ranking reads that pattern from
+   * `POST /recommendations` and does not belong in this service.
    */
   async createRun(userId: string): Promise<AnalysisRun> {
     const input = await this.loadInput(userId);

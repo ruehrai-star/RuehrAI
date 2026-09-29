@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.3 covers health, auth, search, layers, customer inputs, and analysis", () => {
+test("v0.4 covers health, auth, search, layers, customer inputs, analysis, and recommendations", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.3.0");
+  assert.equal(doc.info.version, "0.4.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -51,7 +51,27 @@ test("v0.3 covers health, auth, search, layers, customer inputs, and analysis", 
   assert.equal(doc.paths["/analysis/runs/{id}"].get.operationId, "getAnalysisRun");
   assert.equal(doc.paths["/analysis/pattern"].get.operationId, "getAnalysisPattern");
   assert.equal(doc.paths["/analysis/input"].get.security, undefined);
-  assert.equal(doc.paths["/recommendations"], undefined);
+  assert.equal(doc.paths["/recommendations"].post.operationId, "createRecommendations");
+  assert.equal(doc.paths["/recommendations"].get.operationId, "getRecommendations");
+  assert.equal(doc.paths["/recommendations"].post.security, undefined);
+  assert.equal(doc.paths["/recommendations"].get.security, undefined);
+  const recommendation = doc.components.schemas.Recommendation;
+  assert.deepEqual(recommendation.required, [
+    "id",
+    "rank",
+    "title",
+    "location",
+    "score",
+    "rationale",
+    "criteriaEvidence",
+    "source",
+  ]);
+  assert.deepEqual(recommendation.properties.source.enum, ["llm", "heuristic"]);
+  assert.equal(recommendation.properties.rank.minimum, 1);
+  assert.equal(recommendation.properties.rank.maximum, 3);
+  assert.equal(doc.components.schemas.RecommendationSet.properties.reason.nullable, true);
+  assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 3);
+  assert.equal(doc.components.schemas.RecommendationLocation.properties.lon.nullable, true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("heuristic"), true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("llm"), true);
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("vector"), true);

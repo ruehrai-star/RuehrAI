@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.3.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nClients call only this API. A later Top-3 recommendation step is not\npart of this version; there is no recommendations endpoint.\n"
+    "version": "0.4.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location. Clients call only this API.\n"
   },
   "servers": [
     {
@@ -32,6 +32,9 @@
     },
     {
       "name": "Analysis"
+    },
+    {
+      "name": "Recommendations"
     }
   ],
   "security": [
@@ -1022,6 +1025,160 @@
                 "example": {
                   "statusCode": 404,
                   "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recommendations": {
+      "post": {
+        "tags": [
+          "Recommendations"
+        ],
+        "operationId": "createRecommendations",
+        "summary": "Rank up to three locations for the signed-in user",
+        "description": "Reads a completed Musteranalyse pattern for this user (the newest run,\nor `runId` when set) and searches Brain locations in the target region.\nA location ranks when at least one pattern criterion with a direction\nmoved the same way inside the six UTC calendar months ending in the\nrequest month. Score is the share of those directional criteria that\nmatch. The response has at most three items, ordered by score.\n\nOne or two matches are success, not an error: `reason` explains the\nthin region in German. Zero matches are also success, with `reason`\nset and `items` empty. `404` when this user has no completed pattern,\nor when `runId` is not one of their runs.\n\nThe region anchor itself is omitted when a finer positive location\nexists. Finer grains match when their `geo_key` is under the region\nkey or their metadata names the region (`geo_ags`, `ags`, `plz`,\n`geo_plz`, `geo_key`). Each item's `rationale` is German and grounded\nin `criteriaEvidence`. `source` is `llm` when that text came from the\nlocal model, otherwise `heuristic`.\n",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Persisted recommendation set for this user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationSet"
+                },
+                "example": {
+                  "id": "3",
+                  "runId": "15",
+                  "createdAt": "2026-09-29T12:00:00.000Z",
+                  "window": {
+                    "from": "2026-04",
+                    "to": "2026-09"
+                  },
+                  "count": 1,
+                  "reason": "In der Zielregion liegt nur 1 Standort mit positiver Musterentwicklung in den letzten sechs Monaten vor.",
+                  "pattern": {
+                    "source": "heuristic",
+                    "summary": "Einwohner steigen mit dem Umsatz.",
+                    "revenueDirection": "up",
+                    "criteria": [
+                      {
+                        "key": "einwohner",
+                        "label": "einwohner",
+                        "direction": "up",
+                        "evidence": "einwohner steigt zwischen den vorliegenden Zeiträumen."
+                      }
+                    ]
+                  },
+                  "items": [
+                    {
+                      "id": "plz5:80801",
+                      "rank": 1,
+                      "title": "Schwabing",
+                      "location": {
+                        "geoKey": "80801",
+                        "grain": "plz5",
+                        "lon": 11.58,
+                        "lat": 48.16,
+                        "name": "Schwabing"
+                      },
+                      "score": 1,
+                      "rationale": "Am Standort Schwabing (80801) passt das Muster in den letzten sechs Monaten. Quelle: Heuristik, ohne Sprachmodell.",
+                      "criteriaEvidence": [
+                        {
+                          "key": "einwohner",
+                          "label": "einwohner",
+                          "direction": "up",
+                          "patternDirection": "up",
+                          "evidence": "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20)."
+                        }
+                      ],
+                      "source": "heuristic"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No completed analysis pattern for this user, or the run id is not theirs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "noPattern": {
+                    "summary": "No completed analysis yet",
+                    "value": {
+                      "statusCode": 404,
+                      "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+                      "error": "Not Found"
+                    }
+                  },
+                  "unknownRun": {
+                    "summary": "runId is missing for this user",
+                    "value": {
+                      "statusCode": 404,
+                      "message": "Die Analyse wurde nicht gefunden.",
+                      "error": "Not Found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Recommendations"
+        ],
+        "operationId": "getRecommendations",
+        "summary": "Latest recommendation set for the signed-in user",
+        "description": "Returns the newest set stored by `POST /recommendations` for the token\nuser. `404` when this user has not computed recommendations yet.\n",
+        "responses": {
+          "200": {
+            "description": "Latest recommendation set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationSet"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "This user has no stored recommendations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Es liegen noch keine Empfehlungen vor. Bitte zuerst Empfehlungen berechnen.",
                   "error": "Not Found"
                 }
               }
@@ -2057,6 +2214,216 @@
           },
           "pattern": {
             "$ref": "#/components/schemas/AnalysisPattern"
+          }
+        }
+      },
+      "RecommendationCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional body for `POST /recommendations`. Omit `runId` to use the\nnewest completed analysis run of the token user.\n",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "description": "Analysis run id as a decimal string. Must belong to the token user."
+          }
+        }
+      },
+      "RecommendationSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "runId",
+          "createdAt",
+          "window",
+          "count",
+          "reason",
+          "pattern",
+          "items"
+        ],
+        "description": "Top-3 payload the web client binds to. `count` is `items.length` and\nis never greater than 3. `reason` is null when three positive locations\nwere available. `pattern` is the snapshot used for this ranking.\n",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Recommendation set id as a decimal string."
+          },
+          "runId": {
+            "type": "string",
+            "description": "Analysis run this set was ranked from."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RecommendationWindow"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "German explanation when fewer than three locations are returned,\nor when the Brain read hit its row limit. Null when three matches\nwere ranked without truncation.\n"
+          },
+          "pattern": {
+            "$ref": "#/components/schemas/AnalysisPattern"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            }
+          }
+        }
+      },
+      "RecommendationWindow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ],
+        "description": "Six calendar months, inclusive, ending in the UTC month of the request.\nBrain `ref_period` values outside this window do not affect the score.\n",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}$",
+            "description": "Oldest month in the window (`YYYY-MM`).",
+            "example": "2026-04"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}$",
+            "description": "Newest month in the window (`YYYY-MM`).",
+            "example": "2026-09"
+          }
+        }
+      },
+      "Recommendation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rank",
+          "title",
+          "location",
+          "score",
+          "rationale",
+          "criteriaEvidence",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable location id `{grain}:{geoKey}` inside this set.",
+            "example": "plz5:80801"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "title": {
+            "type": "string",
+            "description": "Card title. Place name, address line, or geo key from Brain."
+          },
+          "location": {
+            "$ref": "#/components/schemas/RecommendationLocation"
+          },
+          "score": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Share of pattern criteria that have a direction and moved the same\nway at this location inside the window. 1 is a full fit.\n"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "German Begründung. Names only criteria and figures present in\n`criteriaEvidence`.\n"
+          },
+          "criteriaEvidence": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/RecommendationEvidence"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "heuristic"
+            ],
+            "description": "`llm` when `rationale` was taken from the local model and checked\nagainst `criteriaEvidence`. `heuristic` when the model was unset,\nfailed, or its text was discarded.\n"
+          }
+        }
+      },
+      "RecommendationLocation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "geoKey",
+          "grain",
+          "lon",
+          "lat",
+          "name"
+        ],
+        "properties": {
+          "geoKey": {
+            "type": "string"
+          },
+          "grain": {
+            "$ref": "#/components/schemas/Grain"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "lat": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "description": "Brain place name when the row has one."
+          }
+        }
+      },
+      "RecommendationEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "label",
+          "direction",
+          "patternDirection",
+          "evidence"
+        ],
+        "description": "One pattern criterion that moved in the pattern direction at this\nlocation. `direction` is what Brain shows in the window.\n`patternDirection` is the saved Musteranalyse direction.\n",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/CriterionDirection"
+          },
+          "patternDirection": {
+            "$ref": "#/components/schemas/CriterionDirection"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "German sentence with the months and figures used for the score."
           }
         }
       },

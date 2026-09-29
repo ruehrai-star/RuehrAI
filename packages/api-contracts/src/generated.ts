@@ -390,6 +390,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest recommendation set for the signed-in user
+         * @description Returns the newest set stored by `POST /recommendations` for the token
+         *     user. `404` when this user has not computed recommendations yet.
+         */
+        get: operations["getRecommendations"];
+        put?: never;
+        /**
+         * Rank up to three locations for the signed-in user
+         * @description Reads a completed Musteranalyse pattern for this user (the newest run,
+         *     or `runId` when set) and searches Brain locations in the target region.
+         *     A location ranks when at least one pattern criterion with a direction
+         *     moved the same way inside the six UTC calendar months ending in the
+         *     request month. Score is the share of those directional criteria that
+         *     match. The response has at most three items, ordered by score.
+         *
+         *     One or two matches are success, not an error: `reason` explains the
+         *     thin region in German. Zero matches are also success, with `reason`
+         *     set and `items` empty. `404` when this user has no completed pattern,
+         *     or when `runId` is not one of their runs.
+         *
+         *     The region anchor itself is omitted when a finer positive location
+         *     exists. Finer grains match when their `geo_key` is under the region
+         *     key or their metadata names the region (`geo_ags`, `ags`, `plz`,
+         *     `geo_plz`, `geo_key`). Each item's `rationale` is German and grounded
+         *     in `criteriaEvidence`. `source` is `llm` when that text came from the
+         *     local model, otherwise `heuristic`.
+         */
+        post: operations["createRecommendations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -705,6 +747,106 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             pattern: components["schemas"]["AnalysisPattern"];
+        };
+        /**
+         * @description Optional body for `POST /recommendations`. Omit `runId` to use the
+         *     newest completed analysis run of the token user.
+         */
+        RecommendationCreate: {
+            /** @description Analysis run id as a decimal string. Must belong to the token user. */
+            runId?: string;
+        };
+        /**
+         * @description Top-3 payload the web client binds to. `count` is `items.length` and
+         *     is never greater than 3. `reason` is null when three positive locations
+         *     were available. `pattern` is the snapshot used for this ranking.
+         */
+        RecommendationSet: {
+            /** @description Recommendation set id as a decimal string. */
+            id: string;
+            /** @description Analysis run this set was ranked from. */
+            runId: string;
+            /** Format: date-time */
+            createdAt: string;
+            window: components["schemas"]["RecommendationWindow"];
+            count: number;
+            /**
+             * @description German explanation when fewer than three locations are returned,
+             *     or when the Brain read hit its row limit. Null when three matches
+             *     were ranked without truncation.
+             */
+            reason: string | null;
+            pattern: components["schemas"]["AnalysisPattern"];
+            items: components["schemas"]["Recommendation"][];
+        };
+        /**
+         * @description Six calendar months, inclusive, ending in the UTC month of the request.
+         *     Brain `ref_period` values outside this window do not affect the score.
+         */
+        RecommendationWindow: {
+            /**
+             * @description Oldest month in the window (`YYYY-MM`).
+             * @example 2026-04
+             */
+            from: string;
+            /**
+             * @description Newest month in the window (`YYYY-MM`).
+             * @example 2026-09
+             */
+            to: string;
+        };
+        Recommendation: {
+            /**
+             * @description Stable location id `{grain}:{geoKey}` inside this set.
+             * @example plz5:80801
+             */
+            id: string;
+            rank: number;
+            /** @description Card title. Place name, address line, or geo key from Brain. */
+            title: string;
+            location: components["schemas"]["RecommendationLocation"];
+            /**
+             * Format: double
+             * @description Share of pattern criteria that have a direction and moved the same
+             *     way at this location inside the window. 1 is a full fit.
+             */
+            score: number;
+            /**
+             * @description German Begründung. Names only criteria and figures present in
+             *     `criteriaEvidence`.
+             */
+            rationale: string;
+            criteriaEvidence: components["schemas"]["RecommendationEvidence"][];
+            /**
+             * @description `llm` when `rationale` was taken from the local model and checked
+             *     against `criteriaEvidence`. `heuristic` when the model was unset,
+             *     failed, or its text was discarded.
+             * @enum {string}
+             */
+            source: "llm" | "heuristic";
+        };
+        RecommendationLocation: {
+            geoKey: string;
+            grain: components["schemas"]["Grain"];
+            /** Format: double */
+            lon: number | null;
+            /** Format: double */
+            lat: number | null;
+            /** @description Brain place name when the row has one. */
+            name: string | null;
+        };
+        /**
+         * @description One pattern criterion that moved in the pattern direction at this
+         *     location. `direction` is what Brain shows in the window.
+         *     `patternDirection` is the saved Musteranalyse direction.
+         */
+        RecommendationEvidence: {
+            key: string;
+            label: string;
+            direction: components["schemas"]["CriterionDirection"];
+            patternDirection: components["schemas"]["CriterionDirection"];
+            /** @description German sentence with the months and figures used for the score. */
+            evidence: string;
         };
         ErrorResponse: {
             statusCode?: number;
@@ -1532,6 +1674,130 @@ export interface operations {
                      *       "error": "Not Found"
                      *     }
                      */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getRecommendations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Latest recommendation set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationSet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description This user has no stored recommendations. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 404,
+                     *       "message": "Es liegen noch keine Empfehlungen vor. Bitte zuerst Empfehlungen berechnen.",
+                     *       "error": "Not Found"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createRecommendations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RecommendationCreate"];
+            };
+        };
+        responses: {
+            /** @description Persisted recommendation set for this user. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "3",
+                     *       "runId": "15",
+                     *       "createdAt": "2026-09-29T12:00:00.000Z",
+                     *       "window": {
+                     *         "from": "2026-04",
+                     *         "to": "2026-09"
+                     *       },
+                     *       "count": 1,
+                     *       "reason": "In der Zielregion liegt nur 1 Standort mit positiver Musterentwicklung in den letzten sechs Monaten vor.",
+                     *       "pattern": {
+                     *         "source": "heuristic",
+                     *         "summary": "Einwohner steigen mit dem Umsatz.",
+                     *         "revenueDirection": "up",
+                     *         "criteria": [
+                     *           {
+                     *             "key": "einwohner",
+                     *             "label": "einwohner",
+                     *             "direction": "up",
+                     *             "evidence": "einwohner steigt zwischen den vorliegenden Zeiträumen."
+                     *           }
+                     *         ]
+                     *       },
+                     *       "items": [
+                     *         {
+                     *           "id": "plz5:80801",
+                     *           "rank": 1,
+                     *           "title": "Schwabing",
+                     *           "location": {
+                     *             "geoKey": "80801",
+                     *             "grain": "plz5",
+                     *             "lon": 11.58,
+                     *             "lat": 48.16,
+                     *             "name": "Schwabing"
+                     *           },
+                     *           "score": 1,
+                     *           "rationale": "Am Standort Schwabing (80801) passt das Muster in den letzten sechs Monaten. Quelle: Heuristik, ohne Sprachmodell.",
+                     *           "criteriaEvidence": [
+                     *             {
+                     *               "key": "einwohner",
+                     *               "label": "einwohner",
+                     *               "direction": "up",
+                     *               "patternDirection": "up",
+                     *               "evidence": "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20)."
+                     *             }
+                     *           ],
+                     *           "source": "heuristic"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RecommendationSet"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description No completed analysis pattern for this user, or the run id is not theirs. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };

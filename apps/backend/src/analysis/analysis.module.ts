@@ -10,5 +10,6 @@ import { PatternService } from "./pattern.service";
   imports: [DatabaseModule],
   controllers: [AnalysisController],
   providers: [OmlxClient, BrainSearchService, PatternService, AnalysisService],
+  exports: [OmlxClient],
 })
 export class AnalysisModule {}

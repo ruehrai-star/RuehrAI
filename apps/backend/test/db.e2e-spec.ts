@@ -498,4 +498,188 @@ async function dropFeaturesFixture(): Promise<void> {
       await admin.end();
     }
   });
+
+  it("ranks Top-3 recommendations for the signed-in user and explains a thin region", async () => {
+    const adminUrl = process.env.DATABASE_URL;
+    if (!adminUrl) throw new Error("DATABASE_URL is required");
+    const admin = new Pool({ connectionString: adminUrl, max: 1 });
+    const stamp = Date.now();
+    const months = sixMonths();
+    const early = months[0]!;
+    const late = months[5]!;
+
+    try {
+      await admin.query("DROP SCHEMA IF EXISTS features CASCADE");
+      await admin.query("CREATE SCHEMA features");
+      await admin.query(`
+        CREATE TABLE features.location_feature_docs (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          geo_key text NOT NULL,
+          grain text NOT NULL,
+          ref_period text,
+          name text,
+          title text NOT NULL,
+          content text,
+          metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+          source_theme text,
+          lon double precision,
+          lat double precision
+        )
+      `);
+      await admin.query(`
+        CREATE VIEW features.v_location_search AS
+        SELECT id, geo_key, grain, ref_period, name, title, content, metadata, source_theme, lon, lat
+        FROM features.location_feature_docs
+      `);
+
+      const series: Array<[string, string, string, string, string, number, number, number, number, number | null, number | null]> = [
+        ["09162000", "ags", early, "München", "München", 100, 5, 0, 0, 11.57, 48.13],
+        ["09162000", "ags", late, "München", "München", 150, 9, 0, 0, 11.57, 48.13],
+        ["80331", "plz5", early, "80331", "PLZ 80331", 100, 5, 0, 0, null, null],
+        ["80331", "plz5", late, "80331", "PLZ 80331", 140, 8, 0, 0, null, null],
+        ["80801", "plz5", early, "Schwabing", "Schwabing", 10, 5, 1, 0, 11.58, 48.16],
+        ["80801", "plz5", late, "Schwabing", "Schwabing", 20, 9, 1, 0, 11.58, 48.16],
+        ["81369", "plz5", early, "Sendling", "Sendling", 10, 4, 1, 0, 11.54, 48.12],
+        ["81369", "plz5", late, "Sendling", "Sendling", 30, 8, 1, 0, 11.54, 48.12],
+        ["81541", "plz5", "2020-01", "Giesing", "Giesing", 1, 1, 1, 0, 11.59, 48.11],
+        ["81541", "plz5", early, "Giesing", "Giesing", 10, 9, 1, 0, 11.59, 48.11],
+        ["81541", "plz5", late, "Giesing", "Giesing", 20, 5, 1, 0, 11.59, 48.11],
+        ["80686", "plz5", early, "Laim", "Laim", 20, 8, 1, 0, 11.5, 48.14],
+        ["80686", "plz5", late, "Laim", "Laim", 10, 4, 1, 0, 11.5, 48.14],
+        ["11000000", "ags", early, "Berlin", "Berlin", 1, 1, 0, 0, 13.4, 52.52],
+        ["11000000", "ags", late, "Berlin", "Berlin", 100, 50, 0, 0, 13.4, 52.52],
+      ];
+      for (const row of series) {
+        const [geoKey, grain, refPeriod, name, title, einwohner, haushalte, inRegion, , lon, lat] =
+          row;
+        const metadata =
+          inRegion === 1
+            ? { einwohner, haushalte, geo_ags: "09162000" }
+            : { einwohner, haushalte };
+        await admin.query(
+          `INSERT INTO features.location_feature_docs
+             (geo_key, grain, ref_period, name, title, content, metadata, source_theme, lon, lat)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'zensus', $8, $9)`,
+          [
+            geoKey,
+            grain,
+            refPeriod,
+            name,
+            title,
+            `${title} Kennzahlen.`,
+            JSON.stringify(metadata),
+            lon,
+            lat,
+          ],
+        );
+      }
+
+      const token = await register(`reco-${stamp}@ruehrai.local`);
+      const auth = { authorization: `Bearer ${token}` };
+      const server = app.getHttpServer();
+
+      const missingPattern = await request(server).post("/recommendations").set(auth).send({}).expect(404);
+      expect(missingPattern.body.message).toContain("Muster");
+      const missingList = await request(server).get("/recommendations").set(auth).expect(404);
+      expect(missingList.body.message).toContain("Empfehlungen");
+
+      await request(server)
+        .put("/target-region")
+        .set(auth)
+        .send({ label: "München", grain: "ags", geoKey: "09162000", ags: "09162000" })
+        .expect(200);
+      const created = await request(server)
+        .post("/stores")
+        .set(auth)
+        .send({ street: "Marienplatz 1", postalCode: "80331", city: "München" })
+        .expect(201);
+      await request(server)
+        .put(`/stores/${created.body.id}/revenue`)
+        .set(auth)
+        .send({
+          points: [
+            { year: 2025, month: 1, revenueEur: 100 },
+            { year: 2025, month: 2, revenueEur: 140 },
+          ],
+        })
+        .expect(200);
+
+      const run = await request(server).post("/analysis/runs").set(auth).expect(201);
+      const criteria = run.body.pattern.criteria as Array<{ key: string; direction: string }>;
+      expect(criteria).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: "einwohner", direction: "up" }),
+          expect.objectContaining({ key: "haushalte", direction: "up" }),
+        ]),
+      );
+
+      await request(server).post("/recommendations").set(auth).send({ runId: "abc" }).expect(400);
+
+      const createdSet = await request(server)
+        .post("/recommendations")
+        .set(auth)
+        .send({ runId: run.body.id })
+        .expect(201);
+      expect(createdSet.body.count).toBe(3);
+      expect(createdSet.body.reason).toBeNull();
+      expect(createdSet.body.window).toEqual({ from: early, to: late });
+      expect(createdSet.body.runId).toBe(run.body.id);
+      expect(createdSet.body.pattern.source).toBe("heuristic");
+      const titles = (createdSet.body.items as Array<{ title: string; rank: number; source: string; rationale: string; score: number; location: { geoKey: string; lon: number } }>).map(
+        (item) => item.title,
+      );
+      expect(titles).toEqual(["Schwabing", "Sendling", "Giesing"]);
+      expect(createdSet.body.items.map((item: { rank: number }) => item.rank)).toEqual([1, 2, 3]);
+      expect(createdSet.body.items.map((item: { id: string }) => item.id)).not.toEqual(
+        expect.arrayContaining(["plz5:80686", "ags:11000000", "ags:09162000"]),
+      );
+      expect(createdSet.body.items[0]).toMatchObject({
+        source: "heuristic",
+        score: 1,
+        location: { geoKey: "80801", grain: "plz5" },
+      });
+      expect(createdSet.body.items[0].location.lon).toBeCloseTo(11.58);
+      expect(createdSet.body.items[0].rationale).toContain("Schwabing");
+      expect(createdSet.body.items[0].rationale).toContain("Heuristik");
+      expect(createdSet.body.items[2].score).toBe(0.5);
+      expect(createdSet.body.items[2].criteriaEvidence.map((entry: { key: string }) => entry.key)).toEqual([
+        "einwohner",
+      ]);
+
+      const latest = await request(server).get("/recommendations").set(auth).expect(200);
+      expect(latest.body.id).toBe(createdSet.body.id);
+      expect(latest.body.items.map((item: { title: string }) => item.title)).toEqual(titles);
+
+      const other = await register(`reco-other-${stamp}@ruehrai.local`);
+      await request(server)
+        .get("/recommendations")
+        .set({ authorization: `Bearer ${other}` })
+        .expect(404);
+      await request(server)
+        .post("/recommendations")
+        .set({ authorization: `Bearer ${other}` })
+        .send({})
+        .expect(404);
+
+      await admin.query("DELETE FROM features.location_feature_docs WHERE grain = 'plz5'");
+      const thin = await request(server).post("/recommendations").set(auth).send({}).expect(201);
+      expect(thin.body.count).toBe(1);
+      expect(thin.body.items[0].title).toBe("München");
+      expect(thin.body.reason).toContain("nur 1 Standort");
+      expect(thin.body.items[0].source).toBe("heuristic");
+    } finally {
+      await admin.query("DROP SCHEMA IF EXISTS features CASCADE");
+      await admin.end();
+    }
+  });
 });
+
+function sixMonths(): string[] {
+  const now = new Date();
+  const keys: string[] = [];
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    keys.push(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+}
