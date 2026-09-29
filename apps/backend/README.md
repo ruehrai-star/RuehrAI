@@ -39,10 +39,16 @@ Alternativ legt `POST /auth/register` weitere Nutzer in derselben Datenbank an. 
 | --- | --- | --- |
 | `GET` | `/health` | öffentlich (Liveness, ohne Datenbank) |
 | `POST` | `/auth/login` | öffentlich, antwortet mit JWT |
-| `POST` | `/auth/register` | öffentlich, antwortet mit JWT |
+| `POST` | `/auth/register` | öffentlich, legt Nutzer in `app.users` an, antwortet mit JWT |
+| `POST` | `/auth/logout` | Bearer JWT, widerruft die `jti` bis `exp` |
 | `GET` | `/auth/me` | Bearer JWT |
 | `GET` | `/search` | Bearer JWT |
 | `GET` | `/layers/{id}` | Bearer JWT |
+| `GET` / `PUT` / `DELETE` | `/target-region` | Bearer JWT, eine Zielregion je Nutzer |
+| `GET` / `POST` | `/stores` | Bearer JWT, Filialadressen des Nutzers |
+| `GET` / `PUT` / `DELETE` | `/stores/{id}` | Bearer JWT |
+| `GET` / `PUT` | `/stores/{id}/revenue` | Bearer JWT, Monatsumsatz (max. 36 Monate) |
+| `DELETE` | `/stores/{id}/revenue/{year}/{month}` | Bearer JWT |
 
 Geschützte Routen ohne gültiges Bearer-Token antworten mit `401`.
 
@@ -60,7 +66,29 @@ curl -s 'http://localhost:3000/search?q=M%C3%BCnchen' \
 
 curl -s http://localhost:3000/layers/demo-gemeinden \
   -H "authorization: Bearer $TOKEN"
+
+# TOKEN ist accessToken aus dem Login-JSON. STORE_ID ist id aus der POST-Antwort.
+# Zielregion, Filiale, Umsatz, dann Logout (danach ist dasselbe Token 401).
+curl -s -X PUT http://localhost:3000/target-region \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"label":"München","grain":"ags","geoKey":"09162000","ags":"09162000"}'
+
+curl -s -X POST http://localhost:3000/stores \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"street":"Marienplatz 1","postalCode":"80331","city":"München"}'
+
+curl -s -X PUT "http://localhost:3000/stores/$STORE_ID/revenue" \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"points":[{"year":2025,"month":1,"revenueEur":18450.5},{"year":2025,"month":2,"revenueEur":null}]}'
+
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/auth/logout \
+  -H "authorization: Bearer $TOKEN"
 ```
+
+`revenueEur: null` markiert den Monat als fehlend. Ein Monat ohne Zeile ist noch nicht erfasst. Pro Filiale liegen höchstens 36 Monate.
 
 Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Stubs (Punkte und ein grober Polygon-Kasten), keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
 
@@ -74,7 +102,7 @@ Zwei Schemas. `public` bleibt für App-Tabellen ungenutzt.
 
 | Schema | Wer | Inhalt |
 | --- | --- | --- |
-| `app` | diese Migration | `users` (Login, `bigint identity`), `search_places` (Such-Fallback), `map_layers` / `map_features` (GeoJSON-Stubs) |
+| `app` | diese Migrationen | `users` (Login, `bigint identity`), `revoked_tokens` (Logout-`jti`), `target_regions` (eine Zielregion je Nutzer), `store_locations` (Filialadressen), `store_monthly_revenue` (Umsatz je Monat; `NULL` = als fehlend markiert), `search_places` (Such-Fallback), `map_layers` / `map_features` (GeoJSON-Stubs) |
 | `features` | Data-Engineer, Brain | `location_feature_docs`, `embedding_jobs`, View `v_location_search` |
 
 Die View-Spalten, die `/search` benutzt: `id`, `geo_key`, `grain`, `name`, `title`, `lon`, `lat`. `ref_period` liegt auf der View, filtert dieser Slice nicht. Koordinaten und Embeddings können leer sein.
@@ -118,7 +146,9 @@ GRANT SELECT ON features.v_location_search TO <database_url_user>;
 | `pnpm test` | Unit-Tests plus Smoke (`/health`, `401` auf geschützten Routen) |
 | `pnpm db:migrate` | SQL-Migrationen |
 
-Postgres-Tests (Login, Suche, Layer) gegen eine migrierte Datenbank:
+`POST /auth/logout` ist das serverseitige Session-Ende für das JWT-only-Slice. Das Access-Token trägt eine `jti`. Logout schreibt sie nach `app.revoked_tokens` bis `exp`; der Guard lehnt dasselbe Token danach ab. Es gibt keine Refresh-Tokens und keine Supabase-Session. Ein reines Löschen im Client würde ein noch gültiges Token nicht ungültig machen, deshalb die Denylist. Abgelaufene Einträge löscht der nächste Logout. Tokens ohne `jti` (keines, das dieser Service noch ausstellt) lassen sich nicht widerrufen und gelten bis `exp`.
+
+Postgres-Tests (Login, Logout, Zielregion, Filialen, Umsatz, Suche, Layer) gegen eine migrierte Datenbank:
 
 ```bash
 RUN_DB_TESTS=1 pnpm --filter @ruehrai/backend test

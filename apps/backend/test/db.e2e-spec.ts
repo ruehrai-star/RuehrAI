@@ -49,6 +49,14 @@ async function dropFeaturesFixture(): Promise<void> {
     return response.body.accessToken as string;
   }
 
+  async function register(email: string): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .post("/auth/register")
+      .send({ email, password: "dev-password" })
+      .expect(201);
+    return response.body.accessToken as string;
+  }
+
   it("logs in the seeded dev user and reads /auth/me", async () => {
     const token = await login("dev@ruehrai.local", "dev-password");
     const me = await request(app.getHttpServer())
@@ -150,6 +158,141 @@ async function dropFeaturesFixture(): Promise<void> {
       .post("/auth/register")
       .send({ email, password: "dev-password" })
       .expect(409);
+  });
+
+  it("revokes the access token on logout", async () => {
+    const email = `logout-${Date.now()}@ruehrai.local`;
+    const created = await request(app.getHttpServer())
+      .post("/auth/register")
+      .send({ email, password: "dev-password" })
+      .expect(201);
+    const token = created.body.accessToken as string;
+    const auth = { authorization: `Bearer ${token}` };
+
+    await request(app.getHttpServer()).get("/auth/me").set(auth).expect(200);
+    await request(app.getHttpServer()).post("/auth/logout").set(auth).expect(204);
+    await request(app.getHttpServer()).get("/auth/me").set(auth).expect(401);
+    await request(app.getHttpServer()).post("/auth/logout").set(auth).expect(401);
+
+    const again = await login(email, "dev-password");
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("authorization", `Bearer ${again}`)
+      .expect(200);
+  });
+
+  it("keeps target region, stores, and revenue private to the owner", async () => {
+    const stamp = Date.now();
+    const ownerToken = await register(`owner-${stamp}@ruehrai.local`);
+    const otherToken = await register(`other-${stamp}@ruehrai.local`);
+    const owner = { authorization: `Bearer ${ownerToken}` };
+    const other = { authorization: `Bearer ${otherToken}` };
+    const server = app.getHttpServer();
+
+    await request(server).get("/target-region").set(owner).expect(404);
+    const region = await request(server)
+      .put("/target-region")
+      .set(owner)
+      .send({
+        label: "München",
+        grain: "ags",
+        geoKey: "09162000",
+        ags: "09162000",
+        lon: 11.5755,
+        lat: 48.1374,
+      })
+      .expect(200);
+    expect(region.body).toMatchObject({
+      label: "München",
+      grain: "ags",
+      geoKey: "09162000",
+      ags: "09162000",
+    });
+    await request(server).get("/target-region").set(other).expect(404);
+
+    const created = await request(server)
+      .post("/stores")
+      .set(owner)
+      .send({
+        label: "Filiale Marienplatz",
+        street: "Marienplatz 1",
+        postalCode: "80331",
+        city: "München",
+      })
+      .expect(201);
+    const storeId = created.body.id as string;
+    expect(created.body).toMatchObject({
+      street: "Marienplatz 1",
+      postalCode: "80331",
+      city: "München",
+      countryCode: "DE",
+      label: "Filiale Marienplatz",
+    });
+
+    const listed = await request(server).get("/stores").set(owner).expect(200);
+    expect(listed.body.stores.map((store: { id: string }) => store.id)).toContain(storeId);
+    await request(server).get("/stores").set(other).expect(200).expect({ stores: [] });
+    await request(server).get(`/stores/${storeId}`).set(other).expect(404);
+    await request(server).put(`/stores/${storeId}/revenue`).set(other).send({
+      points: [{ year: 2025, month: 1, revenueEur: 1 }],
+    }).expect(404);
+
+    const saved = await request(server)
+      .put(`/stores/${storeId}/revenue`)
+      .set(owner)
+      .send({
+        points: [
+          { year: 2025, month: 1, revenueEur: 18450.5 },
+          { year: 2025, month: 2, revenueEur: null },
+        ],
+      })
+      .expect(200);
+    expect(saved.body.points).toEqual([
+      expect.objectContaining({ year: 2025, month: 1, revenueEur: 18450.5 }),
+      expect.objectContaining({ year: 2025, month: 2, revenueEur: null }),
+    ]);
+
+    const replaced = await request(server)
+      .put(`/stores/${storeId}`)
+      .set(owner)
+      .send({ street: "Sendlinger Str. 2", postalCode: "80331", city: "München" })
+      .expect(200);
+    expect(replaced.body.label).toBeNull();
+    expect(replaced.body.street).toBe("Sendlinger Str. 2");
+
+    await request(server)
+      .delete(`/stores/${storeId}/revenue/2025/2`)
+      .set(owner)
+      .expect(204);
+    const afterDelete = await request(server)
+      .get(`/stores/${storeId}/revenue`)
+      .set(owner)
+      .expect(200);
+    expect(afterDelete.body.points).toEqual([
+      expect.objectContaining({ year: 2025, month: 1, revenueEur: 18450.5 }),
+    ]);
+
+    const tooMany = Array.from({ length: 36 }, (_, index) => ({
+      year: 1990 + Math.floor(index / 12),
+      month: (index % 12) + 1,
+      revenueEur: index,
+    }));
+    await request(server)
+      .put(`/stores/${storeId}/revenue`)
+      .set(owner)
+      .send({ points: tooMany })
+      .expect(400);
+    const stillOne = await request(server)
+      .get(`/stores/${storeId}/revenue`)
+      .set(owner)
+      .expect(200);
+    expect(stillOne.body.points).toHaveLength(1);
+
+    await request(server).delete(`/stores/${storeId}`).set(other).expect(404);
+    await request(server).delete(`/stores/${storeId}`).set(owner).expect(204);
+    await request(server).get(`/stores/${storeId}`).set(owner).expect(404);
+    await request(server).delete("/target-region").set(owner).expect(204);
+    await request(server).get("/target-region").set(owner).expect(404);
   });
 
   it("reads features.v_location_search, including via SET ROLE, and ignores the seed", async () => {

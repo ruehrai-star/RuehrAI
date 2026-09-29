@@ -26,4 +26,10 @@ export class AuthController {
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.id);
   }
+
+  @HttpCode(204)
+  @Post("logout")
+  logout(@CurrentUser() user: AuthUser): Promise<void> {
+    return this.auth.logout(user);
+  }
 }

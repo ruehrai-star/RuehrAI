@@ -6,7 +6,7 @@ Standortberatung mit kleinräumigen Deutschland-Daten.
 
 | Pfad | Rolle |
 | --- | --- |
-| [`apps/backend`](apps/backend/README.md) | NestJS-API. Auth (JWT) und Daten laufen über lokale Postgres (`DATABASE_URL`). |
+| [`apps/backend`](apps/backend/README.md) | NestJS-API. Auth (JWT), Zielregion, Filialen und Monatsumsatz laufen über lokale Postgres (`DATABASE_URL`). |
 | [`apps/web`](apps/web/README.md) | Next.js-Karte und Suche. Spricht die API an, Port 3001. |
 | [`packages/api-contracts`](packages/api-contracts/README.md) | OpenAPI v0. Clients binden diesen Vertrag. |
 

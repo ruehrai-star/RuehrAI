@@ -10,6 +10,10 @@ export function isUniqueViolation(error: unknown): boolean {
   return pgErrorCode(error) === "23505";
 }
 
+export function isForeignKeyViolation(error: unknown): boolean {
+  return pgErrorCode(error) === "23503";
+}
+
 /**
  * True when SET ROLE failed for a privilege or catalog reason.
  * Postgres reports a missing role as 22023 (`invalid_parameter_value`) or 42704,

@@ -5,6 +5,8 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { LayersModule } from "./layers/layers.module";
 import { SearchModule } from "./search/search.module";
+import { StoresModule } from "./stores/stores.module";
+import { TargetRegionModule } from "./target-region/target-region.module";
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { SearchModule } from "./search/search.module";
     HealthModule,
     SearchModule,
     LayersModule,
+    TargetRegionModule,
+    StoresModule,
   ],
 })
 export class AppModule {}

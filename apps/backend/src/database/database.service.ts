@@ -3,6 +3,11 @@ import { ConfigService } from "@nestjs/config";
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { isFeaturesRoleUnusable } from "./pg-error";
 
+export type SqlQuery = <T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[],
+) => Promise<QueryResult<T>>;
+
 /** NOLOGIN role with SELECT on schema features. Set per transaction, never on the pooled session. */
 export const FEATURES_READ_ROLE = "backend_ro_features";
 
@@ -36,6 +41,23 @@ export class DatabaseService implements OnModuleDestroy {
     params: unknown[] = [],
   ): Promise<QueryResult<T>> {
     return this.pool.query<T>(text, params);
+  }
+
+  /** Run `fn` in one transaction. A thrown error rolls the transaction back. */
+  async withTransaction<T>(fn: (query: SqlQuery) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    const query: SqlQuery = (text, params = []) => client.query(text, params);
+    try {
+      await client.query("BEGIN");
+      const result = await fn(query);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /**

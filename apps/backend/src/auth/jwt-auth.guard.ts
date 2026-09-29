@@ -7,6 +7,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
+import { AuthService } from "./auth.service";
 import { AuthUser, JwtPayload } from "./auth.types";
 import { IS_PUBLIC_KEY } from "./public.decorator";
 
@@ -15,6 +16,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwt: JwtService,
+    private readonly auth: AuthService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -37,19 +39,24 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
+    let payload: JwtPayload;
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
-      if (!payload.sub) {
-        throw new UnauthorizedException();
-      }
-      request.user = {
-        id: payload.sub,
-        email: typeof payload.email === "string" ? payload.email : "",
-      };
-      return true;
-    } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
+      payload = await this.jwt.verifyAsync<JwtPayload>(token);
+    } catch {
       throw new UnauthorizedException();
     }
+    if (!payload.sub) {
+      throw new UnauthorizedException();
+    }
+    if (payload.jti && (await this.auth.isRevoked(payload.jti))) {
+      throw new UnauthorizedException();
+    }
+    request.user = {
+      id: payload.sub,
+      email: typeof payload.email === "string" ? payload.email : "",
+      jti: payload.jti,
+      exp: typeof payload.exp === "number" ? payload.exp : undefined,
+    };
+    return true;
   }
 }
