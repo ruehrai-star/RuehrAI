@@ -181,6 +181,35 @@ async function dropFeaturesFixture(): Promise<void> {
       .expect(200);
   });
 
+  it("persists a catalog pin when a stored address has no coordinates", async () => {
+    const token = await register(`pin-${Date.now()}@ruehrai.local`);
+    const auth = { authorization: `Bearer ${token}` };
+    const me = await request(app.getHttpServer()).get("/auth/me").set(auth).expect(200);
+    const db = app.get(DatabaseService);
+    const inserted = await db.query<{ id: string }>(
+      `INSERT INTO app.store_locations (user_id, street, postal_code, city, lon, lat)
+       VALUES ($1::bigint, 'Leonorenstr. 1', '12247', 'Berlin', NULL, NULL)
+       RETURNING id::text AS id`,
+      [me.body.id],
+    );
+    const storeId = inserted.rows[0]?.id;
+    expect(storeId).toEqual(expect.any(String));
+
+    const listed = await request(app.getHttpServer()).get("/stores").set(auth).expect(200);
+    const store = (listed.body.stores as { id: string; lon: number; lat: number }[]).find(
+      (row) => row.id === storeId,
+    );
+    expect(store?.lon).toBeCloseTo(13.3457);
+    expect(store?.lat).toBeCloseTo(52.4403);
+
+    const saved = await db.query<{ lon: number; lat: number }>(
+      `SELECT lon, lat FROM app.store_locations WHERE id = $1::bigint`,
+      [storeId],
+    );
+    expect(Number(saved.rows[0]?.lon)).toBeCloseTo(13.3457);
+    expect(Number(saved.rows[0]?.lat)).toBeCloseTo(52.4403);
+  });
+
   it("keeps target region, stores, and revenue private to the owner", async () => {
     const stamp = Date.now();
     const ownerToken = await register(`owner-${stamp}@ruehrai.local`);
