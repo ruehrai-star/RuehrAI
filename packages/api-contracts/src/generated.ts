@@ -175,23 +175,23 @@ export interface paths {
         /**
          * Add a store address
          * @description German address (`postalCode` is PLZ5, `countryCode` is `DE`).
-         *     `street` includes the house number. `lon` and `lat` are WGS84
-         *     (EPSG:4326) for the map pin. Send both or neither. When both are
-         *     omitted, resolution order is:
+         *     `street` includes the house number. `lon` and `lat` are optional WGS84
+         *     (EPSG:4326) for the map pin. Clients are not required to send them.
+         *     Send both or neither. KAN-56 Option A, when both are omitted:
          *
          *     1. Data-Scout `geo_ref_address` (`strasse` + `hnr` parsed from `street`,
          *        plus `plz`). Berlin OSM coverage. This is the house-number pin.
-         *     2. Data-Scout `geo_ref_plz` centroid when the address misses or the
-         *        postal code is outside that table.
+         *     2. Data-Scout `geo_ref_plz` centroid, only when step 1 misses.
          *     3. PLZ centroid from `app.search_places`, then a Point in
-         *        `app.map_features` with that PLZ.
+         *        `app.map_features` with that PLZ, only when steps 1 and 2 miss.
          *
          *     Steps 1 and 2 run only when `DATASCOUT_DATABASE_URL` is set and the
          *     read succeeds. Otherwise the API uses step 3. Coordinates stay null
-         *     only when none of the steps hit. No external geocoder is called.
-         *     Update uses the same order. A read persists a filled null pair, and
-         *     replaces a stored PLZ centroid when step 1 hits. An explicit pair
-         *     sent on create or update is stored unchanged.
+         *     only when none of the steps hit. No public geocoder is called.
+         *     Update uses the same order. A pair sent by the client is stored
+         *     unchanged; it is an optional override, not the primary source.
+         *     A read persists a filled null pair, and replaces a stored PLZ centroid
+         *     when step 1 hits.
          */
         post: operations["createStore"];
         delete?: never;

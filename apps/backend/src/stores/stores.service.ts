@@ -251,8 +251,9 @@ export class StoresService {
   }
 
   /**
-   * Explicit WGS84 pair, else Data-Scout `geo_ref_address`, else `geo_ref_plz`,
-   * else the Brain PLZ stub (`search_places`, then a Point in `map_features`).
+   * KAN-56 Option A. An optional explicit pair wins when both are sent.
+   * Otherwise Data-Scout `geo_ref_address`. PLZ5 (`geo_ref_plz`, then
+   * `search_places` / `map_features`) only when that address misses.
    */
   private async resolveCoords(
     dto: StoreLocationWriteDto,

@@ -144,20 +144,20 @@ Verbindung: `pg.Pool` (max. 10) mit `DATABASE_URL`. Autorisierung der HTTP-Route
 
 ### Filial-Pins (Data-Scout)
 
-Hausnummer-genaue Pins kommen aus der Data-Scout-Datenbank auf Eule, nicht aus Supabase und nicht aus einem externen Geocoder. Verbindung: [`data-engineer/docs/data-scout-db-connection.md`](../../data-engineer/docs/data-scout-db-connection.md).
+KAN-56 Option A. Create und Update suchen ohne Koordinaten in Data-Scout `geo_ref_address` (`strasse`, `hnr` aus `street`, `plz`). Der PLZ5-Schwerpunkt ist nur der Fallback ohne Adresstreffer. Ein mitgeschicktes `lon`/`lat`-Paar gewinnt, ist aber keine Pflicht und nicht die primäre Quelle. Kein öffentlicher Geocoder, kein Supabase. Verbindung: [`data-engineer/docs/data-scout-db-connection.md`](../../data-engineer/docs/data-scout-db-connection.md).
 
 | Schritt | Quelle |
 | --- | --- |
-| 1 | Explizites `lon`/`lat` im Request, beide gesetzt |
-| 2 | `geo_ref_address` (`strasse`, `hnr` aus `street`, `plz`) → `lon`/`lat` EPSG:4326. Index `geo_ref_address_plz_idx`. Berlin, OSM |
-| 3 | `geo_ref_plz` Schwerpunkt (`centroid_lon` / `centroid_lat`), wenn die Adresse fehlt oder die PLZ außerhalb Berlins liegt |
-| 4 | `app.search_places`, danach ein Point in `app.map_features` |
+| optional | Explizites `lon`/`lat` im Request, beide gesetzt. Sonst übersprungen |
+| 1 | `geo_ref_address` (`strasse`, `hnr` aus `street`, `plz`) → `lon`/`lat` EPSG:4326. Index `geo_ref_address_plz_idx`. Berlin, OSM |
+| 2 | `geo_ref_plz` Schwerpunkt (`centroid_lon` / `centroid_lat`), nur ohne Adresstreffer |
+| 3 | `app.search_places`, danach ein Point in `app.map_features`, nur ohne Adresstreffer und ohne `geo_ref_plz` |
 
-`DATASCOUT_DATABASE_URL` leer oder die Abfrage schlägt fehl: Schritt 2 und 3 entfallen, Schritt 4 bleibt. Der Data-Scout-Pool liest nur (`default_transaction_read_only`). Schema `app` wird dort nicht geschrieben.
+`DATASCOUT_DATABASE_URL` leer oder die Abfrage schlägt fehl: Schritte 1 und 2 entfallen, Schritt 3 bleibt. Der Data-Scout-Pool liest nur (`default_transaction_read_only`). Schema `app` wird dort nicht geschrieben.
 
 `GET /stores` und `GET /stores/{id}` schreiben die Koordinate nach `app.store_locations`, wenn sie vorher null war, oder wenn ein Adresstreffer einen gespeicherten PLZ-Schwerpunkt ersetzt. Ein abweichender expliziter Pin bleibt.
 
-Backfill bestehender Berliner Filialen (PLZ 12247, 12169, 12209, 10115) führt der Release-Manager auf Eule aus. Bevorzugt das SQL, das Brain schreibt und Data-Scout nur liest:
+Backfill bestehender Berliner Filialen (PLZ 12247, 12169, 12209, 10115) läuft nach dem Deploy. Der Release-Manager führt ihn auf Eule aus. Bevorzugt das SQL, das Brain schreibt und Data-Scout nur liest:
 
 ```bash
 psql "$DATABASE_URL" -v datascout_conn="$DATASCOUT_DATABASE_URL" \
