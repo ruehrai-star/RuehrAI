@@ -8,8 +8,6 @@ export const metadata: Metadata = {
 export default function LoginPage() {
   return (
     <main className="stub" id="inhalt">
-      <p className="stub-kicker">Auth</p>
-      <h1>Anmeldung</h1>
       <LoginForm />
     </main>
   );

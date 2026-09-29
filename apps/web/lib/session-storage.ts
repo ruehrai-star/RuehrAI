@@ -1,4 +1,4 @@
-import type { Session } from "./api/types";
+import type { Session } from "./api/types.ts";
 
 const STORAGE_KEY = "ruehrai.session";
 const CHANGE_EVENT = "ruehrai-session";
@@ -17,21 +17,22 @@ function isSession(value: unknown): value is Session {
   );
 }
 
+export function parseStoredSession(raw: string | null): Session | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isSession(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readStoredSession(): Session | null {
   if (typeof window === "undefined") return null;
   const raw = window.sessionStorage.getItem(STORAGE_KEY);
   if (raw === cachedRaw) return cachedSession;
   cachedRaw = raw;
-  if (!raw) {
-    cachedSession = null;
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    cachedSession = isSession(parsed) ? parsed : null;
-  } catch {
-    cachedSession = null;
-  }
+  cachedSession = parseStoredSession(raw);
   return cachedSession;
 }
 

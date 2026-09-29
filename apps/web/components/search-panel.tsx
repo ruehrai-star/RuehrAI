@@ -51,8 +51,8 @@ export function SearchPanel({
           aria-controls="search-results"
         />
         <p className="hint">
-          Die Suche ruft <code>GET /search</code> am Backend auf. Ein Treffer fliegt die Karte
-          dorthin. Suche und Lagen brauchen die Anmeldung.
+          Die Suche ruft <code>GET /search</code> am Backend auf. Ein Treffer setzt die Karte
+          dorthin. Suche und Layer brauchen die Anmeldung.
         </p>
         <div className="examples" aria-label="Beispielsuchen">
           {EXAMPLES.map((example) => (
@@ -105,7 +105,7 @@ export function SearchPanel({
 
       <div className="panel-foot">
         <button type="button" className="button button-quiet" onClick={onFitLayer}>
-          Lage einpassen
+          Layer einpassen
         </button>
         <p className="status-line">
           <span>{layerStatus}</span>

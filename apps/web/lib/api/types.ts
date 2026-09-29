@@ -7,14 +7,21 @@ export type {
   FeatureCollection,
   Grain,
   HealthResponse,
+  MonthlyRevenuePoint,
+  MonthlyRevenuePointWrite,
   SearchHit,
   SearchResponse,
+  StoreLocation,
+  StoreLocationWrite,
+  TargetRegion,
+  TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
 
 /**
- * Browser session derived from `POST /auth/login` (`TokenResponse`).
- * The contract has no logout route; clearing this record is local.
+ * Browser session derived from `POST /auth/login` or `POST /auth/register`
+ * (`TokenResponse`). Abmelden calls `POST /auth/logout` and then deletes
+ * this record from sessionStorage.
  */
 export interface Session {
   accessToken: string;

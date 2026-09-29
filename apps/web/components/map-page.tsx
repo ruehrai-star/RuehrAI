@@ -65,7 +65,7 @@ export function MapPage() {
         if (cancelled) return;
         setLayer(null);
         setLayerName(null);
-        setLayerError(error instanceof ApiError ? error.message : "Lage konnte nicht geladen werden.");
+        setLayerError(error instanceof ApiError ? error.message : "Layer konnte nicht geladen werden.");
       });
     return () => {
       cancelled = true;
@@ -74,12 +74,12 @@ export function MapPage() {
 
   const visibleLayer = session ? layer : null;
   const layerStatus = !session
-    ? "Anmeldung erforderlich, um die Lage zu laden."
+    ? "Anmeldung erforderlich, um den Layer zu laden."
     : layerError
       ? layerError
       : visibleLayer
         ? `${layerName ?? DEFAULT_LAYER_ID} · ${visibleLayer.features.length} Objekte`
-        : "Lage wird geladen …";
+        : "Layer wird geladen …";
 
   useEffect(() => {
     const trimmed = query.trim();

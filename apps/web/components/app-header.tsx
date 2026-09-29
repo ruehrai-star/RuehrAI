@@ -1,18 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useSession } from "./session-provider";
 
-const LINKS = [
+const LINKS: { href: string; label: string; signedIn?: boolean }[] = [
   { href: "/", label: "Karte" },
+  { href: "/standorte", label: "Standorte", signedIn: true },
   { href: "/dashboard", label: "Übersicht" },
   { href: "/onboarding", label: "Einstieg" },
 ];
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { session, logout } = useSession();
   const [pending, setPending] = useState(false);
 
@@ -22,6 +24,7 @@ export function AppHeader() {
       await logout();
     } finally {
       setPending(false);
+      router.push("/login");
     }
   }
 
@@ -40,7 +43,7 @@ export function AppHeader() {
         </span>
       </Link>
       <nav className="nav" aria-label="Hauptnavigation">
-        {LINKS.map((link) => {
+        {LINKS.filter((link) => !link.signedIn || session).map((link) => {
           const active = pathname === link.href;
           return (
             <Link

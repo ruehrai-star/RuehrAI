@@ -4,8 +4,16 @@ import type {
   ErrorResponse,
   FeatureCollection as ContractFeatureCollection,
   HealthResponse,
+  MonthlyRevenuePoint,
+  MonthlyRevenuePointWrite,
+  MonthlyRevenueSeries,
   SearchHit,
   SearchResponse,
+  StoreList,
+  StoreLocation,
+  StoreLocationWrite,
+  TargetRegion,
+  TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
@@ -33,7 +41,14 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
 
   async function request<T>(
     path: string,
-    init: { method?: string; body?: string; query?: Record<string, string | undefined>; auth?: boolean },
+    init: {
+      method?: string;
+      body?: string;
+      query?: Record<string, string | undefined>;
+      auth?: boolean;
+      empty?: boolean;
+      nullOn404?: boolean;
+    },
   ): Promise<T> {
     const headers = new Headers();
     if (init.body) headers.set("Content-Type", "application/json");
@@ -54,8 +69,14 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       throw new ApiError(`Backend nicht erreichbar (${baseUrl}).`, 0);
     }
 
+    if (init.nullOn404 && response.status === 404) {
+      return null as T;
+    }
     if (!response.ok) {
       throw new ApiError(await readErrorMessage(response), response.status);
+    }
+    if (init.empty || response.status === 204) {
+      return undefined as T;
     }
     return (await response.json()) as T;
   }
@@ -80,26 +101,149 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return parseLayer(body);
     },
 
-    async login(credentials: Credentials): Promise<Session> {
-      const token = await request<TokenResponse>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify(credentials),
+    login(credentials: Credentials): Promise<Session> {
+      return sessionFromToken("/auth/login", credentials, () =>
+        request<TokenResponse>("/auth/login", {
+          method: "POST",
+          body: JSON.stringify(credentials),
+        }),
+      );
+    },
+
+    register(credentials: Credentials): Promise<Session> {
+      return sessionFromToken("/auth/register", credentials, () =>
+        request<TokenResponse>("/auth/register", {
+          method: "POST",
+          body: JSON.stringify(credentials),
+        }),
+      );
+    },
+
+    async logout(): Promise<void> {
+      await request<void>("/auth/logout", { method: "POST", auth: true, empty: true });
+    },
+
+    async getTargetRegion(): Promise<TargetRegion | null> {
+      const body = await request<TargetRegion | null>("/target-region", { auth: true, nullOn404: true });
+      return body ? parseTargetRegion(body) : null;
+    },
+
+    async putTargetRegion(region: TargetRegionWrite): Promise<TargetRegion> {
+      const body = await request<TargetRegion>("/target-region", {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify(region),
       });
-      if (
-        typeof token?.accessToken !== "string" ||
-        token.tokenType !== "Bearer" ||
-        typeof token.expiresIn !== "number"
-      ) {
-        throw new ApiError("Antwort von POST /auth/login ist ungültig.", 502);
+      return parseTargetRegion(body);
+    },
+
+    async listStores(): Promise<StoreLocation[]> {
+      const body = await request<StoreList>("/stores", { auth: true });
+      if (!body || !Array.isArray(body.stores)) {
+        throw new ApiError("Antwort von GET /stores ist ungültig.", 502);
       }
-      return {
-        accessToken: token.accessToken,
-        tokenType: "Bearer",
-        expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
-        email: credentials.email,
-      };
+      return body.stores.map(parseStore);
+    },
+
+    async createStore(store: StoreLocationWrite): Promise<StoreLocation> {
+      const body = await request<StoreLocation>("/stores", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify(store),
+      });
+      return parseStore(body);
+    },
+
+    async updateStore(id: string, store: StoreLocationWrite): Promise<StoreLocation> {
+      const body = await request<StoreLocation>(`/stores/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify(store),
+      });
+      return parseStore(body);
+    },
+
+    async deleteStore(id: string): Promise<void> {
+      await request<void>(`/stores/${encodeURIComponent(id)}`, { method: "DELETE", auth: true, empty: true });
+    },
+
+    async listStoreRevenue(id: string): Promise<MonthlyRevenuePoint[]> {
+      const body = await request<MonthlyRevenueSeries>(`/stores/${encodeURIComponent(id)}/revenue`, {
+        auth: true,
+      });
+      return parseRevenueSeries(body);
+    },
+
+    async putStoreRevenue(id: string, points: MonthlyRevenuePointWrite[]): Promise<MonthlyRevenuePoint[]> {
+      const body = await request<MonthlyRevenueSeries>(`/stores/${encodeURIComponent(id)}/revenue`, {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify({ points }),
+      });
+      return parseRevenueSeries(body);
     },
   };
+}
+
+async function sessionFromToken(
+  route: string,
+  credentials: Credentials,
+  read: () => Promise<TokenResponse>,
+): Promise<Session> {
+  const token = await read();
+  if (
+    typeof token?.accessToken !== "string" ||
+    token.tokenType !== "Bearer" ||
+    typeof token.expiresIn !== "number"
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  return {
+    accessToken: token.accessToken,
+    tokenType: "Bearer",
+    expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
+    email: credentials.email.trim().toLowerCase(),
+  };
+}
+
+function parseTargetRegion(body: TargetRegion): TargetRegion {
+  if (!body || typeof body.label !== "string" || typeof body.updatedAt !== "string") {
+    throw new ApiError("Antwort von /target-region ist ungültig.", 502);
+  }
+  if (body.grain != null && !isGrain(body.grain)) {
+    throw new ApiError("Antwort von /target-region ist ungültig.", 502);
+  }
+  return body;
+}
+
+function parseStore(body: StoreLocation): StoreLocation {
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    typeof body.street !== "string" ||
+    typeof body.postalCode !== "string" ||
+    typeof body.city !== "string"
+  ) {
+    throw new ApiError("Antwort von /stores ist ungültig.", 502);
+  }
+  return body;
+}
+
+function parseRevenueSeries(body: MonthlyRevenueSeries): MonthlyRevenuePoint[] {
+  if (!body || !Array.isArray(body.points)) {
+    throw new ApiError("Antwort von /stores/{id}/revenue ist ungültig.", 502);
+  }
+  return body.points.map((point) => {
+    if (
+      !point ||
+      typeof point.year !== "number" ||
+      typeof point.month !== "number" ||
+      !(point.revenueEur === null || typeof point.revenueEur === "number")
+    ) {
+      throw new ApiError("Antwort von /stores/{id}/revenue ist ungültig.", 502);
+    }
+    return point;
+  });
 }
 
 export function toMapFeatureCollection(layer: ContractFeatureCollection): FeatureCollection {
