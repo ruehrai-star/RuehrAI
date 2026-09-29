@@ -158,6 +158,8 @@ export function regionOverlay(region: TargetRegion | null): {
   const point = coordinatesOf(region);
   if (point) bounds = extendBounds(bounds, point.lon, point.lat);
 
+  // Draw the API polygon as returned. A bounds rectangle is only the fallback
+  // when `geometry` is null.
   const features = areas.length > 0 ? areas : rectangleFeature(contractBounds);
   return {
     collection: { type: "FeatureCollection", features },

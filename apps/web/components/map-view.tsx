@@ -173,8 +173,20 @@ function empfehlungButton(pin: EmpfehlungPin): HTMLButtonElement {
   button.type = "button";
   button.className = "empfehlung-punkt";
   button.setAttribute("aria-label", pin.ariaLabel);
-  button.style.borderColor = EMPFEHLUNG_COLOR;
-  button.style.boxShadow = "0 0 0 3px rgba(216, 90, 42, 0.35)";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "22");
+  svg.setAttribute("height", "22");
+  svg.setAttribute("aria-hidden", "true");
+  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  circle.setAttribute("cx", "12");
+  circle.setAttribute("cy", "12");
+  circle.setAttribute("r", "9");
+  circle.setAttribute("fill", EMPFEHLUNG_COLOR);
+  circle.setAttribute("stroke", "#fffaf3");
+  circle.setAttribute("stroke-width", "2");
+  svg.append(circle);
+  button.append(svg);
   return button;
 }
 

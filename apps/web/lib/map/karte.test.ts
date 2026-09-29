@@ -123,7 +123,7 @@ test("Zielregion geometry is a fill and the camera frames addresses plus the are
   });
   assert.equal(model.showLegend, true);
   assert.equal(model.region.features.length, 1);
-  assert.equal(model.region.features[0]?.geometry.type, "Polygon");
+  assert.deepEqual(model.region.features[0]?.geometry, MUNICH_BOX);
   assert.equal(model.camera.kind, "bounds");
   if (model.camera.kind === "bounds") {
     assert.equal(model.camera.bounds.west, 11);
@@ -231,6 +231,27 @@ test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored",
   });
   assert.equal(broken.showLegend, false);
   assert.equal(broken.camera.kind, "germany");
+});
+
+test("Top-3 Empfehlungen use a different color from Bestand pins", () => {
+  const withTop3 = buildKarte({
+    stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
+    region: null,
+    recommendations: [recommendation("plz5:80801", "Schwabing", 11.58, 48.16)],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(withTop3.pins[0]?.kind, "bestand");
+  assert.equal(withTop3.empfehlungen[0]?.kind, "empfehlung");
+  assert.notEqual(PIN_COLOR, EMPFEHLUNG_COLOR);
+
+  const bestandOnly = buildKarte({
+    stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
+    region: null,
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(bestandOnly.empfehlungen.length, 0);
+  assert.equal(bestandOnly.pins.length, 1);
 });
 
 test("recommendation points stay off the fit and use a different kind", () => {
