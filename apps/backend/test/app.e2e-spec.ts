@@ -60,5 +60,7 @@ describe("API smoke", () => {
     await request(server).post("/analysis/runs").expect(401);
     await request(server).get("/analysis/runs/1").expect(401);
     await request(server).get("/analysis/pattern").expect(401);
+    await request(server).post("/recommendations").expect(401);
+    await request(server).get("/recommendations").expect(401);
   });
 });

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -21,8 +21,9 @@ info:
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
-    Clients call only this API. A later Top-3 recommendation step is not
-    part of this version; there is no recommendations endpoint.
+    Recommendations (0.4.0) rank up to three locations in that region where
+    the saved pattern fits over the last six calendar months, and attach a
+    German rationale per location. Clients call only this API.
 servers:
   - url: http://localhost:3000
     description: Local development. The host and port follow the backend `PORT` env (default 3000).
@@ -34,6 +35,7 @@ tags:
   - name: TargetRegion
   - name: Stores
   - name: Analysis
+  - name: Recommendations
 security:
   - bearerAuth: []
 paths:
@@ -710,6 +712,129 @@ paths:
                 statusCode: 404
                 message: Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.
                 error: Not Found
+  /recommendations:
+    post:
+      tags: [Recommendations]
+      operationId: createRecommendations
+      summary: Rank up to three locations for the signed-in user
+      description: |
+        Reads a completed Musteranalyse pattern for this user (the newest run,
+        or `runId` when set) and searches Brain locations in the target region.
+        A location ranks when at least one pattern criterion with a direction
+        moved the same way inside the six UTC calendar months ending in the
+        request month. Score is the share of those directional criteria that
+        match. The response has at most three items, ordered by score.
+
+        One or two matches are success, not an error: `reason` explains the
+        thin region in German. Zero matches are also success, with `reason`
+        set and `items` empty. `404` when this user has no completed pattern,
+        or when `runId` is not one of their runs.
+
+        The region anchor itself is omitted when a finer positive location
+        exists. Finer grains match when their `geo_key` is under the region
+        key or their metadata names the region (`geo_ags`, `ags`, `plz`,
+        `geo_plz`, `geo_key`). Each item's `rationale` is German and grounded
+        in `criteriaEvidence`. `source` is `llm` when that text came from the
+        local model, otherwise `heuristic`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendationCreate"
+      responses:
+        "201":
+          description: Persisted recommendation set for this user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationSet"
+              example:
+                id: "3"
+                runId: "15"
+                createdAt: "2026-09-29T12:00:00.000Z"
+                window:
+                  from: "2026-04"
+                  to: "2026-09"
+                count: 1
+                reason: "In der Zielregion liegt nur 1 Standort mit positiver Musterentwicklung in den letzten sechs Monaten vor."
+                pattern:
+                  source: heuristic
+                  summary: Einwohner steigen mit dem Umsatz.
+                  revenueDirection: up
+                  criteria:
+                    - key: einwohner
+                      label: einwohner
+                      direction: up
+                      evidence: einwohner steigt zwischen den vorliegenden Zeiträumen.
+                items:
+                  - id: "plz5:80801"
+                    rank: 1
+                    title: Schwabing
+                    location:
+                      geoKey: "80801"
+                      grain: plz5
+                      lon: 11.58
+                      lat: 48.16
+                      name: Schwabing
+                    score: 1
+                    rationale: "Am Standort Schwabing (80801) passt das Muster in den letzten sechs Monaten. Quelle: Heuristik, ohne Sprachmodell."
+                    criteriaEvidence:
+                      - key: einwohner
+                        label: einwohner
+                        direction: up
+                        patternDirection: up
+                        evidence: "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20)."
+                    source: heuristic
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No completed analysis pattern for this user, or the run id is not theirs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                noPattern:
+                  summary: No completed analysis yet
+                  value:
+                    statusCode: 404
+                    message: Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.
+                    error: Not Found
+                unknownRun:
+                  summary: runId is missing for this user
+                  value:
+                    statusCode: 404
+                    message: Die Analyse wurde nicht gefunden.
+                    error: Not Found
+    get:
+      tags: [Recommendations]
+      operationId: getRecommendations
+      summary: Latest recommendation set for the signed-in user
+      description: |
+        Returns the newest set stored by `POST /recommendations` for the token
+        user. `404` when this user has not computed recommendations yet.
+      responses:
+        "200":
+          description: Latest recommendation set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationSet"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: This user has no stored recommendations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                statusCode: 404
+                message: Es liegen noch keine Empfehlungen vor. Bitte zuerst Empfehlungen berechnen.
+                error: Not Found
 components:
   securitySchemes:
     bearerAuth:
@@ -1361,6 +1486,157 @@ components:
           format: date-time
         pattern:
           $ref: "#/components/schemas/AnalysisPattern"
+    RecommendationCreate:
+      type: object
+      additionalProperties: false
+      description: |
+        Optional body for `POST /recommendations`. Omit `runId` to use the
+        newest completed analysis run of the token user.
+      properties:
+        runId:
+          type: string
+          pattern: "^[1-9][0-9]{0,18}$"
+          description: Analysis run id as a decimal string. Must belong to the token user.
+    RecommendationSet:
+      type: object
+      additionalProperties: false
+      required: [id, runId, createdAt, window, count, reason, pattern, items]
+      description: |
+        Top-3 payload the web client binds to. `count` is `items.length` and
+        is never greater than 3. `reason` is null when three positive locations
+        were available. `pattern` is the snapshot used for this ranking.
+      properties:
+        id:
+          type: string
+          description: Recommendation set id as a decimal string.
+        runId:
+          type: string
+          description: Analysis run this set was ranked from.
+        createdAt:
+          type: string
+          format: date-time
+        window:
+          $ref: "#/components/schemas/RecommendationWindow"
+        count:
+          type: integer
+          minimum: 0
+          maximum: 3
+        reason:
+          type: string
+          nullable: true
+          description: |
+            German explanation when fewer than three locations are returned,
+            or when the Brain read hit its row limit. Null when three matches
+            were ranked without truncation.
+        pattern:
+          $ref: "#/components/schemas/AnalysisPattern"
+        items:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/Recommendation"
+    RecommendationWindow:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      description: |
+        Six calendar months, inclusive, ending in the UTC month of the request.
+        Brain `ref_period` values outside this window do not affect the score.
+      properties:
+        from:
+          type: string
+          pattern: "^[0-9]{4}-[0-9]{2}$"
+          description: Oldest month in the window (`YYYY-MM`).
+          example: "2026-04"
+        to:
+          type: string
+          pattern: "^[0-9]{4}-[0-9]{2}$"
+          description: Newest month in the window (`YYYY-MM`).
+          example: "2026-09"
+    Recommendation:
+      type: object
+      additionalProperties: false
+      required: [id, rank, title, location, score, rationale, criteriaEvidence, source]
+      properties:
+        id:
+          type: string
+          description: Stable location id `{grain}:{geoKey}` inside this set.
+          example: "plz5:80801"
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 3
+        title:
+          type: string
+          description: Card title. Place name, address line, or geo key from Brain.
+        location:
+          $ref: "#/components/schemas/RecommendationLocation"
+        score:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: |
+            Share of pattern criteria that have a direction and moved the same
+            way at this location inside the window. 1 is a full fit.
+        rationale:
+          type: string
+          description: |
+            German Begründung. Names only criteria and figures present in
+            `criteriaEvidence`.
+        criteriaEvidence:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/RecommendationEvidence"
+        source:
+          type: string
+          enum: [llm, heuristic]
+          description: |
+            `llm` when `rationale` was taken from the local model and checked
+            against `criteriaEvidence`. `heuristic` when the model was unset,
+            failed, or its text was discarded.
+    RecommendationLocation:
+      type: object
+      additionalProperties: false
+      required: [geoKey, grain, lon, lat, name]
+      properties:
+        geoKey:
+          type: string
+        grain:
+          $ref: "#/components/schemas/Grain"
+        lon:
+          type: number
+          format: double
+          nullable: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+        name:
+          type: string
+          nullable: true
+          description: Brain place name when the row has one.
+    RecommendationEvidence:
+      type: object
+      additionalProperties: false
+      required: [key, label, direction, patternDirection, evidence]
+      description: |
+        One pattern criterion that moved in the pattern direction at this
+        location. `direction` is what Brain shows in the window.
+        `patternDirection` is the saved Musteranalyse direction.
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        direction:
+          $ref: "#/components/schemas/CriterionDirection"
+        patternDirection:
+          $ref: "#/components/schemas/CriterionDirection"
+        evidence:
+          type: string
+          description: German sentence with the months and figures used for the score.
     ErrorResponse:
       type: object
       properties:
