@@ -22,6 +22,8 @@ pnpm start:dev
 
 `006_berlin_plz_centroids.sql` legt PLZ5-Stubs für 12247, 12169 und 12209 an (Berlin, AGS `11000000`, `stub: true` auf dem Point) und stellt `plz5:10115` mit dem Schwerpunkt aus `001_init.sql` sicher (`13.3870`, `52.5320`). Vorhandene Koordinaten bleiben. Danach schreibt die Migration fehlende `store_locations.lon`/`lat` aus dem passenden `search_places`-Schwerpunkt (`grain = plz5`).
 
+`007_berlin_bezirke_stubs.sql` legt für die zwölf Berliner Bezirke synthetische Polygone in `app.map_features` (Layer `berlin-bezirke`) und Schwerpunkte in `app.search_places` an. Je Bezirk zwei Ids mit derselben Rechteck-Geometrie: amtlich `ags:11000001` … `ags:11000012` und Alias `ags:11001001` … `ags:11012012` (`11` plus die dreistellige Nummer zweimal), also auch `ags:11006006` (Steglitz-Zehlendorf) und `ags:11007007` (Tempelhof-Schöneberg). `properties.ags` ist der amtliche Schlüssel. Halbe Kantenlänge 0,18° Länge / 0,095° Breite wie `stubPolygon` für grain `ags`. Keine amtlichen Grenzen. Erneutes Ausführen aktualisiert diese Zeilen.
+
 `.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. `DATASCOUT_DATABASE_URL` bleibt auskommentiert: ohne sie liegen Filial-Pins auf dem PLZ-Stub. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings). Filial-Koordinaten: [Filial-Pins](#filial-pins-data-scout).
 
 ## Seed-Nutzer
