@@ -5,6 +5,7 @@ import {
   EMPFEHLUNG_COLOR,
   FIT_PADDING_PX,
   LEGEND_LABEL,
+  MISSING_AREA_LABEL,
   NO_STORES_LABEL,
   PIN_COLOR,
   REGION_FILL,
@@ -30,6 +31,7 @@ test("padding, legend and pin colors stay distinct and readable", () => {
   assert.ok(FIT_PADDING_PX >= 40);
   assert.equal(NO_STORES_LABEL, "Noch keine Filialadressen");
   assert.equal(LEGEND_LABEL, "Zielregion");
+  assert.equal(MISSING_AREA_LABEL, "Zielregion ist gesetzt. Die Fläche kann noch nicht gezeichnet werden.");
   assert.ok(REGION_FILL_OPACITY > 0 && REGION_FILL_OPACITY < 0.5);
   assert.notEqual(PIN_COLOR, EMPFEHLUNG_COLOR);
   assert.notEqual(PIN_COLOR, REGION_FILL);
@@ -37,11 +39,12 @@ test("padding, legend and pin colors stay distinct and readable", () => {
   for (const label of [
     NO_STORES_LABEL,
     LEGEND_LABEL,
+    MISSING_AREA_LABEL,
     "Empfehlung",
     "1 Filialadresse ohne Koordinaten.",
     "3 Filialadressen ohne Koordinaten. Deshalb erscheinen sie nicht auf der Karte.",
   ]) {
-    assert.doesNotMatch(label, /\b(pin|marker|store|target region|area)\b/i);
+    assert.doesNotMatch(label, /\b(pin|marker|store|target region|area|error|fehler)\b/i);
   }
 });
 
@@ -64,6 +67,7 @@ test("saved addresses become Stecknadeln with a German address popup", () => {
   assert.equal(model.pins[1]?.place, "10178 Berlin");
   assert.equal(model.showEmptyAddresses, false);
   assert.equal(model.coordinateGapLabel, null);
+  assert.equal(model.missingAreaLabel, null);
   assert.equal(model.showLegend, false);
   assert.equal(model.camera.kind, "bounds");
   if (model.camera.kind === "bounds") {
@@ -148,6 +152,7 @@ test("no saved addresses use the empty label and the Germany overview", () => {
   assert.equal(model.pins.length, 0);
   assert.equal(model.camera.kind, "germany");
   assert.equal(model.showLegend, false);
+  assert.equal(model.missingAreaLabel, null);
 });
 
 test("an unknown address list does not claim the empty state", () => {
@@ -169,6 +174,7 @@ test("Zielregion geometry is a fill and the camera frames addresses plus the are
     addressesKnownEmpty: false,
   });
   assert.equal(model.showLegend, true);
+  assert.equal(model.missingAreaLabel, null);
   assert.equal(model.region.features.length, 1);
   assert.deepEqual(model.region.features[0]?.geometry, MUNICH_BOX);
   assert.equal(model.camera.kind, "bounds");
@@ -188,6 +194,7 @@ test("OpenAPI LonLatBounds frame the region and a bbox array does not", () => {
     addressesKnownEmpty: false,
   });
   assert.equal(named.showLegend, true);
+  assert.equal(named.missingAreaLabel, null);
   if (named.camera.kind === "bounds") {
     assert.deepEqual(named.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
   }
@@ -199,6 +206,8 @@ test("OpenAPI LonLatBounds frame the region and a bbox array does not", () => {
     addressesKnownEmpty: false,
   });
   assert.equal(arrayBounds.showLegend, false);
+  assert.equal(arrayBounds.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(arrayBounds.region.features.length, 0);
   assert.equal(arrayBounds.camera.kind, "germany");
 });
 
@@ -210,6 +219,7 @@ test("bounds alone draw a rectangle and a point-only region does not", () => {
     addressesKnownEmpty: false,
   });
   assert.equal(boundsOnly.showLegend, true);
+  assert.equal(boundsOnly.missingAreaLabel, null);
   assert.equal(boundsOnly.region.features[0]?.geometry.type, "Polygon");
   assert.equal(boundsOnly.camera.kind, "bounds");
 
@@ -224,6 +234,8 @@ test("bounds alone draw a rectangle and a point-only region does not", () => {
     addressesKnownEmpty: false,
   });
   assert.equal(pointOnly.showLegend, false);
+  assert.equal(pointOnly.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(pointOnly.region.features.length, 0);
   assert.equal(pointOnly.camera.kind, "bounds");
   if (pointOnly.camera.kind === "bounds") {
     assert.equal(pointOnly.camera.bounds.west, 11.5);
@@ -254,6 +266,7 @@ test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored",
     addressesKnownEmpty: false,
   });
   assert.equal(multi.showLegend, true);
+  assert.equal(multi.missingAreaLabel, null);
   assert.equal(multi.region.features[0]?.geometry.type, "MultiPolygon");
 
   const wrapped = buildKarte({
@@ -268,6 +281,8 @@ test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored",
     addressesKnownEmpty: false,
   });
   assert.equal(wrapped.showLegend, false);
+  assert.equal(wrapped.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(wrapped.region.features.length, 0);
   assert.equal(wrapped.camera.kind, "germany");
 
   const broken = buildKarte({
@@ -277,7 +292,45 @@ test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored",
     addressesKnownEmpty: false,
   });
   assert.equal(broken.showLegend, false);
+  assert.equal(broken.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(broken.region.features.length, 0);
   assert.equal(broken.camera.kind, "germany");
+});
+
+test("a set Zielregion without geometry or bounds shows the missing-area hint and no fill", () => {
+  const stage = buildKarte({
+    stores: [store({ id: "1", street: "Weg 1", lon: 11.58, lat: 48.14 })],
+    region: region({
+      label: "München",
+      grain: "ags",
+      ags: "09162000",
+      lon: 11.575,
+      lat: 48.137,
+      geometry: null,
+      bounds: null,
+    }),
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(stage.region.features.length, 0);
+  assert.equal(stage.showLegend, false);
+  assert.equal(stage.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(stage.camera.kind, "bounds");
+  if (stage.camera.kind === "bounds") {
+    assert.equal(stage.camera.bounds.west, 11.575);
+    assert.equal(stage.camera.bounds.east, 11.58);
+  }
+
+  const noPoint = buildKarte({
+    stores: [],
+    region: region({ geometry: null, bounds: null, lon: null, lat: null }),
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(noPoint.region.features.length, 0);
+  assert.equal(noPoint.showLegend, false);
+  assert.equal(noPoint.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(noPoint.camera.kind, "germany");
 });
 
 test("Top-3 Empfehlungen use a different color from Bestand pins", () => {
