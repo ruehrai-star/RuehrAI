@@ -14,7 +14,8 @@ import { coordinatesOf } from "../api/geo.ts";
  * - `bounds`: `LonLatBounds` `{ west, south, east, north }` for fitBounds
  * - `geometry`: GeoJSON Polygon or MultiPolygon for the colored overlay
  *
- * Both are null when the region has no outline and no catalog point.
+ * A successful PUT always includes both. GET can still return null for a
+ * row that has no outline and no catalog point.
  */
 
 export const NO_STORES_LABEL = "Noch keine Filialadressen";

@@ -10,7 +10,12 @@ export interface RegionLookup {
 }
 
 export interface RegionCatalogHit {
-  /** Polygon or MultiPolygon from `app.map_features`, when one matches. */
+  /**
+   * Polygon or MultiPolygon from `app.map_features`, when one matches.
+   * Search hits are place ids, not outlines. A place that is not stored here
+   * as a polygon has no catalog map area (Location-Guide supplies official
+   * outlines). Point-only rows are not an outline.
+   */
   geometry: unknown | null;
   /** WGS84 point from `app.search_places`, or a Point feature when the catalog has no place row. */
   point: LonLat | null;

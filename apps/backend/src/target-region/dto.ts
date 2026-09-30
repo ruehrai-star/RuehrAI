@@ -75,12 +75,24 @@ export class TargetRegionWriteDto {
   @Max(90)
   lat?: number | null;
 
+  /**
+   * Optional extent. When `geometry` is omitted this becomes a rectangular
+   * polygon. A successful PUT always stores bounds. If the body and the
+   * catalog still have no area, the write is rejected and the previous row
+   * stays unchanged.
+   */
   @IsOptional()
   @ValidateNested()
   @Type(() => LonLatBoundsDto)
   bounds?: LonLatBoundsDto | null;
 
-  /** GeoJSON Polygon or MultiPolygon. Validated in the service. */
+  /**
+   * Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). Validated in the
+   * service. When omitted, the catalog polygon is copied, or the interim
+   * stub is built around a point. A successful PUT never persists null.
+   * Places that are not polygons in `app.map_features` need that catalog
+   * polygon (Location-Guide); this DTO does not invent further stub seeds.
+   */
   @IsOptional()
   @Allow()
   geometry?: unknown;

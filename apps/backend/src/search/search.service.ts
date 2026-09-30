@@ -4,6 +4,14 @@ import { isMissingFeaturesRelation } from "../database/pg-error";
 import { SearchQueryDto } from "./search.dto";
 import { toContainsPattern } from "./search.util";
 
+/**
+ * Place id for search pickers that call `PUT /target-region`. Not an overlay
+ * polygon. The write copies a Polygon or MultiPolygon from `app.map_features`
+ * for this grain and geoKey. Catalog rows that are missing those polygons
+ * need them from Location-Guide (official outlines). A point still anchors
+ * the interim stub rectangle; without a point, geometry, or bounds, PUT is 400
+ * and does not clear a previously stored polygon.
+ */
 export interface SearchHit {
   id: string;
   label: string;
