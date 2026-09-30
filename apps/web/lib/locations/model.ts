@@ -19,6 +19,14 @@ export interface MonthRow {
 
 const REVENUE_YEAR_SPAN = 3;
 
+/**
+ * Search hits are place ids, not polygons. PUT copies a Polygon or
+ * MultiPolygon from Brain `app.map_features`, then Data-Scout
+ * `geo_ref_bezirk` / `geo_ref_admin`. Official outlines are catalog data
+ * (Location-Guide). The API stores a Berlin Bezirk alias (`11006006`) as
+ * `1100000N`. A hit with no catalog polygon and no `lon`/`lat` is rejected
+ * unless the client adds `geometry` or `bounds`.
+ */
 export function toTargetRegionWrite(hit: SearchHit): TargetRegionWrite {
   const geoKey = typeof hit.geoKey === "string" ? hit.geoKey : null;
   return {

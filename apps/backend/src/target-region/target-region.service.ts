@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, normalizeCoordPair, toCoord, toIso } from "../customer/values";
+import { canonicalRegionKeys } from "../geo/bezirk-ags";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
 import {
   LonLatBounds,
@@ -50,6 +51,13 @@ const SELECT_REGION = `
   FROM app.target_regions
 `;
 
+/**
+ * PUT refuses this case. A successful write always stores a polygon.
+ * GET may still return a previously stored null outline.
+ */
+export const TARGET_REGION_NO_MAP_AREA =
+  "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.";
+
 @Injectable()
 export class TargetRegionService {
   constructor(
@@ -74,9 +82,13 @@ export class TargetRegionService {
     const geometry = dto.geometry == null ? null : parseRegionGeometry(dto.geometry);
     const bounds = dto.bounds == null ? null : parseBounds(dto.bounds);
     const grain = dto.grain ?? null;
-    const geoKey = emptyToNull(dto.geoKey);
-    const ags = emptyToNull(dto.ags);
     const plz = emptyToNull(dto.plz);
+    const canonical = canonicalRegionKeys({
+      geoKey: emptyToNull(dto.geoKey),
+      ags: emptyToNull(dto.ags),
+    });
+    const geoKey = canonical.geoKey;
+    const ags = canonical.ags;
     const resolved = await this.resolveMap({
       grain,
       geoKey,
@@ -87,6 +99,9 @@ export class TargetRegionService {
       bounds,
       geometry,
     });
+    if (!resolved.geometry || !resolved.bounds) {
+      throw new BadRequestException(TARGET_REGION_NO_MAP_AREA);
+    }
 
     const result = await this.db.query<TargetRegionRow>(
       `INSERT INTO app.target_regions (
@@ -122,11 +137,11 @@ export class TargetRegionService {
         plz,
         resolved.lon,
         resolved.lat,
-        resolved.bounds?.west ?? null,
-        resolved.bounds?.south ?? null,
-        resolved.bounds?.east ?? null,
-        resolved.bounds?.north ?? null,
-        resolved.geometry ? JSON.stringify(resolved.geometry) : null,
+        resolved.bounds.west,
+        resolved.bounds.south,
+        resolved.bounds.east,
+        resolved.bounds.north,
+        JSON.stringify(resolved.geometry),
       ],
     );
     const row = result.rows[0];

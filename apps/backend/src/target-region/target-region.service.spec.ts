@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DatabaseService } from "../database/database.service";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
-import { TargetRegionService } from "./target-region.service";
+import { TARGET_REGION_NO_MAP_AREA, TargetRegionService } from "./target-region.service";
 
 const muenchenPolygon = {
   type: "Polygon" as const,
@@ -42,59 +42,92 @@ describe("TargetRegionService", () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining("app.target_regions"), ["4"]);
   });
 
-  it("stores omitted geo fields as null for that user only", async () => {
-    query.mockResolvedValue({
-      rows: [
-        {
-          label: "München",
-          grain: null,
-          geo_key: null,
-          ags: null,
-          plz: null,
-          lon: null,
-          lat: null,
-          bounds_west: null,
-          bounds_south: null,
-          bounds_east: null,
-          bounds_north: null,
-          geometry: null,
-          updated_at: new Date("2026-01-02T00:00:00.000Z"),
-        },
-      ],
-    });
-    await expect(service.put("4", { label: " München " })).resolves.toEqual({
-      label: "München",
-      grain: null,
-      geoKey: null,
-      ags: null,
-      plz: null,
-      lon: null,
-      lat: null,
-      bounds: null,
-      geometry: null,
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    });
+  it("rejects a label with no catalog area instead of storing null geometry", async () => {
+    await expect(service.put("4", { label: " München " })).rejects.toThrow(TARGET_REGION_NO_MAP_AREA);
     expect(lookupRegion).toHaveBeenCalledWith({
       grain: null,
       geoKey: null,
       ags: null,
       plz: null,
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO app.target_regions"), [
-      "4",
-      "München",
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("rejects a catalog miss so a previous polygon is not wiped", async () => {
+    lookupRegion.mockResolvedValue({ geometry: null, point: null });
+    await expect(
+      service.put("4", {
+        label: "Lichtenberg",
+        grain: "ags",
+        geoKey: "11000011",
+        ags: "11000011",
+      }),
+    ).rejects.toThrow(TARGET_REGION_NO_MAP_AREA);
+    expect(lookupRegion).toHaveBeenCalledWith({
+      grain: "ags",
+      geoKey: "11000011",
+      ags: "11000011",
+      plz: null,
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("stores the official Bezirk AGS when the client sends the doubled alias", async () => {
+    const geometry = {
+      type: "MultiPolygon" as const,
+      coordinates: [
+        [
+          [
+            [13.18, 52.39],
+            [13.35, 52.39],
+            [13.35, 52.49],
+            [13.18, 52.49],
+            [13.18, 52.39],
+          ],
+        ],
+      ],
+    };
+    lookupRegion.mockResolvedValue({
+      geometry,
+      point: { lon: 13.2353, lat: 52.4302 },
+    });
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "Steglitz-Zehlendorf",
+          grain: "ags",
+          geo_key: "11000006",
+          ags: "11000006",
+          plz: null,
+          lon: 13.2353,
+          lat: 52.4302,
+          bounds_west: 13.18,
+          bounds_south: 52.39,
+          bounds_east: 13.35,
+          bounds_north: 52.49,
+          geometry,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const saved = await service.put("4", {
+      label: "Steglitz-Zehlendorf",
+      grain: "ags",
+      geoKey: "11006006",
+      ags: "11006006",
+    });
+    expect(lookupRegion).toHaveBeenCalledWith({
+      grain: "ags",
+      geoKey: "11000006",
+      ags: "11000006",
+      plz: null,
+    });
+    const params = query.mock.calls[0]?.[1] as unknown[];
+    expect(params[3]).toBe("11000006");
+    expect(params[4]).toBe("11000006");
+    expect(JSON.parse(params[12] as string)).toEqual(geometry);
+    expect(saved.ags).toBe("11000006");
+    expect(saved.geometry).toEqual(geometry);
   });
 
   it("copies the seeded polygon and derives bounds for fitBounds", async () => {
@@ -223,6 +256,32 @@ describe("TargetRegionService", () => {
     expect(geometry.coordinates[0]?.[0]).toEqual([13.405 - 0.18, 52.52 - 0.095]);
     expect(params[6]).toBeCloseTo(13.405);
     expect(params[7]).toBeCloseTo(52.52);
+  });
+
+  it("leaves a stored null outline on read when the catalog still has none", async () => {
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "Unbekannt",
+          grain: "ags",
+          geo_key: "11000011",
+          ags: "11000011",
+          plz: null,
+          lon: null,
+          lat: null,
+          bounds_west: null,
+          bounds_south: null,
+          bounds_east: null,
+          bounds_north: null,
+          geometry: null,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const region = await service.get("4");
+    expect(region.geometry).toBeNull();
+    expect(region.bounds).toBeNull();
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("derives a missing outline on read from the catalog", async () => {

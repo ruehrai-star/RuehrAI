@@ -23,6 +23,8 @@ Das Backend liest nur:
 | --- | --- |
 | `geo_ref_address` | `strasse`, `hnr`, `plz` → `lon`/`lat` (EPSG:4326). Etwa 510k Berliner OSM-Zeilen. Index `geo_ref_address_plz_idx`. |
 | `geo_ref_plz` | Schwerpunkt `centroid_lon` / `centroid_lat` über `geo_plz5` (der geladene PK `geo_plz8` spiegelt die PLZ5), wenn die Adresse fehlt oder die PLZ außerhalb Berlins liegt. |
+| `geo_ref_bezirk` | Zielregion, nur wenn Brain `app.map_features` kein Polygon hat. `geo_bezirk_id` `11000001` … `11000012`, `ST_AsGeoJSON(geom)` und `lon`/`lat`. `geom` ist MultiPolygon EPSG:4326. |
+| `geo_ref_admin` | Zielregion für Gemeinde, Kreis oder Land, wenn Brain kein Polygon hat. `geo_ags`, Geometrie nach EPSG:4326 (VG250 liegt oft in 3035). |
 
 `app.store_locations` bleibt auf Brain. Fehlt `DATASCOUT_DATABASE_URL` oder schlägt die Abfrage fehl, nutzt die API den PLZ-Stub in `app.search_places` und danach einen Point in `app.map_features`.
 

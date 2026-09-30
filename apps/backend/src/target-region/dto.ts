@@ -75,12 +75,21 @@ export class TargetRegionWriteDto {
   @Max(90)
   lat?: number | null;
 
+  /**
+   * Optional extent. Stored as a rectangular polygon when `geometry` is omitted.
+   * PUT responds 400 when this, `geometry`, and the catalog are all empty.
+   */
   @IsOptional()
   @ValidateNested()
   @Type(() => LonLatBoundsDto)
   bounds?: LonLatBoundsDto | null;
 
-  /** GeoJSON Polygon or MultiPolygon. Validated in the service. */
+  /**
+   * GeoJSON Polygon or MultiPolygon. Validated in the service.
+   * A search place id is not an outline. PUT copies Brain `app.map_features`,
+   * then Data-Scout `geo_ref_bezirk` or `geo_ref_admin`, and never persists
+   * null geometry. Berlin Bezirk aliases are stored as `1100000N`.
+   */
   @IsOptional()
   @Allow()
   geometry?: unknown;

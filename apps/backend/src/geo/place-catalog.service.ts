@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { DataScoutService } from "../database/data-scout.service";
+import { canonicalRegionKeys, isOfficialBerlinBezirkAgs } from "./bezirk-ags";
+import { queryAdminOutline, queryBezirkOutline } from "./region-outline-lookup";
 import { LonLat } from "./region-geometry";
 
 export interface RegionLookup {
@@ -10,9 +13,13 @@ export interface RegionLookup {
 }
 
 export interface RegionCatalogHit {
-  /** Polygon or MultiPolygon from `app.map_features`, when one matches. */
+  /**
+   * Polygon or MultiPolygon. Brain `app.map_features` wins. When that misses,
+   * Data-Scout `geo_ref_bezirk` (Berlin Bezirk) or `geo_ref_admin`
+   * (Gemeinde, Kreis, Land, transformed to WGS84).
+   */
   geometry: unknown | null;
-  /** WGS84 point from `app.search_places`, or a Point feature when the catalog has no place row. */
+  /** WGS84 point from `app.search_places`, a Point feature, or the Data-Scout centroid. */
   point: LonLat | null;
 }
 
@@ -28,7 +35,10 @@ interface PointRow {
 
 @Injectable()
 export class PlaceCatalogService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly scout?: DataScoutService,
+  ) {}
 
   /** PLZ5 centroid. `search_places` first, then a Point in `map_features`. */
   async plzCentroids(postalCodes: string[]): Promise<Map<string, LonLat>> {
@@ -89,8 +99,10 @@ export class PlaceCatalogService {
   }
 
   async lookupRegion(input: RegionLookup): Promise<RegionCatalogHit> {
-    const ids = regionFeatureIds(input);
-    if (ids.length === 0 && !input.ags && !input.plz) {
+    const keys = canonicalRegionKeys({ geoKey: input.geoKey, ags: input.ags });
+    const normalized: RegionLookup = { ...input, geoKey: keys.geoKey, ags: keys.ags };
+    const ids = regionFeatureIds(normalized);
+    if (ids.length === 0 && !normalized.ags && !normalized.plz) {
       return { geometry: null, point: null };
     }
 
@@ -114,7 +126,7 @@ export class PlaceCatalogService {
            CASE WHEN id = ANY($1::text[]) THEN 0 ELSE 1 END,
            id
          LIMIT 1`,
-        [ids, input.ags, input.plz],
+        [ids, normalized.ags, normalized.plz],
       ),
       this.db.query<PointRow>(
         `SELECT lon, lat
@@ -138,19 +150,62 @@ export class PlaceCatalogService {
            END,
            id
          LIMIT 1`,
-        [ids, input.ags, input.plz],
+        [ids, normalized.ags, normalized.plz],
       ),
     ]);
 
     const raw = features.rows[0]?.geometry ?? null;
-    const geometry =
+    let geometry: unknown | null =
       raw && (raw.type === "Polygon" || raw.type === "MultiPolygon") ? raw : null;
-    const place = places.rows[0];
-    const point =
-      (place ? toPoint(place.lon, place.lat) : null) ??
+    let point =
+      (places.rows[0] ? toPoint(places.rows[0].lon, places.rows[0].lat) : null) ??
       (raw?.type === "Point" ? pointFromCoordinates(raw.coordinates) : null);
+    if (!geometry) {
+      const scoutHit = await this.scoutOutline(normalized);
+      if (scoutHit?.geometry) {
+        geometry = scoutHit.geometry;
+        point = point ?? scoutHit.point;
+      }
+    }
     return { geometry, point };
   }
+
+  /**
+   * Brain has no polygon. Berlin Bezirke read `geo_ref_bezirk` (4326).
+   * Any other Gemeinde, Kreis, or Land AGS reads `geo_ref_admin`.
+   * A disabled or failed Data-Scout pool leaves the Brain result in place.
+   */
+  private async scoutOutline(input: RegionLookup): Promise<RegionCatalogHit | null> {
+    if (!this.scout?.enabled) return null;
+    const ags = outlineAgs(input);
+    if (!ags) return null;
+    const query = (text: string, params: unknown[]) => this.scout!.query(text, params);
+    if (isOfficialBerlinBezirkAgs(ags)) {
+      const bezirk = await queryBezirkOutline(query, ags);
+      if (bezirk?.geometry) return bezirk;
+      const admin = await queryAdminOutline(query, ags);
+      if (admin?.geometry) return admin;
+      return bezirk ?? admin;
+    }
+    return queryAdminOutline(query, ags);
+  }
+}
+
+/** AGS used for Data-Scout outlines. PLZ grains are not admin keys. */
+function outlineAgs(input: RegionLookup): string | null {
+  if (input.ags && /^[0-9]{2,8}$/.test(input.ags)) return input.ags;
+  if (
+    input.grain === "plz5" ||
+    input.grain === "plz8" ||
+    input.grain === "address" ||
+    input.grain === "grid100"
+  ) {
+    return null;
+  }
+  const geoKey = input.geoKey;
+  if (!geoKey) return null;
+  const bare = geoKey.startsWith("ags:") ? geoKey.slice(4) : geoKey;
+  return /^[0-9]{2}$|^[0-9]{5}$|^[0-9]{8}$/.test(bare) ? bare : null;
 }
 
 export function regionFeatureIds(input: RegionLookup): string[] {

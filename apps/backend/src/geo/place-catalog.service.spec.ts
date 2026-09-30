@@ -1,12 +1,19 @@
 import { DatabaseService } from "../database/database.service";
+import { DataScoutService } from "../database/data-scout.service";
 import { PlaceCatalogService, regionFeatureIds } from "./place-catalog.service";
 
 describe("PlaceCatalogService", () => {
   const query = jest.fn();
-  const service = new PlaceCatalogService({ query } as unknown as DatabaseService);
+  const scoutQuery = jest.fn();
+  const service = new PlaceCatalogService(
+    { query } as unknown as DatabaseService,
+    { enabled: true, query: scoutQuery } as unknown as DataScoutService,
+  );
 
   beforeEach(() => {
     query.mockReset();
+    scoutQuery.mockReset();
+    scoutQuery.mockResolvedValue({ rows: [] });
   });
 
   it("reads the PLZ centroid from search_places", async () => {
@@ -43,6 +50,99 @@ describe("PlaceCatalogService", () => {
     expect(hit.geometry).toEqual(polygon);
     expect(hit.point).toEqual({ lon: 11.5755, lat: 48.1374 });
     expect(query.mock.calls[0]?.[1]?.[0]).toEqual(["09162000", "ags:09162000"]);
+    expect(scoutQuery).not.toHaveBeenCalled();
+  });
+
+  it("looks up the official Bezirk id and falls back to geo_ref_bezirk", async () => {
+    const outline = {
+      type: "MultiPolygon",
+      coordinates: [
+        [
+          [
+            [13.18, 52.39],
+            [13.35, 52.39],
+            [13.35, 52.49],
+            [13.18, 52.49],
+            [13.18, 52.39],
+          ],
+        ],
+      ],
+    };
+    query.mockResolvedValue({ rows: [] });
+    scoutQuery.mockResolvedValueOnce({
+      rows: [{ geometry: outline, lon: 13.2353, lat: 52.4302 }],
+    });
+    const hit = await service.lookupRegion({
+      grain: "ags",
+      geoKey: "11006006",
+      ags: "11006006",
+      plz: null,
+    });
+    expect(hit.geometry).toEqual(outline);
+    expect(hit.point).toEqual({ lon: 13.2353, lat: 52.4302 });
+    expect(query.mock.calls[0]?.[1]?.[0]).toEqual(
+      expect.arrayContaining(["11000006", "ags:11000006"]),
+    );
+    expect(query.mock.calls[0]?.[1]?.[1]).toBe("11000006");
+    expect(scoutQuery.mock.calls[0]?.[0]).toContain("public.geo_ref_bezirk");
+    expect(scoutQuery.mock.calls[0]?.[1]).toEqual(["11000006"]);
+    expect(scoutQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads geo_ref_admin when Brain has no Gemeinde polygon", async () => {
+    const outline = {
+      type: "MultiPolygon",
+      coordinates: [
+        [
+          [
+            [11.36, 48.06],
+            [11.72, 48.06],
+            [11.72, 48.25],
+            [11.36, 48.25],
+            [11.36, 48.06],
+          ],
+        ],
+      ],
+    };
+    query.mockResolvedValue({ rows: [] });
+    scoutQuery.mockResolvedValue({ rows: [{ geometry: outline, lon: 11.57, lat: 48.14 }] });
+    const hit = await service.lookupRegion({
+      grain: "ags",
+      geoKey: "09162000",
+      ags: "09162000",
+      plz: null,
+    });
+    expect(hit.geometry).toEqual(outline);
+    expect(scoutQuery).toHaveBeenCalledTimes(1);
+    expect(scoutQuery.mock.calls[0]?.[0]).toContain("public.geo_ref_admin");
+    expect(scoutQuery.mock.calls[0]?.[1]).toEqual(["09162000"]);
+  });
+
+  it("skips Data-Scout when the pool is disabled", async () => {
+    const disabled = new PlaceCatalogService(
+      { query } as unknown as DatabaseService,
+      { enabled: false, query: scoutQuery } as unknown as DataScoutService,
+    );
+    query.mockResolvedValue({ rows: [] });
+    const hit = await disabled.lookupRegion({
+      grain: "ags",
+      geoKey: "11000007",
+      ags: "11000007",
+      plz: null,
+    });
+    expect(hit).toEqual({ geometry: null, point: null });
+    expect(scoutQuery).not.toHaveBeenCalled();
+  });
+
+  it("does not ask Data-Scout for a PLZ grain", async () => {
+    query.mockResolvedValue({ rows: [] });
+    await service.lookupRegion({
+      grain: "plz5",
+      geoKey: "80331",
+      ags: null,
+      plz: "80331",
+    });
+    expect(scoutQuery).not.toHaveBeenCalled();
   });
 
   it("builds feature ids from grain, ags, and plz", () => {
