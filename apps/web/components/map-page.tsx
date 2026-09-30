@@ -258,7 +258,7 @@ export function MapPage() {
         ) : null}
         {selection ? (
           <div className="callout">
-            <span className="badge">{grainLabel(selection.grain)}</span>
+            <span className="badge">{grainLabel(selection.grain, selection.geoKey || selection.id)}</span>
             <strong>{selection.label}</strong>
             {selectionPoint ? (
               <span className="callout-coords">

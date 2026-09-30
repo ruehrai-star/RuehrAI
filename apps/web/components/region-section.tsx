@@ -78,7 +78,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
             Gespeichert: <strong>{saved.label}</strong>
             {saved.geoKey ? ` · ${saved.geoKey}` : ""}
           </span>
-          {saved.grain ? <span className="badge">{grainLabel(saved.grain)}</span> : null}
+          {saved.grain ? <span className="badge">{grainLabel(saved.grain, saved.ags || saved.geoKey)}</span> : null}
         </p>
       ) : (
         <p className="message">Noch keine Zielregion gespeichert.</p>
@@ -120,7 +120,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
                 >
                   <span className="hit-label">{hit.label}</span>
                   <span className="hit-meta">
-                    <span className="badge">{grainLabel(hit.grain)}</span>
+                    <span className="badge">{grainLabel(hit.grain, hit.geoKey || hit.id)}</span>
                     <span className="hit-id">{hit.geoKey ?? hit.id}</span>
                   </span>
                 </button>

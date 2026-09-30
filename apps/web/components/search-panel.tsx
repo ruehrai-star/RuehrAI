@@ -90,7 +90,7 @@ export function SearchPanel({
               >
                 <span className="hit-label">{hit.label}</span>
                 <span className="hit-meta">
-                  <span className="badge">{grainLabel(hit.grain)}</span>
+                  <span className="badge">{grainLabel(hit.grain, hit.geoKey || hit.id)}</span>
                   <span className="hit-id">{hit.id}</span>
                 </span>
               </button>
