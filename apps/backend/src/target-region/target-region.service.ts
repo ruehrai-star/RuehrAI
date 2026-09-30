@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, normalizeCoordPair, toCoord, toIso } from "../customer/values";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
@@ -44,6 +44,10 @@ interface TargetRegionRow {
   updated_at: Date | string;
 }
 
+/** Successful PUT must not persist a null overlay. Shown to the client as-is. */
+export const TARGET_REGION_NO_MAP_AREA =
+  "Diese Region hat keine Kartenfläche im Katalog. Bitte Geometrie oder Grenzen mitschicken, oder einen Ort wählen, der im Katalog hinterlegt ist.";
+
 const SELECT_REGION = `
   SELECT label, grain, geo_key, ags, plz, lon, lat,
          bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at
@@ -87,6 +91,9 @@ export class TargetRegionService {
       bounds,
       geometry,
     });
+    if (!resolved.geometry || !resolved.bounds) {
+      throw new BadRequestException(TARGET_REGION_NO_MAP_AREA);
+    }
 
     const result = await this.db.query<TargetRegionRow>(
       `INSERT INTO app.target_regions (
@@ -122,11 +129,11 @@ export class TargetRegionService {
         plz,
         resolved.lon,
         resolved.lat,
-        resolved.bounds?.west ?? null,
-        resolved.bounds?.south ?? null,
-        resolved.bounds?.east ?? null,
-        resolved.bounds?.north ?? null,
-        resolved.geometry ? JSON.stringify(resolved.geometry) : null,
+        resolved.bounds.west,
+        resolved.bounds.south,
+        resolved.bounds.east,
+        resolved.bounds.north,
+        JSON.stringify(resolved.geometry),
       ],
     );
     const row = result.rows[0];

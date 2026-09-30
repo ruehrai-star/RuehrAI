@@ -122,21 +122,45 @@ export interface paths {
          * Read the signed-in user's target region
          * @description One region per user, the area where they want to open a new store.
          *     `404` when nothing has been saved yet.
+         *
+         *     On read, a missing outline is filled from `app.map_features` when a
+         *     polygon or catalog point exists. A row saved before a drawable area
+         *     was required can still return null `geometry` when the catalog misses.
+         *     PUT no longer writes that null.
          */
         get: operations["getTargetRegion"];
         /**
          * Create or replace the target region
          * @description Upserts the single region for the token's user. Omitted scalar geo
-         *     fields are stored as null, including fields set by a previous save.
+         *     fields (`grain`, `geoKey`, `ags`, `plz`, `lon`, `lat`) are stored as
+         *     null, including fields set by a previous save.
          *
-         *     `bounds` and `geometry` are filled when the body omits them. A GeoJSON
-         *     Polygon or MultiPolygon on the request is stored, and `bounds`
-         *     (west, south, east, north) are derived from its coordinates. `bounds`
-         *     without geometry become a rectangular Polygon. Otherwise the API copies
-         *     a Polygon or MultiPolygon from `app.map_features` for the ags, plz, or
-         *     geoKey, or builds a stub rectangle around the catalog point in
-         *     `app.search_places` or a Point feature. Those outlines are the same
-         *     synthetic stubs as `/layers/{id}`, not official boundaries.
+         *     A successful write always persists non-null `geometry` and `bounds`.
+         *     Resolution order:
+         *
+         *     1. A GeoJSON Polygon or MultiPolygon on the request is stored, and
+         *        `bounds` (west, south, east, north) are derived from its coordinates.
+         *     2. `bounds` without geometry become a rectangular Polygon.
+         *     3. Otherwise the API copies a Polygon or MultiPolygon from
+         *        `app.map_features` for the ags, plz, or geoKey.
+         *     4. Otherwise a stub rectangle is built around a catalog point in
+         *        `app.search_places` or a Point feature, or around `lon` and `lat`
+         *        on the request. Those outlines are the same synthetic stubs as
+         *        `/layers/{id}` (including the interim rectangles already seeded,
+         *        such as migration 007). They are not official boundaries. This
+         *        operation does not add further stub seeds.
+         *
+         *     If none of those yield geometry and bounds, the response is `400`
+         *     (`Diese Region hat keine Kartenfläche im Katalog. Bitte Geometrie oder Grenzen mitschicken, oder einen Ort wählen, der im Katalog hinterlegt ist.`)
+         *     and the previous row is left unchanged. A new label must not wipe a
+         *     stored polygon by writing null geometry.
+         *
+         *     `GET /search` hits and place pickers send place ids (`grain`, `geoKey`,
+         *     optional `lon`/`lat`), not overlay polygons. A place that is not a
+         *     Polygon or MultiPolygon in `app.map_features` has no catalog map area.
+         *     Official outlines are Location-Guide work. The client must then send
+         *     `geometry` or `bounds`, or choose a catalog-backed place. A hit that
+         *     only has a point still uses the interim stub rectangle.
          *
          *     `lon` and `lat` stay as sent when both are set. A polygon sent by the
          *     client uses its centroid when the pair is omitted. A catalog outline
@@ -312,6 +336,15 @@ export interface paths {
          *     If the view is missing or has no rows (local docker-compose), the same
          *     filters run against the seeded `app.search_places` catalog.
          *     Coordinates are WGS84 (EPSG:4326) when present.
+         *
+         *     Hits are place ids, not overlay polygons. `PUT /target-region` draws
+         *     the place only when `app.map_features` has a Polygon or MultiPolygon
+         *     for that ags, plz, or geoKey, or when a point (catalog or `lon`/`lat`
+         *     on the write) can anchor the existing stub rectangle. Place ids that
+         *     are not catalog polygons need those polygons from Location-Guide
+         *     (official outlines). This API does not add further stub seeds. A hit
+         *     with neither a catalog polygon nor a point is rejected by PUT unless
+         *     the client sends `geometry` or `bounds`.
          */
         get: operations["searchPlaces"];
         put?: never;
@@ -516,7 +549,13 @@ export interface components {
             id: string;
             label: string;
             grain: components["schemas"]["Grain"];
-            /** @description Spatial key from the feature view (AGS, PLZ, address id, or grid id). Null when unknown. */
+            /**
+             * @description Spatial key from the feature view (AGS, PLZ, address id, or grid id).
+             *     Null when unknown. Not a map polygon. `PUT /target-region` needs a
+             *     Polygon or MultiPolygon in `app.map_features` for this key
+             *     (Location-Guide supplies official outlines), or `geometry` / `bounds`
+             *     on the write. A point alone still uses the interim stub rectangle.
+             */
             geoKey?: string | null;
             /**
              * Format: double
@@ -612,11 +651,16 @@ export interface components {
              */
             lat?: number | null;
             /**
-             * @description Extent of `geometry` for map fitBounds. Null when the region has
-             *     no outline and no catalog point.
+             * @description Extent of `geometry` for map fitBounds. Null on GET only when a
+             *     previously stored region still has no outline and no catalog point.
+             *     A successful PUT always returns bounds.
              */
             bounds: components["schemas"]["LonLatBounds"] | null;
-            /** @description Overlay polygon. Null when the region has no outline and no catalog point. */
+            /**
+             * @description Overlay polygon. Null on GET only when a previously stored region
+             *     still has no outline and no catalog point. A successful PUT always
+             *     returns a Polygon or MultiPolygon.
+             */
             geometry: components["schemas"]["RegionGeometry"] | null;
             /** Format: date-time */
             updatedAt: string;
@@ -635,11 +679,18 @@ export interface components {
             /**
              * @description Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.
              *     Ignored when `geometry` is set, because bounds are then derived from it.
+             *     A successful PUT always stores bounds. If the body and the catalog
+             *     leave both geometry and bounds empty, the request is rejected and
+             *     nothing is written.
              */
             bounds?: components["schemas"]["LonLatBounds"] | null;
             /**
              * @description Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is
-             *     the overlay and replaces any catalog outline.
+             *     the overlay and replaces any catalog outline. When omitted, the API
+             *     copies a catalog polygon or builds the interim stub around a point.
+             *     A successful PUT never persists null geometry. Places that are not
+             *     polygons in `app.map_features` need that catalog polygon
+             *     (Location-Guide); this write does not add stub seeds.
              */
             geometry?: components["schemas"]["RegionGeometry"] | null;
         };
@@ -1198,7 +1249,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Saved target region. */
+            /**
+             * @description Saved target region. `geometry` and `bounds` are always set on
+             *     this response.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1207,7 +1261,19 @@ export interface operations {
                     "application/json": components["schemas"]["TargetRegion"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description Validation failed, or the region has no drawable map area in the
+             *     catalog and the body omitted `geometry` and `bounds`. The previous
+             *     row is left unchanged.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
         };
     };

@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DatabaseService } from "../database/database.service";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
-import { TargetRegionService } from "./target-region.service";
+import { TARGET_REGION_NO_MAP_AREA, TargetRegionService } from "./target-region.service";
 
 const muenchenPolygon = {
   type: "Polygon" as const,
@@ -42,59 +42,48 @@ describe("TargetRegionService", () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining("app.target_regions"), ["4"]);
   });
 
-  it("stores omitted geo fields as null for that user only", async () => {
-    query.mockResolvedValue({
-      rows: [
-        {
-          label: "München",
-          grain: null,
-          geo_key: null,
-          ags: null,
-          plz: null,
-          lon: null,
-          lat: null,
-          bounds_west: null,
-          bounds_south: null,
-          bounds_east: null,
-          bounds_north: null,
-          geometry: null,
-          updated_at: new Date("2026-01-02T00:00:00.000Z"),
-        },
-      ],
+  it("rejects a region with no map area and does not overwrite a stored polygon", async () => {
+    lookupRegion.mockResolvedValue({ geometry: null, point: null });
+    const error = await service
+      .put("4", { label: " Lichtenberg ", grain: "ags", geoKey: "11011011", ags: "11011011" })
+      .then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).getResponse()).toMatchObject({
+      message: TARGET_REGION_NO_MAP_AREA,
+      statusCode: 400,
     });
-    await expect(service.put("4", { label: " München " })).resolves.toEqual({
-      label: "München",
-      grain: null,
-      geoKey: null,
-      ags: null,
+    expect(lookupRegion).toHaveBeenCalledWith({
+      grain: "ags",
+      geoKey: "11011011",
+      ags: "11011011",
       plz: null,
-      lon: null,
-      lat: null,
-      bounds: null,
-      geometry: null,
-      updatedAt: "2026-01-02T00:00:00.000Z",
     });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("rejects a label-only save when the catalog has no point either", async () => {
+    await expect(service.put("4", { label: " München " })).rejects.toBeInstanceOf(BadRequestException);
     expect(lookupRegion).toHaveBeenCalledWith({
       grain: null,
       geoKey: null,
       ags: null,
       plz: null,
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO app.target_regions"), [
-      "4",
-      "München",
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("stores a stub when the catalog misses but the client sent a point", async () => {
+    lookupRegion.mockResolvedValue({ geometry: null, point: null });
+    query.mockResolvedValue({ rows: [savedRow()] });
+    await service.put("4", { label: "Irgendwo", lon: 13.4, lat: 52.5 });
+    const params = query.mock.calls[0]?.[1] as unknown[];
+    expect(params[12]).toEqual(expect.any(String));
+    const geometry = JSON.parse(params[12] as string) as { type: string };
+    expect(geometry.type).toBe("Polygon");
+    expect(params.slice(8, 12).every((value) => value != null)).toBe(true);
   });
 
   it("copies the seeded polygon and derives bounds for fitBounds", async () => {

@@ -19,6 +19,13 @@ export interface MonthRow {
 
 const REVENUE_YEAR_SPAN = 3;
 
+/**
+ * Search hits are place ids (grain, geoKey, optional lon/lat), not polygons.
+ * `PUT /target-region` copies a Polygon or MultiPolygon from `app.map_features`
+ * for that place. Places that are not catalog polygons need those outlines
+ * from Location-Guide. A hit with neither a catalog area nor coordinates is
+ * rejected; this mapper does not invent a geometry.
+ */
 export function toTargetRegionWrite(hit: SearchHit): TargetRegionWrite {
   const geoKey = typeof hit.geoKey === "string" ? hit.geoKey : null;
   return {

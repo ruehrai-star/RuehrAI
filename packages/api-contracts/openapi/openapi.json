@@ -3,7 +3,7 @@
   "info": {
     "title": "RuehrAI API",
     "version": "0.5.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nTarget-region `bounds` (west, south, east, north) is\nthe extent for map fitBounds together with those pins. `geometry` is a\nGeoJSON Polygon or MultiPolygon (EPSG:4326, longitude then latitude) for a\nsemi-transparent fill and outline. Labels stay client-side. Clients call\nonly this API.\n"
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target region, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nTarget-region `bounds` (west, south, east, north) is\nthe extent for map fitBounds together with those pins. `geometry` is a\nGeoJSON Polygon or MultiPolygon (EPSG:4326, longitude then latitude) for a\nsemi-transparent fill and outline. `PUT /target-region` returns 400 and\nleaves the previous row unchanged when that area cannot be resolved, so a\nsuccessful write never stores null geometry. Labels stay client-side.\nClients call only this API.\n"
   },
   "servers": [
     {
@@ -225,7 +225,7 @@
         ],
         "operationId": "getTargetRegion",
         "summary": "Read the signed-in user's target region",
-        "description": "One region per user, the area where they want to open a new store.\n`404` when nothing has been saved yet.\n",
+        "description": "One region per user, the area where they want to open a new store.\n`404` when nothing has been saved yet.\n\nOn read, a missing outline is filled from `app.map_features` when a\npolygon or catalog point exists. A row saved before a drawable area\nwas required can still return null `geometry` when the catalog misses.\nPUT no longer writes that null.\n",
         "responses": {
           "200": {
             "description": "Saved target region.",
@@ -258,7 +258,7 @@
         ],
         "operationId": "putTargetRegion",
         "summary": "Create or replace the target region",
-        "description": "Upserts the single region for the token's user. Omitted scalar geo\nfields are stored as null, including fields set by a previous save.\n\n`bounds` and `geometry` are filled when the body omits them. A GeoJSON\nPolygon or MultiPolygon on the request is stored, and `bounds`\n(west, south, east, north) are derived from its coordinates. `bounds`\nwithout geometry become a rectangular Polygon. Otherwise the API copies\na Polygon or MultiPolygon from `app.map_features` for the ags, plz, or\ngeoKey, or builds a stub rectangle around the catalog point in\n`app.search_places` or a Point feature. Those outlines are the same\nsynthetic stubs as `/layers/{id}`, not official boundaries.\n\n`lon` and `lat` stay as sent when both are set. A polygon sent by the\nclient uses its centroid when the pair is omitted. A catalog outline\nuses the catalog point when one exists, otherwise the geometry centroid.\nWeb fits the map to store pins union `bounds`, and draws `geometry` as\na semi-transparent fill with an outline. Labels are client-side.\n",
+        "description": "Upserts the single region for the token's user. Omitted scalar geo\nfields (`grain`, `geoKey`, `ags`, `plz`, `lon`, `lat`) are stored as\nnull, including fields set by a previous save.\n\nA successful write always persists non-null `geometry` and `bounds`.\nResolution order:\n\n1. A GeoJSON Polygon or MultiPolygon on the request is stored, and\n   `bounds` (west, south, east, north) are derived from its coordinates.\n2. `bounds` without geometry become a rectangular Polygon.\n3. Otherwise the API copies a Polygon or MultiPolygon from\n   `app.map_features` for the ags, plz, or geoKey.\n4. Otherwise a stub rectangle is built around a catalog point in\n   `app.search_places` or a Point feature, or around `lon` and `lat`\n   on the request. Those outlines are the same synthetic stubs as\n   `/layers/{id}` (including the interim rectangles already seeded,\n   such as migration 007). They are not official boundaries. This\n   operation does not add further stub seeds.\n\nIf none of those yield geometry and bounds, the response is `400`\n(`Diese Region hat keine Kartenfläche im Katalog. Bitte Geometrie oder Grenzen mitschicken, oder einen Ort wählen, der im Katalog hinterlegt ist.`)\nand the previous row is left unchanged. A new label must not wipe a\nstored polygon by writing null geometry.\n\n`GET /search` hits and place pickers send place ids (`grain`, `geoKey`,\noptional `lon`/`lat`), not overlay polygons. A place that is not a\nPolygon or MultiPolygon in `app.map_features` has no catalog map area.\nOfficial outlines are Location-Guide work. The client must then send\n`geometry` or `bounds`, or choose a catalog-backed place. A hit that\nonly has a point still uses the interim stub rectangle.\n\n`lon` and `lat` stay as sent when both are set. A polygon sent by the\nclient uses its centroid when the pair is omitted. A catalog outline\nuses the catalog point when one exists, otherwise the geometry centroid.\nWeb fits the map to store pins union `bounds`, and draws `geometry` as\na semi-transparent fill with an outline. Labels are client-side.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -279,7 +279,7 @@
         },
         "responses": {
           "200": {
-            "description": "Saved target region.",
+            "description": "Saved target region. `geometry` and `bounds` are always set on\nthis response.\n",
             "content": {
               "application/json": {
                 "schema": {
@@ -289,7 +289,14 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/BadRequest"
+            "description": "Validation failed, or the region has no drawable map area in the\ncatalog and the body omitted `geometry` and `bounds`. The previous\nrow is left unchanged.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -664,7 +671,7 @@
         ],
         "operationId": "searchPlaces",
         "summary": "Search places by name, grain, or geo key",
-        "description": "Reads `features.v_location_search` when that view contains at least one row.\nFilters apply to name, title, grain, and geo_key. `lon` and `lat` are\nJSON null when the row has no coordinates.\n\n`q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or\n`address`. Without `type`, `q` matches name, title, and geo_key.\n`type` has no effect when `q` is omitted.\n\n`ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an\nexact geo_key match on any grain. `grain` is exact. `address` is a\nsubstring of name, title, and geo_key. Filters combine with AND.\nAt most 50 hits, ordered by label.\n\nIf the view is missing or has no rows (local docker-compose), the same\nfilters run against the seeded `app.search_places` catalog.\nCoordinates are WGS84 (EPSG:4326) when present.\n",
+        "description": "Reads `features.v_location_search` when that view contains at least one row.\nFilters apply to name, title, grain, and geo_key. `lon` and `lat` are\nJSON null when the row has no coordinates.\n\n`q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or\n`address`. Without `type`, `q` matches name, title, and geo_key.\n`type` has no effect when `q` is omitted.\n\n`ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an\nexact geo_key match on any grain. `grain` is exact. `address` is a\nsubstring of name, title, and geo_key. Filters combine with AND.\nAt most 50 hits, ordered by label.\n\nIf the view is missing or has no rows (local docker-compose), the same\nfilters run against the seeded `app.search_places` catalog.\nCoordinates are WGS84 (EPSG:4326) when present.\n\nHits are place ids, not overlay polygons. `PUT /target-region` draws\nthe place only when `app.map_features` has a Polygon or MultiPolygon\nfor that ags, plz, or geoKey, or when a point (catalog or `lon`/`lat`\non the write) can anchor the existing stub rectangle. Place ids that\nare not catalog polygons need those polygons from Location-Guide\n(official outlines). This API does not add further stub seeds. A hit\nwith neither a catalog polygon nor a point is rejected by PUT unless\nthe client sends `geometry` or `bounds`.\n",
         "parameters": [
           {
             "name": "q",
@@ -1354,7 +1361,7 @@
           "geoKey": {
             "type": "string",
             "nullable": true,
-            "description": "Spatial key from the feature view (AGS, PLZ, address id, or grid id). Null when unknown."
+            "description": "Spatial key from the feature view (AGS, PLZ, address id, or grid id).\nNull when unknown. Not a map polygon. `PUT /target-region` needs a\nPolygon or MultiPolygon in `app.map_features` for this key\n(Location-Guide supplies official outlines), or `geometry` / `bounds`\non the write. A point alone still uses the interim stub rectangle.\n"
           },
           "lon": {
             "type": "number",
@@ -1585,7 +1592,7 @@
           },
           "bounds": {
             "nullable": true,
-            "description": "Extent of `geometry` for map fitBounds. Null when the region has\nno outline and no catalog point.\n",
+            "description": "Extent of `geometry` for map fitBounds. Null on GET only when a\npreviously stored region still has no outline and no catalog point.\nA successful PUT always returns bounds.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/LonLatBounds"
@@ -1594,7 +1601,7 @@
           },
           "geometry": {
             "nullable": true,
-            "description": "Overlay polygon. Null when the region has no outline and no catalog point.\n",
+            "description": "Overlay polygon. Null on GET only when a previously stored region\nstill has no outline and no catalog point. A successful PUT always\nreturns a Polygon or MultiPolygon.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/RegionGeometry"
@@ -1663,7 +1670,7 @@
           },
           "bounds": {
             "nullable": true,
-            "description": "Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.\nIgnored when `geometry` is set, because bounds are then derived from it.\n",
+            "description": "Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.\nIgnored when `geometry` is set, because bounds are then derived from it.\nA successful PUT always stores bounds. If the body and the catalog\nleave both geometry and bounds empty, the request is rejected and\nnothing is written.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/LonLatBounds"
@@ -1672,7 +1679,7 @@
           },
           "geometry": {
             "nullable": true,
-            "description": "Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is\nthe overlay and replaces any catalog outline.\n",
+            "description": "Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is\nthe overlay and replaces any catalog outline. When omitted, the API\ncopies a catalog polygon or builds the interim stub around a point.\nA successful PUT never persists null geometry. Places that are not\npolygons in `app.map_features` need that catalog polygon\n(Location-Guide); this write does not add stub seeds.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/RegionGeometry"
