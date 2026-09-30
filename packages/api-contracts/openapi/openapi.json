@@ -258,7 +258,7 @@
         ],
         "operationId": "putTargetRegion",
         "summary": "Create or replace the target region",
-        "description": "Upserts the single region for the token's user. Omitted scalar geo\nfields are stored as null, including fields set by a previous save.\n\n`bounds` and `geometry` are filled when the body omits them. A GeoJSON\nPolygon or MultiPolygon on the request is stored, and `bounds`\n(west, south, east, north) are derived from its coordinates. `bounds`\nwithout geometry become a rectangular Polygon. Otherwise the API copies\na Polygon or MultiPolygon from `app.map_features` for the ags, plz, or\ngeoKey, or builds a stub rectangle around the catalog point in\n`app.search_places` or a Point feature. Those outlines are the same\nsynthetic stubs as `/layers/{id}`, not official boundaries.\n\n`lon` and `lat` stay as sent when both are set. A polygon sent by the\nclient uses its centroid when the pair is omitted. A catalog outline\nuses the catalog point when one exists, otherwise the geometry centroid.\nWeb fits the map to store pins union `bounds`, and draws `geometry` as\na semi-transparent fill with an outline. Labels are client-side.\n",
+        "description": "Upserts the single region for the token's user. Omitted scalar geo\nfields (`grain`, `geoKey`, `ags`, `plz`, and a missing `lon`/`lat`\npair) are stored as null, including fields set by a previous save.\n\nA successful write always persists non-null `geometry` and `bounds`.\nA GeoJSON Polygon or MultiPolygon on the request is stored, and\n`bounds` (west, south, east, north) are derived from its coordinates.\n`bounds` without geometry become a rectangular Polygon. Otherwise the\nAPI copies a Polygon or MultiPolygon. Brain `app.map_features` is\nfirst (`ags:<ags>`, `properties.ags`, or the plz id). When that misses\nand `DATASCOUT_DATABASE_URL` is set, a Berlin Bezirk (`11000001` …\n`11000012`) is read from Data-Scout `geo_ref_bezirk` (`ST_AsGeoJSON` of\n`geom`, WGS84) and a Gemeinde, Kreis, or Land from `geo_ref_admin`\n(VG250 geometry transformed to EPSG:4326). `GET /search` returns a\nplace id, not an outline. Official boundaries are Location-Guide data;\nthis operation does not add stub seeds.\n\nA historical Berlin Bezirk alias `11` + nnn + nnn (`11001001` …\n`11012012`, for example `11006006` and `11007007`) is stored as the\nofficial AGS `1100000N` in `ags` and `geoKey` (`ags:` prefix kept).\nLookup uses that official id. `11000000` is Berlin as a whole and is\nnot rewritten.\n\nWhen the catalog has only a point (`app.search_places` or a Point\nfeature) and the client omits geometry and bounds, the existing stub\nrectangle around that point is stored. Those rectangles match the\nsynthetic stubs already seeded for `/layers/{id}`, not official\nboundaries.\n\nIf geometry and bounds are still null after that lookup — no client\noutline and no catalog polygon or point — the write is rejected with\n`400`. The previous row is left unchanged, so a missing catalog\npolygon cannot replace a stored outline with null.\n\n`lon` and `lat` stay as sent when both are set. A polygon sent by the\nclient uses its centroid when the pair is omitted. A catalog outline\nuses the catalog point when one exists, otherwise the geometry centroid.\nWeb fits the map to store pins union `bounds`, and draws `geometry` as\na semi-transparent fill with an outline. Labels are client-side.\n`GET` may still fill a previously stored null outline from the catalog\nat read time and does not require a polygon to return `200`.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -664,7 +664,7 @@
         ],
         "operationId": "searchPlaces",
         "summary": "Search places by name, grain, or geo key",
-        "description": "Reads `features.v_location_search` when that view contains at least one row.\nFilters apply to name, title, grain, and geo_key. `lon` and `lat` are\nJSON null when the row has no coordinates.\n\n`q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or\n`address`. Without `type`, `q` matches name, title, and geo_key.\n`type` has no effect when `q` is omitted.\n\n`ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an\nexact geo_key match on any grain. `grain` is exact. `address` is a\nsubstring of name, title, and geo_key. Filters combine with AND.\nAt most 50 hits, ordered by label.\n\nIf the view is missing or has no rows (local docker-compose), the same\nfilters run against the seeded `app.search_places` catalog.\nCoordinates are WGS84 (EPSG:4326) when present.\n",
+        "description": "Reads `features.v_location_search` when that view contains at least one row.\nFilters apply to name, title, grain, and geo_key. `lon` and `lat` are\nJSON null when the row has no coordinates.\n\n`q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or\n`address`. Without `type`, `q` matches name, title, and geo_key.\n`type` has no effect when `q` is omitted.\n\n`ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an\nexact geo_key match on any grain. `grain` is exact. `address` is a\nsubstring of name, title, and geo_key. Filters combine with AND.\nAt most 50 hits, ordered by label.\n\nIf the view is missing or has no rows (local docker-compose), the same\nfilters run against the seeded `app.search_places` catalog.\nCoordinates are WGS84 (EPSG:4326) when present.\n\nA hit is a place id (`id`, `geoKey`, `grain`), not a polygon. The\nZielregion picker sends that id to `PUT /target-region` without\n`geometry`. The write looks up a Polygon or MultiPolygon in Brain\n`app.map_features`, then Data-Scout `geo_ref_bezirk` or `geo_ref_admin`.\nSearch rows and Point features are not outlines. A Berlin Bezirk alias\n(`11006006`, `11007007`, and the same `11` + nnn + nnn pattern) is\nstored as official `1100000N`. Places still missing a polygon need that\ncatalog data (Location-Guide). A hit with neither a catalog polygon nor\ncoordinates is rejected unless the client also sends `geometry` or\n`bounds`.\n",
         "parameters": [
           {
             "name": "q",
@@ -1354,7 +1354,7 @@
           "geoKey": {
             "type": "string",
             "nullable": true,
-            "description": "Spatial key from the feature view (AGS, PLZ, address id, or grid id). Null when unknown."
+            "description": "Spatial key from the feature view (AGS, PLZ, address id, or grid id).\nNull when unknown. This is the place id `PUT /target-region` looks up.\nIt is not itself a polygon. Brain `app.map_features` or Data-Scout\n`geo_ref_bezirk` / `geo_ref_admin` must hold the outline\n(Location-Guide). A Berlin Bezirk alias is stored as `1100000N`.\n"
           },
           "lon": {
             "type": "number",
@@ -1555,12 +1555,14 @@
           "geoKey": {
             "type": "string",
             "nullable": true,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "Stored place id. A Berlin Bezirk alias sent on `PUT` is returned as\nthe official AGS `1100000N`.\n"
           },
           "ags": {
             "type": "string",
             "nullable": true,
-            "pattern": "^[0-9]{2,8}$"
+            "pattern": "^[0-9]{2,8}$",
+            "description": "Stored official AGS. `PUT` rewrites `11006006` to `11000006` and\n`11007007` to `11000007`.\n"
           },
           "plz": {
             "type": "string",
@@ -1585,7 +1587,7 @@
           },
           "bounds": {
             "nullable": true,
-            "description": "Extent of `geometry` for map fitBounds. Null when the region has\nno outline and no catalog point.\n",
+            "description": "Extent of `geometry` for map fitBounds. Null on `GET` only when a\npreviously stored region still has no outline and the catalog has\nno point. A successful `PUT` always returns bounds.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/LonLatBounds"
@@ -1594,7 +1596,7 @@
           },
           "geometry": {
             "nullable": true,
-            "description": "Overlay polygon. Null when the region has no outline and no catalog point.\n",
+            "description": "Overlay polygon. Null on `GET` only when a previously stored region\nstill has no outline and the catalog has none. A successful `PUT`\nalways returns a Polygon or MultiPolygon.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/RegionGeometry"
@@ -1635,12 +1637,14 @@
           "geoKey": {
             "type": "string",
             "nullable": true,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "Place id. A Berlin Bezirk alias `11` + nnn + nnn is stored as the\nofficial AGS `1100000N` (an `ags:` prefix is kept).\n"
           },
           "ags": {
             "type": "string",
             "nullable": true,
-            "pattern": "^[0-9]{2,8}$"
+            "pattern": "^[0-9]{2,8}$",
+            "description": "Official AGS. Berlin Bezirk aliases such as `11006006` and\n`11007007` are stored as `11000006` and `11000007`.\n"
           },
           "plz": {
             "type": "string",
@@ -1663,7 +1667,7 @@
           },
           "bounds": {
             "nullable": true,
-            "description": "Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.\nIgnored when `geometry` is set, because bounds are then derived from it.\n",
+            "description": "Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.\nIgnored when `geometry` is set, because bounds are then derived from it.\nRequired for a successful write when `geometry` is omitted and the\ncatalog has no polygon or point for this place. A successful `PUT`\nalways returns non-null `bounds`.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/LonLatBounds"
@@ -1672,7 +1676,7 @@
           },
           "geometry": {
             "nullable": true,
-            "description": "Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is\nthe overlay and replaces any catalog outline.\n",
+            "description": "Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is\nthe overlay and replaces any catalog outline. Omit it only when\n`bounds` is set or `app.map_features` has a polygon for this place\n(or a point, which becomes the interim stub rectangle). A place id\nfrom `GET /search` is not an outline. A successful `PUT` never\npersists null geometry.\n",
             "allOf": [
               {
                 "$ref": "#/components/schemas/RegionGeometry"
