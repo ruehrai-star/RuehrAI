@@ -774,7 +774,7 @@
         ],
         "operationId": "getLayer",
         "summary": "GeoJSON FeatureCollection for a layer",
-        "description": "Returns a GeoJSON FeatureCollection as `application/json`.\nLayer rows stay in schema `app` (`map_layers`, `map_features`) until\nfeature documents have coordinates. Seeded layer ids in local dev:\n`demo-gemeinden`, `demo-plz`, `demo-grid100`.\nGeometries on those demo layers are synthetic point stubs,\nnot official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.\n",
+        "description": "Returns a GeoJSON FeatureCollection as `application/json`.\nLayer rows stay in schema `app` (`map_layers`, `map_features`) until\nfeature documents have coordinates. Seeded layer ids in local dev:\n`demo-gemeinden`, `demo-plz`, `demo-grid100`.\n`demo-gemeinden` includes the official München MultiPolygon.\nBerlin, Hamburg, and the other demo layers stay synthetic points.\nCoordinates are WGS84 (EPSG:4326), longitude then latitude.\n",
         "parameters": [
           {
             "name": "id",
