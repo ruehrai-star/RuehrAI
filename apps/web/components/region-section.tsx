@@ -90,7 +90,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
           id="region-q"
           type="search"
           value={query}
-          placeholder="z. B. München, 80331, 09162000"
+          placeholder="z. B. Berlin, 10115, 11000001"
           autoComplete="off"
           onChange={(event) => setQuery(event.target.value)}
           aria-controls="region-hits"
