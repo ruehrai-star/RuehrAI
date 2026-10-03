@@ -187,7 +187,7 @@ export class TargetRegionService {
   }) {
     let catalogGeometry: RegionGeometry | null = null;
     let catalogPoint: { lon: number; lat: number } | null = null;
-    if (!input.geometry && !input.bounds) {
+    if (!input.geometry) {
       const hit = await this.catalog.lookupRegion({
         grain: input.grain,
         geoKey: input.geoKey,

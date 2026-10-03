@@ -159,9 +159,9 @@ export interface RegionMap {
 
 /**
  * Client geometry wins, and its centroid fills a missing point.
- * Client bounds become a rectangular polygon. Otherwise a catalog
- * Polygon/MultiPolygon is used (point from the catalog, then the centroid),
- * or a stub rectangle around the catalog point.
+ * Otherwise a catalog Polygon/MultiPolygon is used (point from the catalog,
+ * then the centroid). Bounds alone and a catalog point do not become a
+ * rectangle; PUT refuses a missing area.
  */
 export function resolveRegionMap(input: RegionMapInput): RegionMap {
   let geometry = input.geometry;
@@ -171,11 +171,11 @@ export function resolveRegionMap(input: RegionMapInput): RegionMap {
 
   if (geometry) {
     bounds = boundsFromGeometry(geometry);
-  } else if (bounds) {
-    geometry = polygonFromBounds(bounds);
   } else if (input.catalogGeometry) {
     geometry = input.catalogGeometry;
     bounds = boundsFromGeometry(geometry);
+  } else {
+    bounds = null;
   }
 
   if (lon === null || lat === null) {
@@ -187,11 +187,6 @@ export function resolveRegionMap(input: RegionMapInput): RegionMap {
       lon = point.lon;
       lat = point.lat;
     }
-  }
-
-  if (!geometry && lon !== null && lat !== null) {
-    geometry = stubPolygon(lon, lat, input.grain);
-    bounds = boundsFromGeometry(geometry);
   }
 
   return { lon, lat, bounds, geometry };

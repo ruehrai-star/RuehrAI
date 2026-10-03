@@ -1,15 +1,19 @@
 import { Test } from "@nestjs/testing";
 import { DatabaseService } from "../database/database.service";
+import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchService } from "./search.service";
 
 describe("SearchService", () => {
   const query = jest.fn();
   const queryReadingFeatures = jest.fn();
+  const geoSearch = jest.fn();
   let service: SearchService;
 
   beforeEach(async () => {
     query.mockReset();
     queryReadingFeatures.mockReset();
+    geoSearch.mockReset();
+    geoSearch.mockResolvedValue([]);
     query.mockResolvedValue({
       rows: [
         {
@@ -31,6 +35,7 @@ describe("SearchService", () => {
       providers: [
         SearchService,
         { provide: DatabaseService, useValue: { query, queryReadingFeatures } },
+        { provide: GeoCatalogService, useValue: { search: geoSearch } },
       ],
     }).compile();
     service = moduleRef.get(SearchService);
@@ -106,5 +111,71 @@ describe("SearchService", () => {
     queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
     await service.search({ q: "München" });
     expect(query.mock.calls[0][0]).toContain("app.search_places");
+  });
+
+  it("merges the geo catalog and drops a duplicate Berlin Bezirk", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({
+      rows: [
+        {
+          id: "ags:11000001",
+          label: "Berlin-Mitte",
+          grain: "ags",
+          geo_key: "11000001",
+          lon: 13.36,
+          lat: 52.52,
+        },
+      ],
+    });
+    geoSearch.mockResolvedValue([
+      {
+        id: "ags:11000001",
+        label: "Mitte",
+        grain: "ags",
+        geoKey: "11000001",
+        level: "bezirk",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.37,
+        lat: 52.53,
+      },
+      {
+        id: "stadtteil:schwabing",
+        label: "Schwabing",
+        grain: "other",
+        geoKey: "stadtteil:schwabing",
+        level: "stadtteil",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.58,
+        lat: 48.16,
+      },
+    ]);
+
+    const result = await service.search({ q: "Mitte" });
+    expect(result.hits).toEqual([
+      {
+        id: "ags:11000001",
+        label: "Mitte",
+        grain: "ags",
+        geoKey: "11000001",
+        level: "bezirk",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.37,
+        lat: 52.53,
+      },
+      {
+        id: "stadtteil:schwabing",
+        label: "Schwabing",
+        grain: "other",
+        geoKey: "stadtteil:schwabing",
+        level: "stadtteil",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.58,
+        lat: 48.16,
+      },
+    ]);
   });
 });

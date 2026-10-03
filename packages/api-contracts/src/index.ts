@@ -10,6 +10,7 @@ export type TokenResponse = Schemas["TokenResponse"];
 export type User = Schemas["User"];
 export type Grain = Schemas["Grain"];
 export type SearchType = Schemas["SearchType"];
+export type CatalogLevel = Schemas["CatalogLevel"];
 export type SearchHit = Schemas["SearchHit"];
 export type SearchResponse = Schemas["SearchResponse"];
 export type Geometry = Schemas["Geometry"];

@@ -1,18 +1,23 @@
 import { DatabaseService } from "../database/database.service";
 import { DataScoutService } from "../database/data-scout.service";
+import { GeoCatalogService } from "./geo-catalog.service";
 import { PlaceCatalogService, regionFeatureIds } from "./place-catalog.service";
 
 describe("PlaceCatalogService", () => {
   const query = jest.fn();
   const scoutQuery = jest.fn();
+  const lookupOutline = jest.fn();
   const service = new PlaceCatalogService(
     { query } as unknown as DatabaseService,
     { enabled: true, query: scoutQuery } as unknown as DataScoutService,
+    { lookupOutline } as unknown as GeoCatalogService,
   );
 
   beforeEach(() => {
     query.mockReset();
     scoutQuery.mockReset();
+    lookupOutline.mockReset();
+    lookupOutline.mockResolvedValue(null);
     scoutQuery.mockResolvedValue({ rows: [] });
   });
 
@@ -49,7 +54,35 @@ describe("PlaceCatalogService", () => {
     });
     expect(hit.geometry).toEqual(polygon);
     expect(hit.point).toEqual({ lon: 11.5755, lat: 48.1374 });
+    expect(query.mock.calls[0]?.[0]).toContain("stub");
     expect(query.mock.calls[0]?.[1]?.[0]).toEqual(["09162000", "ags:09162000"]);
+    expect(scoutQuery).not.toHaveBeenCalled();
+  });
+
+  it("copies a MultiPolygon from Brain geo before map_features", async () => {
+    const outline = {
+      type: "MultiPolygon",
+      coordinates: [
+        [
+          [
+            [13.2, 52.4],
+            [13.4, 52.4],
+            [13.3, 52.5],
+            [13.2, 52.4],
+          ],
+        ],
+      ],
+    };
+    lookupOutline.mockResolvedValue({ geometry: outline, point: { lon: 13.3, lat: 52.45 } });
+    const hit = await service.lookupRegion({
+      grain: "ags",
+      geoKey: "11000001",
+      ags: "11000001",
+      plz: null,
+    });
+    expect(hit.geometry).toEqual(outline);
+    expect(hit.point).toEqual({ lon: 13.3, lat: 52.45 });
+    expect(query).not.toHaveBeenCalled();
     expect(scoutQuery).not.toHaveBeenCalled();
   });
 

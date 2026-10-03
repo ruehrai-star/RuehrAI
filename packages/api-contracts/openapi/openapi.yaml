@@ -204,15 +204,16 @@ paths:
         A successful write always persists non-null `geometry` and `bounds`.
         A GeoJSON Polygon or MultiPolygon on the request is stored, and
         `bounds` (west, south, east, north) are derived from its coordinates.
-        `bounds` without geometry become a rectangular Polygon. Otherwise the
-        API copies a Polygon or MultiPolygon. Brain `app.map_features` is
-        first (`ags:<ags>`, `properties.ags`, or the plz id). When that misses
-        and `DATASCOUT_DATABASE_URL` is set, a Berlin Bezirk (`11000001` …
-        `11000012`) is read from Data-Scout `geo_ref_bezirk` (`ST_AsGeoJSON` of
-        `geom`, WGS84) and a Gemeinde, Kreis, or Land from `geo_ref_admin`
-        (VG250 geometry transformed to EPSG:4326). `GET /search` returns a
-        place id, not an outline. Official boundaries are Location-Guide data;
-        this operation does not add stub seeds.
+        `bounds` without a polygon are ignored and do not become a rectangle.
+        Otherwise the API copies a MultiPolygon from Brain `geo`
+        (`geo.geo_ref_plz`, `geo.geo_ref_bezirk`, `geo.geo_ref_ortsteil`)
+        under `SET ROLE backend_ro_features`. When that misses, a non-stub
+        Polygon or MultiPolygon in `app.map_features` is used, then Data-Scout
+        `geo_ref_bezirk` (Berlin `11000001` … `11000012`) or `geo_ref_admin`
+        (Gemeinde, Kreis, Land). `GET /search` returns a place id, not an
+        outline. Official boundaries are Location-Guide data; this operation
+        does not add stub seeds and does not rewrite `app.target_regions` in
+        bulk.
 
         A historical Berlin Bezirk alias `11` + nnn + nnn (`11001001` …
         `11012012`, for example `11006006` and `11007007`) is stored as the
@@ -220,16 +221,10 @@ paths:
         Lookup uses that official id. `11000000` is Berlin as a whole and is
         not rewritten.
 
-        When the catalog has only a point (`app.search_places` or a Point
-        feature) and the client omits geometry and bounds, the existing stub
-        rectangle around that point is stored. Those rectangles match the
-        synthetic stubs already seeded for `/layers/{id}`, not official
-        boundaries.
-
-        If geometry and bounds are still null after that lookup — no client
-        outline and no catalog polygon or point — the write is rejected with
-        `400`. The previous row is left unchanged, so a missing catalog
-        polygon cannot replace a stored outline with null.
+        A catalog point is not an area. If the client omits geometry and the
+        catalog has no polygon, the write is rejected with `400`. The previous
+        row is left unchanged, so a missing catalog polygon cannot replace a
+        stored outline with null.
 
         `lon` and `lat` stay as sent when both are set. A polygon sent by the
         client uses its centroid when the pair is omitted. A catalog outline
@@ -522,7 +517,8 @@ paths:
       operationId: searchPlaces
       summary: Search places by name, grain, or geo key
       description: |
-        Reads `features.v_location_search` when that view contains at least one row.
+        Reads Brain `geo` (PLZ, Stadtbezirk, Stadtteil, Ortsteil) together with
+        `features.v_location_search` when that view contains at least one row.
         Filters apply to name, title, grain, and geo_key. `lon` and `lat` are
         JSON null when the row has no coordinates.
 
@@ -533,22 +529,24 @@ paths:
         `ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an
         exact geo_key match on any grain. `grain` is exact. `address` is a
         substring of name, title, and geo_key. Filters combine with AND.
-        At most 50 hits, ordered by label.
+        At most 50 hits, ordered by exact id/label match, then label.
 
         If the view is missing or has no rows (local docker-compose), the same
-        filters run against the seeded `app.search_places` catalog.
-        Coordinates are WGS84 (EPSG:4326) when present.
+        filters run against the seeded `app.search_places` catalog and are
+        merged with `geo` hits. Coordinates are WGS84 (EPSG:4326) when present.
+        Rows with null or empty `geom` never appear. Berlin districts already
+        in the seed or the view are not listed twice.
 
-        A hit is a place id (`id`, `geoKey`, `grain`), not a polygon. The
-        Zielregion picker sends that id to `PUT /target-region` without
-        `geometry`. The write looks up a Polygon or MultiPolygon in Brain
-        `app.map_features`, then Data-Scout `geo_ref_bezirk` or `geo_ref_admin`.
-        Search rows and Point features are not outlines. A Berlin Bezirk alias
-        (`11006006`, `11007007`, and the same `11` + nnn + nnn pattern) is
-        stored as official `1100000N`. Places still missing a polygon need that
-        catalog data (Location-Guide). A hit with neither a catalog polygon nor
-        coordinates is rejected unless the client also sends `geometry` or
-        `bounds`.
+        A hit is a place id (`id`, `geoKey`, `grain`), not a polygon. Catalog
+        hits also send `level` and `parentLabel` (and `geoAgs` when `geo_ags`
+        is set). The Zielregion picker sends that id to `PUT /target-region`
+        without `geometry`. The write looks up a MultiPolygon in Brain `geo`,
+        then a non-stub `app.map_features` row, then Data-Scout
+        `geo_ref_bezirk` or `geo_ref_admin`. Search rows and Point features
+        are not outlines. A Berlin Bezirk alias (`11006006`, `11007007`, and
+        the same `11` + nnn + nnn pattern) is stored as official `1100000N`.
+        A hit with no catalog polygon is rejected. Bounds or a point are not
+        turned into a rectangle.
       parameters:
         - name: q
           in: query
@@ -1008,6 +1006,12 @@ components:
     SearchType:
       type: string
       enum: [address, ags, plz]
+    CatalogLevel:
+      type: string
+      description: |
+        Sub-area level from Brain schema `geo`. The web client maps this
+        token to the badge. Never a German label. Never `gemeinde`.
+      enum: [plz, bezirk, stadtbezirk, stadtteil, ortsteil]
     SearchHit:
       type: object
       additionalProperties: false
@@ -1023,11 +1027,36 @@ components:
           type: string
           nullable: true
           description: |
-            Spatial key from the feature view (AGS, PLZ, address id, or grid id).
-            Null when unknown. This is the place id `PUT /target-region` looks up.
-            It is not itself a polygon. Brain `app.map_features` or Data-Scout
-            `geo_ref_bezirk` / `geo_ref_admin` must hold the outline
-            (Location-Guide). A Berlin Bezirk alias is stored as `1100000N`.
+            Spatial key from the feature view or the geo catalog (AGS, PLZ,
+            Stadtteil/Ortsteil id). Null when unknown. This is the place id
+            `PUT /target-region` looks up. It is not itself a polygon.
+            Brain `geo` holds PLZ, Bezirk, Stadtteil, and Ortsteil outlines.
+            A Berlin Bezirk alias is stored as `1100000N`.
+        level:
+          allOf:
+            - $ref: "#/components/schemas/CatalogLevel"
+          nullable: true
+          description: |
+            Present on Brain `geo` catalog hits. Exact tokens:
+            `plz` from `geo.geo_ref_plz`;
+            `bezirk` only for Berlin `11000001`–`11000012`;
+            `stadtbezirk` for every other `geo.geo_ref_bezirk` row;
+            `stadtteil` or `ortsteil` from `geo.geo_ref_ortsteil.kind`
+            (one of those two words, never both, never `gemeinde`).
+            Municipality hits may omit this and keep `grain` `ags`.
+        parentLabel:
+          type: string
+          nullable: true
+          description: |
+            Display name of the parent Gemeinde, not a second label for the
+            area itself and not a German badge. Distinguishes same-named
+            sub-areas. Null when unknown or the hit is the municipality.
+        geoAgs:
+          type: string
+          nullable: true
+          description: |
+            Parent municipality AGS from the table column `geo_ags`.
+            Null when the table has no value.
         lon:
           type: number
           format: double
