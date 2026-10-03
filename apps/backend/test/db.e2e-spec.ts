@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { INestApplication } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
@@ -6,7 +8,18 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/configure-app";
 import { DatabaseService } from "../src/database/database.service";
+import { boundsFromGeometry, type RegionGeometry } from "../src/geo/region-geometry";
 import { SearchService } from "../src/search/search.service";
+
+function munichOutline(): RegionGeometry {
+  const sql = readFileSync(
+    join(__dirname, "../db/migrations/009_restore_muenchen_vg250.sql"),
+    "utf8",
+  );
+  const geometry = sql.split("$muenchen$")[1]?.trim();
+  if (!geometry) throw new Error("009 is missing the München MultiPolygon");
+  return JSON.parse(geometry) as RegionGeometry;
+}
 
 const runDb = process.env.RUN_DB_TESTS === "1";
 
@@ -132,9 +145,29 @@ async function dropFeaturesFixture(): Promise<void> {
       .set(auth)
       .expect(200);
     expect(response.body.type).toBe("FeatureCollection");
-    const features = response.body.features as { id: string; geometry: { type: string } }[];
-    expect(features.map((feature) => feature.id)).toEqual(["ags:02000000", "ags:11000000"]);
-    expect(features.every((feature) => feature.geometry.type === "Point")).toBe(true);
+    const features = response.body.features as {
+      id: string;
+      geometry: { type: string; coordinates: unknown };
+      properties: { stub?: boolean };
+    }[];
+    expect(features.map((feature) => feature.id)).toEqual([
+      "ags:02000000",
+      "ags:09162000",
+      "ags:11000000",
+    ]);
+    const outline = munichOutline();
+    const munich = features.find((feature) => feature.id === "ags:09162000");
+    expect(munich?.properties.stub).toBe(false);
+    expect(munich?.geometry).toEqual(outline);
+    const ring = outline.type === "MultiPolygon" ? outline.coordinates[0]?.[0] : undefined;
+    expect(ring).toHaveLength(238);
+    expect(ring?.[0]).toEqual([11.563889272108218, 48.22857152597065]);
+    expect(ring?.[ring.length - 1]).toEqual(ring?.[0]);
+    expect(
+      features
+        .filter((feature) => feature.id !== "ags:09162000")
+        .every((feature) => feature.geometry.type === "Point"),
+    ).toBe(true);
 
     await request(app.getHttpServer()).get("/layers/missing-layer").set(auth).expect(404);
   });
@@ -229,19 +262,15 @@ async function dropFeaturesFixture(): Promise<void> {
         lat: 48.1374,
       })
       .expect(200);
+    const outline = munichOutline();
     expect(region.body).toMatchObject({
       label: "München",
       grain: "ags",
       geoKey: "09162000",
       ags: "09162000",
-      bounds: {
-        west: 11.5755 - 0.18,
-        south: 48.1374 - 0.095,
-        east: 11.5755 + 0.18,
-        north: 48.1374 + 0.095,
-      },
+      bounds: boundsFromGeometry(outline),
     });
-    expect(region.body.geometry).toMatchObject({ type: "Polygon" });
+    expect(region.body.geometry).toEqual(outline);
     expect(region.body.lon).toBeCloseTo(11.5755);
     expect(region.body.lat).toBeCloseTo(48.1374);
     await request(server).get("/target-region").set(other).expect(404);

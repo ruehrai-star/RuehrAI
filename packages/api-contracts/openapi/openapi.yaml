@@ -626,8 +626,9 @@ paths:
         Layer rows stay in schema `app` (`map_layers`, `map_features`) until
         feature documents have coordinates. Seeded layer ids in local dev:
         `demo-gemeinden`, `demo-plz`, `demo-grid100`.
-        Geometries on those demo layers are synthetic point stubs,
-        not official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.
+        `demo-gemeinden` includes the official München MultiPolygon.
+        Berlin, Hamburg, and the other demo layers stay synthetic points.
+        Coordinates are WGS84 (EPSG:4326), longitude then latitude.
       parameters:
         - name: id
           in: path
