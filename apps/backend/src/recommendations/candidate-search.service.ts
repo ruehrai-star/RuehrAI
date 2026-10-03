@@ -37,21 +37,34 @@ export class CandidateSearchService {
    * reader as Musteranalyse (`backend_ro_features` when that role exists).
    */
   async load(region: AnalysisRegion, months: string[]): Promise<CandidateLoad> {
-    if (months.length === 0) return { rows: [], truncated: false };
+    return this.loadMany([region], months);
+  }
+
+  async loadMany(regions: AnalysisRegion[], months: string[]): Promise<CandidateLoad> {
+    if (months.length === 0 || regions.length === 0) return { rows: [], truncated: false };
     const chosen = await this.resolveRelation();
     if (!chosen || !chosen.columns.has("ref_period")) {
       return { rows: [], truncated: false };
     }
-    const [ags, plz, geoKey, label] = regionQueryParams(region);
+    const seen = new Set<string>();
+    const rows: CandidateRow[] = [];
+    let truncated = false;
     try {
-      const result = await this.db.queryReadingFeatures<CandidateSqlRow>(
-        buildCandidateSql(chosen.relation, chosen.columns),
-        [ags, plz, geoKey, label, months],
-      );
-      return {
-        rows: result.rows.map(toCandidate),
-        truncated: result.rows.length >= CANDIDATE_ROW_LIMIT,
-      };
+      for (const region of regions) {
+        const [ags, plz, geoKey, label] = regionQueryParams(region);
+        const result = await this.db.queryReadingFeatures<CandidateSqlRow>(
+          buildCandidateSql(chosen.relation, chosen.columns),
+          [ags, plz, geoKey, label, months],
+        );
+        if (result.rows.length >= CANDIDATE_ROW_LIMIT) truncated = true;
+        for (const row of result.rows) {
+          const key = `${row.id}:${row.ref_period ?? ""}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push(toCandidate(row));
+        }
+      }
+      return { rows, truncated };
     } catch (error) {
       if (isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
         return { rows: [], truncated: false };

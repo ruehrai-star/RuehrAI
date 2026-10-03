@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recommendations, and map geometry", () => {
+test("v0.6 covers health, auth, search, layers, customer inputs, analysis, recommendations, and the target-region list", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.5.0");
+  assert.equal(doc.info.version, "0.6.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -22,7 +22,11 @@ test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.equal(doc.paths["/auth/me"].get.security, undefined);
   assert.equal(doc.paths["/auth/logout"].post.security, undefined);
   assert.equal(doc.paths["/auth/logout"].post.responses["204"].description.length > 0, true);
-  assert.equal(doc.paths["/target-region"].put.operationId, "putTargetRegion");
+  assert.equal(doc.paths["/target-region"].get.operationId, "listTargetRegions");
+  assert.equal(doc.paths["/target-region"].post.operationId, "addTargetRegion");
+  assert.equal(doc.paths["/target-region"].delete.operationId, "clearTargetRegions");
+  assert.equal(doc.paths["/target-region"].put, undefined);
+  assert.equal(doc.paths["/target-region/{geoKey}"].delete.operationId, "removeTargetRegion");
   assert.equal(doc.paths["/stores"].post.operationId, "createStore");
   assert.equal(doc.paths["/stores/{id}"].delete.operationId, "deleteStore");
   assert.equal(doc.paths["/stores/{id}/revenue"].put.operationId, "putStoreRevenue");
@@ -94,7 +98,14 @@ test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recom
   );
   assert.equal(region.properties.bounds.nullable, true);
   assert.equal(region.properties.geometry.nullable, true);
+  assert.equal(region.properties.level.nullable, true);
+  assert.equal(region.properties.parentLabel.nullable, true);
   assert.equal(region.properties.lon.description.includes("WGS84"), true);
+  assert.deepEqual(doc.components.schemas.TargetRegionList.required, ["items"]);
+  assert.equal(
+    doc.components.schemas.TargetRegionList.properties.items.items.$ref,
+    "#/components/schemas/TargetRegion",
+  );
   assert.deepEqual(doc.components.schemas.LonLatBounds.required, ["west", "south", "east", "north"]);
   assert.deepEqual(doc.components.schemas.RegionGeometry.properties.type.enum, [
     "Polygon",
@@ -104,6 +115,11 @@ test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.equal(doc.components.schemas.StoreLocation.properties.lon.description.includes("WGS84"), true);
   assert.equal(doc.components.schemas.StoreLocationWrite.properties.lat.description.includes("WGS84"), true);
   assert.equal(doc.components.schemas.TargetRegionWrite.properties.geometry.nullable, true);
+  assert.equal(
+    doc.components.schemas.AnalysisInput.properties.regions.items.$ref,
+    "#/components/schemas/TargetRegion",
+  );
+  assert.equal(doc.components.schemas.AnalysisInput.required.includes("regions"), false);
 });
 
 test("the contract does not mention Supabase", () => {
