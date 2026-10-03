@@ -28,6 +28,8 @@ pnpm start:dev
 
 `009_restore_muenchen_vg250.sql` setzt danach genau das VG250-MultiPolygon wieder ein, das Location-Guide vor `008` in dieser Zeile hatte (`stub: false`, ein Ring, 238 Positionen, EPSG:4326). Die Geometrie steht nicht in `001`, weil `008` sie sonst wieder löscht. Kein Rechteck. `app.target_regions` bleibt unberührt. Berlin und Hamburg bleiben Punkte.
 
+`010_drop_demo_gemeinden.sql` löscht danach alle Features auf `demo-gemeinden`, einschließlich des Polygons aus `009` und der Punkte Berlin und Hamburg. Nichts wird eingesetzt. Der Layer bleibt, `GET /layers/demo-gemeinden` liefert eine leere FeatureCollection. `app.search_places` und `app.target_regions` bleiben.
+
 `.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. `DATASCOUT_DATABASE_URL` bleibt auskommentiert: ohne sie liegen Filial-Pins auf dem PLZ-Stub. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings). Filial-Koordinaten: [Filial-Pins](#filial-pins-data-scout).
 
 ## Seed-Nutzer
@@ -129,7 +131,7 @@ curl -s http://localhost:3000/recommendations \
   -H "authorization: Bearer $TOKEN"
 ```
 
-Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. `demo-gemeinden` enthält das VG250-MultiPolygon von München (`ags:09162000`, `stub: false`) und synthetische Punkte für Berlin und Hamburg. Die übrigen Demo-Geometrien sind Punkt-Stubs, keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
+Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. `demo-gemeinden` hat keine Features. `demo-plz` und `demo-grid100` sind synthetische Punkt-Stubs, keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
 
 `/search` liest `features.v_location_search`, sobald die View mindestens eine Zeile hat. Treffer kommen aus `name` (sonst `title` oder `geo_key`), `grain` und `geo_key`. `lon`/`lat` dürfen null sein. Filter: `q`, `type` (`address` | `ags` | `plz`), `address`, `ags`, `plz`, `geoKey`, `grain`. Ein Treffer ist eine Place-Id, kein Polygon. Der Zielregion-Picker schickt diese Id an `PUT /target-region` ohne `geometry`. Die Fläche liegt in Brain `app.map_features` oder, wenn die dort fehlt, in Data-Scout `geo_ref_bezirk` / `geo_ref_admin` (Location-Guide). Suchzeilen und Point-Features sind keine Umrisse. Ohne Katalog-Polygon und ohne Koordinaten lehnt PUT ab, sofern der Client nicht `geometry` oder `bounds` mitschickt.
 

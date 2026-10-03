@@ -370,8 +370,8 @@ export interface paths {
          *     Layer rows stay in schema `app` (`map_layers`, `map_features`) until
          *     feature documents have coordinates. Seeded layer ids in local dev:
          *     `demo-gemeinden`, `demo-plz`, `demo-grid100`.
-         *     `demo-gemeinden` includes the official München MultiPolygon.
-         *     Berlin, Hamburg, and the other demo layers stay synthetic points.
+         *     `demo-gemeinden` has no features.
+         *     `demo-plz` and `demo-grid100` stay synthetic points.
          *     Coordinates are WGS84 (EPSG:4326), longitude then latitude.
          */
         get: operations["getLayer"];
