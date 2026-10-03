@@ -1,8 +1,12 @@
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "./bezirk-ags";
 
-/** Values `GET /search` sends as `level` for Brain `geo` catalog rows. */
-export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"] as const;
+/** Values `GET /search` and the stored list send as `level`. */
+export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil", "gemeinde"] as const;
 export type CatalogLevel = (typeof CATALOG_LEVELS)[number];
+
+/** Brain `geo` sub-area tokens. Never `gemeinde` — that table set has no municipalities. */
+export const GEO_CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"] as const;
+export type GeoCatalogLevel = (typeof GEO_CATALOG_LEVELS)[number];
 
 export interface CatalogSearchHit {
   id: string;
@@ -32,6 +36,46 @@ export function isCatalogLevel(value: unknown): value is CatalogLevel {
   return typeof value === "string" && (CATALOG_LEVELS as readonly string[]).includes(value);
 }
 
+export function isGeoCatalogLevel(value: unknown): value is GeoCatalogLevel {
+  return typeof value === "string" && (GEO_CATALOG_LEVELS as readonly string[]).includes(value);
+}
+
+/** Persist only a Brain `geo` token. `gemeinde` is resolved on read, not stored. */
+export function persistedCatalogLevel(value: unknown): GeoCatalogLevel | null {
+  return isGeoCatalogLevel(value) ? value : null;
+}
+
+/**
+ * Municipality: grain `ags` (or a bare 8-digit AGS), and not a Berlin Bezirk.
+ * Never a PLZ, Bezirk, Stadtbezirk, Stadtteil, or Ortsteil.
+ */
+export function isMunicipalityPlace(input: {
+  grain?: string | null;
+  geoKey?: string | null;
+  ags?: string | null;
+}): boolean {
+  const grain = input.grain ?? null;
+  if (grain === "plz5" || grain === "plz8" || grain === "other" || grain === "ags5") return false;
+  const rawKey = input.geoKey ?? input.ags ?? "";
+  if (/^(plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil):/i.test(rawKey.trim())) return false;
+  const key = bareCatalogKey(input.geoKey) ?? bareCatalogKey(input.ags);
+  if (key && isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return false;
+  if (grain === "ags") return true;
+  return Boolean(key && /^[0-9]{8}$/.test(key));
+}
+
+/** Catalog sub-area token wins. A municipality without one is `gemeinde`. */
+export function catalogLevelForPlace(input: {
+  grain?: string | null;
+  geoKey?: string | null;
+  ags?: string | null;
+  level?: string | null;
+}): CatalogLevel | null {
+  if (isGeoCatalogLevel(input.level)) return input.level;
+  if (isMunicipalityPlace(input)) return "gemeinde";
+  return null;
+}
+
 export function catalogLevelForBezirk(id: string): "bezirk" | "stadtbezirk" {
   return isOfficialBerlinBezirkAgs(id) ? "bezirk" : "stadtbezirk";
 }
@@ -45,7 +89,7 @@ export function catalogLevelForOrtsteilKind(kind: string | null | undefined): "s
 }
 
 export function toCatalogHit(row: CatalogHitRow): CatalogSearchHit | null {
-  if (!isCatalogLevel(row.level)) return null;
+  if (!isGeoCatalogLevel(row.level)) return null;
   const label = emptyToNull(row.label);
   if (!label) return null;
   return {
@@ -219,7 +263,8 @@ const VISIBLE_TEXT_MATCH = `
 
 /**
  * Query-scoped catalog. Empty/null `geom` and nameless rows are excluded.
- * `level` is the machine token the web badge uses; never `gemeinde`.
+ * `level` is the machine token the web badge uses. This union is only
+ * PLZ / Bezirk / Stadtteil / Ortsteil; never `gemeinde` for a sub-area.
  * `$6` is an exact id/geo_key lookup for a stored place, not free-text.
  * `$8` is true when PLZ rows may appear (no `q`, or `q` is only digits).
  */

@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, normalizeCoordPair, toCoord, toIso } from "../customer/values";
-import { CatalogLevel } from "../geo/geo-catalog";
+import { fillMissingCatalogDisplay, catalogPlaceQuery } from "../geo/catalog-display";
+import { CatalogLevel, isCatalogLevel, persistedCatalogLevel } from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { canonicalRegionKeys } from "../geo/bezirk-ags";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
@@ -86,7 +87,7 @@ export class TargetRegionService {
        ORDER BY created_at DESC, id DESC`,
       [userId],
     );
-    const items = await Promise.all(result.rows.map((row) => this.withMap(toRegion(row))));
+    const items = await Promise.all(result.rows.map((row) => this.hydrate(toRegion(row))));
     return { items };
   }
 
@@ -131,7 +132,7 @@ export class TargetRegionService {
     const storedKey = geoKey ?? ags ?? plz;
     const existing = await this.findByKeys(userId, [storedKey, geoKey, ags, plz]);
     if (existing) {
-      return { item: await this.withMap(existing), created: false };
+      return { item: await this.hydrate(existing), created: false };
     }
 
     const result = await this.db.query<TargetRegionRow>(
@@ -170,9 +171,9 @@ export class TargetRegionService {
       if (!again) {
         throw new BadRequestException(TARGET_REGION_PLACE_REQUIRED);
       }
-      return { item: await this.withMap(again), created: false };
+      return { item: await this.hydrate(again), created: false };
     }
-    return { item: toRegion(row), created: true };
+    return { item: await this.hydrate(toRegion(row)), created: true };
   }
 
   async remove(userId: string, geoKey: string): Promise<void> {
@@ -192,6 +193,11 @@ export class TargetRegionService {
 
   async clear(userId: string): Promise<void> {
     await this.db.query(`DELETE FROM app.target_regions WHERE user_id = $1::bigint`, [userId]);
+  }
+
+  /** Outline from the stored row or catalog, then missing level / parentLabel. */
+  private async hydrate(region: TargetRegion): Promise<TargetRegion> {
+    return fillMissingCatalogDisplay(await this.withMap(region), (query) => this.geoCatalog.search(query));
   }
 
   /** Fill bounds, geometry, and a missing point from the stored row or the local catalog. */
@@ -252,13 +258,7 @@ export class TargetRegionService {
     plz: string | null;
     label: string;
   }): Promise<{ label: string; level: CatalogLevel | null; parentLabel: string | null }> {
-    const query = input.geoKey
-      ? { geoKey: input.geoKey }
-      : input.ags
-        ? { ags: input.ags }
-        : input.plz
-          ? { plz: input.plz }
-          : null;
+    const query = catalogPlaceQuery(input);
     if (!query) {
       return { label: input.label, level: null, parentLabel: null };
     }
@@ -266,7 +266,7 @@ export class TargetRegionService {
     const hit = hits[0];
     return {
       label: hit?.label?.trim() || input.label,
-      level: hit?.level ?? null,
+      level: persistedCatalogLevel(hit?.level),
       parentLabel: hit?.parentLabel ?? null,
     };
   }
@@ -296,7 +296,7 @@ function toRegion(row: TargetRegionRow): TargetRegion {
     label: row.label,
     grain: row.grain,
     geoKey: row.geo_key,
-    level: isLevel(row.level) ? row.level : null,
+    level: isCatalogLevel(row.level) ? row.level : null,
     parentLabel: emptyToNull(row.parent_label ?? null),
     ags: row.ags,
     plz: row.plz,
@@ -306,16 +306,6 @@ function toRegion(row: TargetRegionRow): TargetRegion {
     geometry: geometryFromUnknown(row.geometry),
     updatedAt: toIso(row.updated_at),
   };
-}
-
-function isLevel(value: string | null | undefined): value is CatalogLevel {
-  return (
-    value === "plz" ||
-    value === "bezirk" ||
-    value === "stadtbezirk" ||
-    value === "stadtteil" ||
-    value === "ortsteil"
-  );
 }
 
 function identityKeys(value: string): string[] {

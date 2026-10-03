@@ -1,5 +1,6 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
+import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
 import { PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND } from "./messages";
@@ -23,19 +24,23 @@ const pattern: AnalysisPattern = {
 describe("AnalysisService", () => {
   const query = jest.fn();
   const search = jest.fn();
+  const catalogSearch = jest.fn();
   const derive = jest.fn();
   let service: AnalysisService;
 
   beforeEach(() => {
     query.mockReset();
     search.mockReset();
+    catalogSearch.mockReset();
     derive.mockReset();
     search.mockResolvedValue(brainResult);
+    catalogSearch.mockResolvedValue([]);
     derive.mockResolvedValue(pattern);
     service = new AnalysisService(
       { query } as unknown as DatabaseService,
       { search } as unknown as BrainSearchService,
       { derive } as unknown as PatternService,
+      { search: catalogSearch } as unknown as GeoCatalogService,
     );
   });
 
@@ -78,8 +83,15 @@ describe("AnalysisService", () => {
     expect(run.status).toBe("completed");
     expect(run.input.revenueDirection).toBe("up");
     expect(run.input.regions).toEqual([
-      expect.objectContaining({ label: "München", geoKey: "09162000" }),
+      expect.objectContaining({
+        label: "München",
+        geoKey: "09162000",
+        grain: "ags",
+        level: "gemeinde",
+        parentLabel: null,
+      }),
     ]);
+    expect(catalogSearch).toHaveBeenCalledWith({ geoKey: "09162000" });
     expect(run.input.stores[0]?.changes).toEqual([
       expect.objectContaining({ changeEur: 30.5 }),
     ]);
@@ -120,6 +132,40 @@ describe("AnalysisService", () => {
       pattern,
     });
     expect(query.mock.calls.at(-1)?.[1]).toEqual(["4"]);
+  });
+
+  it("fills catalog display on an old target-region row for analysis", async () => {
+    catalogSearch.mockResolvedValue([{ label: "80331", level: "plz", parentLabel: "München" }]);
+    query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            label: "80331",
+            grain: "plz5",
+            geo_key: "80331",
+            level: null,
+            parent_label: null,
+            ags: null,
+            plz: "80331",
+            lon: 11.58,
+            lat: 48.14,
+            updated_at: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+          storeRow({ year: 2025, month: 2, revenue_eur: "110.00" }),
+        ],
+      });
+    const input = await service.getInput("4");
+    expect(input.region).toMatchObject({
+      label: "80331",
+      level: "plz",
+      parentLabel: "München",
+    });
+    expect(catalogSearch).toHaveBeenCalledWith({ geoKey: "80331" });
   });
 });
 

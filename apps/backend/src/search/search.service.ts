@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { isMissingFeaturesRelation } from "../database/pg-error";
-import { CatalogLevel, catalogDedupKey, catalogNameDedupKey } from "../geo/geo-catalog";
+import { CatalogLevel, catalogDedupKey, catalogLevelForPlace, catalogNameDedupKey } from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchQueryDto } from "./search.dto";
 import {
@@ -97,11 +97,18 @@ export class SearchService {
 
 function toHit(row: HitRow): SearchHit | null {
   if (!hasVisibleLabel(row.label)) return null;
+  const geoKey = row.geo_key ?? null;
+  const level = catalogLevelForPlace({
+    grain: row.grain,
+    geoKey,
+    ags: row.grain === "ags" ? geoKey : null,
+  });
   return {
     id: row.id,
     label: row.label.trim(),
     grain: row.grain,
-    geoKey: row.geo_key ?? null,
+    geoKey,
+    ...(level ? { level } : {}),
     lon: toCoord(row.lon),
     lat: toCoord(row.lat),
   };

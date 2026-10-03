@@ -463,6 +463,30 @@ async function dropFeaturesFixture(): Promise<void> {
         .expect(201);
       expect(savedOsm.body.geometry).toEqual(lankwitzGeom);
       expect(savedOsm.body.geometry.type).toBe("MultiPolygon");
+
+      const oldUser = await register(`old-plz-${Date.now()}@ruehrai.local`);
+      const oldOwner = { authorization: `Bearer ${oldUser}` };
+      const oldMe = await request(server).get("/auth/me").set(oldOwner).expect(200);
+      await admin.query(
+        `INSERT INTO app.target_regions (
+           user_id, label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
+           bounds_west, bounds_south, bounds_east, bounds_north, geometry
+         )
+         VALUES (
+           $1::bigint, '12247', 'plz5', '12247', NULL, NULL, NULL, '12247',
+           13.35, 52.44, 13.34, 52.43, 13.36, 52.45, $2::jsonb
+         )`,
+        [oldMe.body.id, JSON.stringify(berlinPlzGeom)],
+      );
+      const oldListed = await request(server).get("/target-region").set(oldOwner).expect(200);
+      expect(oldListed.body.items).toEqual([
+        expect.objectContaining({
+          label: "12247",
+          geoKey: "12247",
+          level: "plz",
+          parentLabel: "Berlin",
+        }),
+      ]);
     } finally {
       await admin.query("DROP SCHEMA IF EXISTS geo CASCADE").catch(() => undefined);
       await admin.end();
@@ -740,6 +764,44 @@ async function dropFeaturesFixture(): Promise<void> {
 
     await request(server).delete("/target-region/11000000").set(auth).expect(204);
     await request(server).get("/target-region").set(auth).expect(200).expect({ items: [] });
+  });
+
+  it("lists a pre-011 München row without inventing level or parentLabel", async () => {
+    const token = await register(`old-muenchen-${Date.now()}@ruehrai.local`);
+    const auth = { authorization: `Bearer ${token}` };
+    const server = app.getHttpServer();
+    const me = await request(server).get("/auth/me").set(auth).expect(200);
+    const db = app.get(DatabaseService);
+
+    await db.query(
+      `INSERT INTO app.target_regions (
+         user_id, label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
+         bounds_west, bounds_south, bounds_east, bounds_north, geometry
+       )
+       VALUES (
+         $1::bigint, 'München', 'ags', '09162000', NULL, NULL, '09162000', NULL,
+         11.5755, 48.1374, 11.36, 48.06, 11.72, 48.25, $2::jsonb
+       )`,
+      [me.body.id, JSON.stringify(muenchenOutline)],
+    );
+
+    const listed = await request(server).get("/target-region").set(auth).expect(200);
+    expect(listed.body.items).toHaveLength(1);
+    expect(listed.body.items[0]).toMatchObject({
+      label: "München",
+      grain: "ags",
+      geoKey: "09162000",
+      ags: "09162000",
+      level: "gemeinde",
+      parentLabel: null,
+    });
+    expect(listed.body.items[0].geometry).toMatchObject({ type: "MultiPolygon" });
+
+    await request(server)
+      .put("/target-region")
+      .set(auth)
+      .send({ label: "München", grain: "ags", geoKey: "09162000" })
+      .expect(404);
   });
 
   it("reads features.v_location_search, including via SET ROLE, and ignores the seed", async () => {

@@ -130,10 +130,11 @@ export interface paths {
          *
          *     `level` is the catalog token: `plz`; `bezirk` only for Berlin
          *     `11000001`–`11000012`; `stadtbezirk` for every other Bezirk;
-         *     `stadtteil` or `ortsteil` from the catalog kind. Never `gemeinde` for
-         *     a sub-area. Municipality rows may keep grain `ags` and omit `level`.
-         *     `parentLabel` is the parent municipality name, not a second name for
-         *     the area.
+         *     `stadtteil` or `ortsteil` from the catalog kind; `gemeinde` for a
+         *     municipality (grain `ags`, such as München `09162000`). Never
+         *     `gemeinde` for a sub-area. `parentLabel` is the parent municipality
+         *     name, not a second name for the area. Empty when the catalog has no
+         *     parent (München has none).
          */
         get: operations["listTargetRegions"];
         put?: never;
@@ -161,7 +162,7 @@ export interface paths {
          *     returns the stored item and does not insert another row.
          *
          *     `label`, `level`, and `parentLabel` are stored from the catalog hit
-         *     when present. Municipality rows may omit `level`.
+         *     when present. A municipality is returned as `level` `gemeinde`.
          */
         post: operations["addTargetRegion"];
         /**
@@ -374,7 +375,8 @@ export interface paths {
          *
          *     A hit is a place id (`id`, `geoKey`, `grain`), not a polygon. Catalog
          *     hits also send `level` and `parentLabel` (and `geoAgs` when `geo_ags`
-         *     is set). The Zielregion picker sends that id to `POST /target-region`
+         *     is set). A municipality hit sends `level` `gemeinde` instead of
+         *     omitting it. The Zielregion picker sends that id to `POST /target-region`
          *     without `geometry`. The write looks up a MultiPolygon in Brain `geo`,
          *     then a non-stub `app.map_features` row, then Data-Scout
          *     `geo_ref_bezirk` or `geo_ref_admin`. Search rows and Point features
@@ -585,11 +587,13 @@ export interface components {
         /** @enum {string} */
         SearchType: "address" | "ags" | "plz";
         /**
-         * @description Sub-area level from Brain schema `geo`. The web client maps this
-         *     token to the badge. Never a German label. Never `gemeinde`.
+         * @description Machine token the web client maps to the badge. Never a German label.
+         *     `plz`, `bezirk`, `stadtbezirk`, `stadtteil`, `ortsteil` are Brain
+         *     `geo` sub-areas. `gemeinde` is a municipality (grain `ags`). Never
+         *     `gemeinde` for a sub-area.
          * @enum {string}
          */
-        CatalogLevel: "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil";
+        CatalogLevel: "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde";
         SearchHit: {
             id: string;
             label: string;
@@ -604,13 +608,14 @@ export interface components {
              */
             geoKey?: string | null;
             /**
-             * @description Present on Brain `geo` catalog hits. Exact tokens:
+             * @description Exact tokens:
              *     `plz` from `geo.geo_ref_plz`;
              *     `bezirk` only for Berlin `11000001`–`11000012`;
              *     `stadtbezirk` for every other `geo.geo_ref_bezirk` row;
              *     `stadtteil` or `ortsteil` from `geo.geo_ref_ortsteil.kind`
-             *     (one of those two words, never both, never `gemeinde`).
-             *     Municipality hits may omit this and keep `grain` `ags`.
+             *     (one of those two words, never both, never `gemeinde`);
+             *     `gemeinde` for a municipality (grain `ags`). Never `gemeinde`
+             *     for a sub-area.
              */
             level?: components["schemas"]["CatalogLevel"] | null;
             /**
@@ -719,9 +724,8 @@ export interface components {
             /**
              * @description Same tokens as `SearchHit.level`. `plz`; `bezirk` only for Berlin
              *     `11000001`–`11000012`; `stadtbezirk` for every other Bezirk;
-             *     `stadtteil` or `ortsteil` from the catalog kind. Never `gemeinde`
-             *     for a sub-area. Municipality rows may omit this and keep `grain`
-             *     `ags`.
+             *     `stadtteil` or `ortsteil` from the catalog kind; `gemeinde` for
+             *     a municipality (grain `ags`). Never `gemeinde` for a sub-area.
              */
             level?: components["schemas"]["CatalogLevel"] | null;
             /**
