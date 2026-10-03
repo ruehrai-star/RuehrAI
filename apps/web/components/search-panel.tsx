@@ -5,7 +5,7 @@ import type { SearchHit } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
 import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
 
-const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
+const EXAMPLES = ["München", "80331", "Marienplatz", "Berlin"];
 
 interface SearchPanelProps {
   query: string;
@@ -43,12 +43,12 @@ export function SearchPanel({
   return (
     <section className="panel" aria-label="Suche">
       <form className="search-form" onSubmit={onSubmit}>
-        <label htmlFor="search-q">Adresse, AGS oder PLZ</label>
+        <label htmlFor="search-q">Adresse oder PLZ</label>
         <input
           id="search-q"
           type="search"
           value={query}
-          placeholder="z. B. München, 80331, 09162000"
+          placeholder="z. B. München, 80331"
           autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}
           aria-controls="search-results"
@@ -105,7 +105,7 @@ export function SearchPanel({
       </ul>
 
       {query.trim().length >= 2 && !searching && visibleResults.length === 0 && !error ? (
-        <p className="message">Keine Treffer. Adresse, PLZ oder AGS versuchen.</p>
+        <p className="message">Keine Treffer. Adresse oder PLZ versuchen.</p>
       ) : null}
 
       <div className="panel-foot">

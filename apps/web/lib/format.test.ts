@@ -170,6 +170,14 @@ test("Zielregion search copy has no AGS, no München, and no AGS example", () =>
   assert.match(region, /Keine Treffer\. Gemeinde oder PLZ versuchen\./);
 });
 
+test("search-panel user-visible copy has no AGS and no 09162000", () => {
+  const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
+  assert.equal(search.includes("AGS"), false);
+  assert.equal(search.includes("09162000"), false);
+  assert.match(search, /Keine Treffer\. Adresse oder PLZ versuchen\./);
+  assert.match(search, /const EXAMPLES = \["München", "80331", "Marienplatz", "Berlin"\]/);
+});
+
 test("Zielregion and search markup never interpolate catalog id or geoKey as visible text", () => {
   const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
   const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
