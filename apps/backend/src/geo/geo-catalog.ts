@@ -46,9 +46,11 @@ export function catalogLevelForOrtsteilKind(kind: string | null | undefined): "s
 
 export function toCatalogHit(row: CatalogHitRow): CatalogSearchHit | null {
   if (!isCatalogLevel(row.level)) return null;
+  const label = emptyToNull(row.label);
+  if (!label) return null;
   return {
     id: row.id,
-    label: row.label,
+    label,
     grain: row.grain,
     geoKey: row.geo_key ?? null,
     level: row.level,
@@ -171,11 +173,31 @@ const GEOM_4326 = `
 
 const HAS_AREA = `geom IS NOT NULL AND NOT ST_IsEmpty(geom)`;
 
+const HAS_NAME = `NULLIF(btrim(name), '') IS NOT NULL`;
+
 const BERLIN_BEZIRK = `geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$'`;
 
+const PARENT_LABEL = `
+  COALESCE(
+    NULLIF(btrim(admin.name), ''),
+    CASE WHEN src.geo_ags = '11000000' THEN 'Berlin' END
+  )
+`;
+
 /**
- * Query-scoped catalog. Empty/null `geom` rows are excluded.
+ * Visible free-text fields only. `id`, `geo_key`, and `geo_ags` are catalog
+ * keys (`plz5:…`, `ortsteil:osm:…`, `ags:…`) and must not participate in `q`.
+ */
+const VISIBLE_TEXT_MATCH = `
+  src.label ILIKE $4 ESCAPE '\\'
+  OR COALESCE(${PARENT_LABEL}, '') ILIKE $4 ESCAPE '\\'
+`;
+
+/**
+ * Query-scoped catalog. Empty/null `geom` and nameless rows are excluded.
  * `level` is the machine token the web badge uses; never `gemeinde`.
+ * `$6` is an exact id/geo_key lookup for a stored place, not free-text.
+ * `$8` is true when PLZ rows may appear (no `q`, or `q` is only digits).
  */
 export const GEO_CATALOG_SEARCH_SQL = `
   WITH catalog AS (
@@ -189,6 +211,7 @@ export const GEO_CATALOG_SEARCH_SQL = `
       ${GEOM_4326} AS geom
     FROM geo.geo_ref_plz p
     WHERE ${HAS_AREA}
+      AND NULLIF(btrim(p.geo_plz5::text), '') IS NOT NULL
 
     UNION ALL
 
@@ -197,7 +220,7 @@ export const GEO_CATALOG_SEARCH_SQL = `
         WHEN ${BERLIN_BEZIRK} THEN 'ags:' || b.geo_bezirk_id::text
         ELSE 'stadtbezirk:' || b.geo_bezirk_id::text
       END AS id,
-      COALESCE(NULLIF(btrim(b.name), ''), b.geo_bezirk_id::text) AS label,
+      NULLIF(btrim(b.name), '') AS label,
       CASE
         WHEN ${BERLIN_BEZIRK} THEN 'ags'
         ELSE 'other'
@@ -217,12 +240,13 @@ export const GEO_CATALOG_SEARCH_SQL = `
       ${GEOM_4326} AS geom
     FROM geo.geo_ref_bezirk b
     WHERE ${HAS_AREA}
+      AND ${HAS_NAME}
 
     UNION ALL
 
     SELECT
       (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) AS id,
-      COALESCE(NULLIF(btrim(o.name), ''), o.geo_ortsteil_id::text) AS label,
+      NULLIF(btrim(o.name), '') AS label,
       'other'::text AS grain,
       (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) AS geo_key,
       lower(btrim(o.kind)) AS level,
@@ -231,6 +255,7 @@ export const GEO_CATALOG_SEARCH_SQL = `
     FROM geo.geo_ref_ortsteil o
     WHERE ${HAS_AREA}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
+      AND ${HAS_NAME}
   )
   SELECT
     src.id,
@@ -238,57 +263,34 @@ export const GEO_CATALOG_SEARCH_SQL = `
     src.grain,
     src.geo_key,
     src.level,
-    COALESCE(
-      NULLIF(btrim(admin.name), ''),
-      CASE WHEN src.geo_ags = '11000000' THEN 'Berlin' END
-    ) AS parent_label,
+    ${PARENT_LABEL} AS parent_label,
     src.geo_ags,
     ST_X(ST_PointOnSurface(src.geom)) AS lon,
     ST_Y(ST_PointOnSurface(src.geom)) AS lat
   FROM catalog src
   LEFT JOIN geo.geo_ref_admin admin ON admin.geo_ags = src.geo_ags
-  WHERE ($1::text IS NULL OR src.geo_ags = $1 OR src.geo_key = $1 OR src.id = ('ags:' || $1) OR src.id = ('stadtbezirk:' || $1))
+  WHERE src.label IS NOT NULL
+    AND ($1::text IS NULL OR src.geo_ags = $1 OR src.geo_key = $1 OR src.id = ('ags:' || $1) OR src.id = ('stadtbezirk:' || $1))
     AND ($2::text IS NULL OR (src.level = 'plz' AND src.geo_key = $2))
     AND $3::text IS NULL
     AND ($6::text IS NULL OR src.geo_key = $6 OR src.id = $6)
     AND ($7::text IS NULL OR src.grain = $7)
+    AND ($8::boolean OR src.level <> 'plz')
     AND (
       $4::text IS NULL
       OR (
         $5::text = 'plz'
         AND src.level = 'plz'
-        AND (
-          src.label ILIKE $4 ESCAPE '\\'
-          OR src.geo_key ILIKE $4 ESCAPE '\\'
-        )
+        AND src.label ILIKE $4 ESCAPE '\\'
       )
       OR (
         $5::text = 'ags'
         AND src.level IN ('bezirk', 'stadtbezirk')
-        AND (
-          src.label ILIKE $4 ESCAPE '\\'
-          OR src.geo_key ILIKE $4 ESCAPE '\\'
-          OR COALESCE(src.geo_ags, '') ILIKE $4 ESCAPE '\\'
-          OR COALESCE(
-            NULLIF(btrim(admin.name), ''),
-            CASE WHEN src.geo_ags = '11000000' THEN 'Berlin' END,
-            ''
-          ) ILIKE $4 ESCAPE '\\'
-        )
+        AND (${VISIBLE_TEXT_MATCH})
       )
       OR (
         $5::text IS NULL
-        AND (
-          src.label ILIKE $4 ESCAPE '\\'
-          OR src.geo_key ILIKE $4 ESCAPE '\\'
-          OR src.id ILIKE $4 ESCAPE '\\'
-          OR COALESCE(src.geo_ags, '') ILIKE $4 ESCAPE '\\'
-          OR COALESCE(
-            NULLIF(btrim(admin.name), ''),
-            CASE WHEN src.geo_ags = '11000000' THEN 'Berlin' END,
-            ''
-          ) ILIKE $4 ESCAPE '\\'
-        )
+        AND (${VISIBLE_TEXT_MATCH})
       )
     )
   ORDER BY src.label ASC, parent_label ASC NULLS LAST, src.id ASC

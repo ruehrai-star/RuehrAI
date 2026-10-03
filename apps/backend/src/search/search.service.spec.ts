@@ -53,7 +53,7 @@ describe("SearchService", () => {
     expect(sql).toContain("ESCAPE '\\'");
     expect(sql).not.toContain("München");
     expect(sql).not.toContain("09162000");
-    expect(params).toEqual(["09162000", null, null, "%München\\%%", "ags", null, null]);
+    expect(params).toEqual(["09162000", null, null, "%München\\%%", "ags", null, null, false]);
     expect(result.hits).toEqual([
       {
         id: "ags:09162000",
@@ -93,7 +93,7 @@ describe("SearchService", () => {
     expect(sql).toContain("features.v_location_search");
     expect(sql).not.toContain("Alpha");
     expect(sql).not.toContain("04011000");
-    expect(params).toEqual([null, null, null, "%Alpha\\%%", null, "04011000", "ags"]);
+    expect(params).toEqual([null, null, null, "%Alpha\\%%", null, "04011000", "ags", false]);
     expect(query).not.toHaveBeenCalled();
     expect(result.hits).toEqual([
       {
@@ -153,6 +153,7 @@ describe("SearchService", () => {
     ]);
 
     const result = await service.search({ q: "Mitte" });
+    expect(geoSearch).toHaveBeenCalledWith({ q: "Mitte" });
     expect(result.hits).toEqual([
       {
         id: "ags:11000001",
@@ -177,5 +178,103 @@ describe("SearchService", () => {
         lat: 48.16,
       },
     ]);
+  });
+
+  it("keeps PLZ 12247 for a digit query and drops osm-key Ortsteile and nameless rows", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({ rows: [] });
+    geoSearch.mockResolvedValue([
+      {
+        id: "plz5:12247",
+        label: "12247",
+        grain: "plz5",
+        geoKey: "12247",
+        level: "plz",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.34,
+        lat: 52.44,
+      },
+    ]);
+
+    const digits = await service.search({ q: "12247" });
+    expect(digits.hits.map((hit) => hit.id)).toEqual(["plz5:12247"]);
+    expect(digits.hits[0]).toMatchObject({
+      id: "plz5:12247",
+      label: "12247",
+      level: "plz",
+      parentLabel: "Berlin",
+    });
+
+    geoSearch.mockResolvedValue([
+      {
+        id: "ortsteil:osm:5712247",
+        label: "Lankwitz",
+        grain: "other",
+        geoKey: "ortsteil:osm:5712247",
+        level: "ortsteil",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.34,
+        lat: 52.43,
+      },
+    ]);
+    geoSearch.mockClear();
+    await expect(service.search({ q: "ortsteil:osm:5712247" })).resolves.toEqual({ hits: [] });
+    await expect(service.search({ q: "plz5:12247" })).resolves.toEqual({ hits: [] });
+    expect(geoSearch).not.toHaveBeenCalled();
+  });
+
+  it("drops PLZ rows on a name query and never returns a blank label", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({
+      rows: [
+        {
+          id: "plz5:80331",
+          label: "80331 München",
+          grain: "plz5",
+          geo_key: "80331",
+          lon: 11.57,
+          lat: 48.13,
+        },
+        {
+          id: "ags:09162000",
+          label: "   ",
+          grain: "ags",
+          geo_key: "09162000",
+          lon: 11.57,
+          lat: 48.13,
+        },
+      ],
+    });
+    geoSearch.mockResolvedValue([
+      {
+        id: "plz5:80331",
+        label: "80331",
+        grain: "plz5",
+        geoKey: "80331",
+        level: "plz",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.57,
+        lat: 48.13,
+      },
+      {
+        id: "stadtteil:s-schwabing",
+        label: "Schwabing",
+        grain: "other",
+        geoKey: "stadtteil:s-schwabing",
+        level: "stadtteil",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.58,
+        lat: 48.16,
+      },
+    ]);
+
+    const named = await service.search({ q: "München" });
+    expect(named.hits.every((hit) => hit.level !== "plz" && hit.grain !== "plz5")).toBe(true);
+    expect(named.hits.map((hit) => hit.id)).toEqual(["stadtteil:s-schwabing"]);
+    expect(named.hits.every((hit) => hit.label.trim().length > 0)).toBe(true);
   });
 });

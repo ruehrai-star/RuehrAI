@@ -44,6 +44,50 @@ describe("GeoCatalogService", () => {
     ]);
     expect(queryReadingFeatures.mock.calls[0]?.[0]).toBe(GEO_CATALOG_SEARCH_SQL);
     expect(queryReadingFeatures.mock.calls[0]?.[1]?.[3]).toBe("%Neustadt%");
+    expect(queryReadingFeatures.mock.calls[0]?.[1]?.[7]).toBe(false);
+  });
+
+  it("allows PLZ rows only for an all-digit q and drops a nameless row", async () => {
+    queryReadingFeatures.mockResolvedValue({
+      rows: [
+        {
+          id: "plz5:12247",
+          label: "12247",
+          grain: "plz5",
+          geo_key: "12247",
+          level: "plz",
+          parent_label: "Berlin",
+          geo_ags: "11000000",
+          lon: "13.34",
+          lat: "52.44",
+        },
+        {
+          id: "ortsteil:osm:12247773",
+          label: "  ",
+          grain: "other",
+          geo_key: "ortsteil:osm:12247773",
+          level: "ortsteil",
+          parent_label: "Berlin",
+          geo_ags: "11000000",
+          lon: "13.34",
+          lat: "52.43",
+        },
+      ],
+    });
+    await expect(service.search({ q: "12247" })).resolves.toEqual([
+      {
+        id: "plz5:12247",
+        label: "12247",
+        grain: "plz5",
+        geoKey: "12247",
+        level: "plz",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.34,
+        lat: 52.44,
+      },
+    ]);
+    expect(queryReadingFeatures.mock.calls[0]?.[1]?.[7]).toBe(true);
   });
 
   it("returns no hits when schema geo is missing", async () => {

@@ -40,6 +40,22 @@ describe("geo catalog contract", () => {
     ).toBeNull();
   });
 
+  it("drops a nameless catalog row instead of using the key as the label", () => {
+    expect(
+      toCatalogHit({
+        id: "ortsteil:osm:5712247",
+        label: "  ",
+        grain: "other",
+        geo_key: "ortsteil:osm:5712247",
+        level: "ortsteil",
+        parent_label: "Berlin",
+        geo_ags: "11000000",
+        lon: 13.3,
+        lat: 52.4,
+      }),
+    ).toBeNull();
+  });
+
   it("dedups Berlin Bezirke and PLZ keys", () => {
     expect(
       catalogDedupKey({ id: "ags:11000001", grain: "ags", geoKey: "11000001", level: "bezirk" }),
@@ -75,6 +91,14 @@ describe("geo catalog contract", () => {
     expect(
       catalogLookupPlan({ grain: "ags", geoKey: "09162000", ags: "09162000", plz: null }),
     ).toEqual({ plz: null, bezirkId: null, ortsteilId: null });
+    expect(
+      catalogLookupPlan({
+        grain: "other",
+        geoKey: "ortsteil:osm:5712247",
+        ags: null,
+        plz: null,
+      }),
+    ).toEqual({ plz: null, bezirkId: null, ortsteilId: "osm:5712247" });
   });
 
   it("reads Brain schema geo and skips empty geom", () => {
@@ -91,5 +115,14 @@ describe("geo catalog contract", () => {
     expect(GEO_ORTSTEIL_OUTLINE_SQL).toContain("geo.geo_ref_ortsteil");
     expect(GEO_ORTSTEIL_OUTLINE_SQL).toContain("stadtteil");
     expect(GEO_PLZ_OUTLINE_SQL).not.toContain(";");
+  });
+
+  it("does not let free-text q match internal catalog keys", () => {
+    expect(GEO_CATALOG_SEARCH_SQL).not.toMatch(/src\.id ILIKE \$4/);
+    expect(GEO_CATALOG_SEARCH_SQL).not.toMatch(/src\.geo_key ILIKE \$4/);
+    expect(GEO_CATALOG_SEARCH_SQL).not.toContain("src.geo_ags, '') ILIKE $4");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("$8::boolean OR src.level <> 'plz'");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("src.label IS NOT NULL");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("$6::text IS NULL OR src.geo_key = $6 OR src.id = $6");
   });
 });

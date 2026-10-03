@@ -293,6 +293,60 @@ describe("TargetRegionService", () => {
     expect(region.lon).toBeCloseTo(11.5755);
   });
 
+  it("stores the MultiPolygon for a catalog Ortsteil id", async () => {
+    const geometry = {
+      type: "MultiPolygon" as const,
+      coordinates: [
+        [
+          [
+            [13.33, 52.42],
+            [13.35, 52.42],
+            [13.34, 52.44],
+            [13.33, 52.42],
+          ],
+        ],
+      ],
+    };
+    lookupRegion.mockResolvedValue({
+      geometry,
+      point: { lon: 13.34, lat: 52.43 },
+    });
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "Lankwitz",
+          grain: "other",
+          geo_key: "ortsteil:osm:5712247",
+          ags: null,
+          plz: null,
+          lon: 13.34,
+          lat: 52.43,
+          bounds_west: 13.33,
+          bounds_south: 52.42,
+          bounds_east: 13.35,
+          bounds_north: 52.44,
+          geometry,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const saved = await service.put("4", {
+      label: "Lankwitz",
+      grain: "other",
+      geoKey: "ortsteil:osm:5712247",
+    });
+    expect(lookupRegion).toHaveBeenCalledWith({
+      grain: "other",
+      geoKey: "ortsteil:osm:5712247",
+      ags: null,
+      plz: null,
+    });
+    const params = query.mock.calls[0]?.[1] as unknown[];
+    expect(JSON.parse(params[12] as string)).toEqual(geometry);
+    expect(saved.geometry).toEqual(geometry);
+    expect(saved.geoKey).toBe("ortsteil:osm:5712247");
+  });
+
   it("rejects a lon without a lat", async () => {
     await expect(service.put("4", { label: "München", lon: 11.5 })).rejects.toBeInstanceOf(
       BadRequestException,

@@ -3,7 +3,7 @@ import { toCoord } from "../customer/values";
 import { DatabaseService } from "../database/database.service";
 import { isGeoCatalogUnavailable, isMissingFeaturesRelation } from "../database/pg-error";
 import { SearchQueryDto } from "../search/search.dto";
-import { toContainsPattern } from "../search/search.util";
+import { searchFilterParams } from "../search/search.util";
 import {
   CatalogHitRow,
   CatalogSearchHit,
@@ -37,7 +37,7 @@ export class GeoCatalogService {
   constructor(private readonly db: DatabaseService) {}
 
   async search(query: SearchQueryDto): Promise<CatalogSearchHit[]> {
-    const params = searchParams(query);
+    const params = searchFilterParams(query);
     try {
       return await this.runSearch(this.skipAdminJoin ? GEO_CATALOG_SEARCH_SQL_NO_ADMIN : GEO_CATALOG_SEARCH_SQL, params);
     } catch (error) {
@@ -94,18 +94,6 @@ export class GeoCatalogService {
     const message = error instanceof Error ? error.message : "unknown error";
     this.logger.log(`Brain geo catalog is unavailable (${message}).`);
   }
-}
-
-function searchParams(query: SearchQueryDto): unknown[] {
-  return [
-    query.ags ?? null,
-    query.plz ?? null,
-    query.address ? toContainsPattern(query.address) : null,
-    query.q ? toContainsPattern(query.q) : null,
-    query.type ?? null,
-    query.geoKey ?? null,
-    query.grain ?? null,
-  ];
 }
 
 function isMissingAdmin(error: unknown): boolean {

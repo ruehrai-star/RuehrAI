@@ -188,6 +188,21 @@ async function dropFeaturesFixture(): Promise<void> {
       [8.81, 53.07],
       [8.79, 53.09],
     ]);
+    const berlinPlzGeom = multi([
+      [13.34, 52.43],
+      [13.36, 52.43],
+      [13.35, 52.45],
+    ]);
+    const hamburgPlzGeom = multi([
+      [9.91, 53.55],
+      [9.93, 53.55],
+      [9.92, 53.56],
+    ]);
+    const lankwitzGeom = multi([
+      [13.33, 52.42],
+      [13.35, 52.42],
+      [13.34, 52.44],
+    ]);
 
     try {
       await admin.query("DROP SCHEMA IF EXISTS geo CASCADE");
@@ -233,8 +248,10 @@ async function dropFeaturesFixture(): Promise<void> {
       await admin.query(
         `INSERT INTO geo.geo_ref_plz (geo_plz5, geo_ags, geom) VALUES
            ('80331', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+           ('12247', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+           ('22765', '02000000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
            ('00000', '09162000', ST_GeomFromText('MULTIPOLYGON EMPTY', 4326))`,
-        [JSON.stringify(plzGeom)],
+        [JSON.stringify(plzGeom), JSON.stringify(berlinPlzGeom), JSON.stringify(hamburgPlzGeom)],
       );
       await admin.query(
         `INSERT INTO geo.geo_ref_bezirk (geo_bezirk_id, name, geo_ags, geom) VALUES
@@ -247,8 +264,16 @@ async function dropFeaturesFixture(): Promise<void> {
            ('s-schwabing', 'Schwabing', 'stadtteil', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
            ('o-neustadt-dd', 'Neustadt', 'ortsteil', '14612000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
            ('o-neustadt-hb', 'Neustadt', 'ortsteil', '04011000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+           ('osm:5712247', 'Lankwitz', 'ortsteil', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+           ('osm:12247773', '', 'ortsteil', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+           ('osm:12247949', 'Marienfelde', 'ortsteil', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
            ('g-fake', 'Nicht zeigen', 'gemeinde', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))`,
-        [JSON.stringify(schwabingGeom), JSON.stringify(neustadtDdGeom), JSON.stringify(neustadtHbGeom)],
+        [
+          JSON.stringify(schwabingGeom),
+          JSON.stringify(neustadtDdGeom),
+          JSON.stringify(neustadtHbGeom),
+          JSON.stringify(lankwitzGeom),
+        ],
       );
       await admin.query("GRANT USAGE ON SCHEMA geo TO PUBLIC");
       await admin.query("GRANT SELECT ON ALL TABLES IN SCHEMA geo TO PUBLIC");
@@ -320,6 +345,78 @@ async function dropFeaturesFixture(): Promise<void> {
         ]),
       );
 
+      const byDigits = await request(server).get("/search").query({ q: "12247" }).set(auth).expect(200);
+      const digitIds = (byDigits.body.hits as { id: string; label: string; level?: string }[]).map(
+        (hit) => hit.id,
+      );
+      expect(byDigits.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "plz5:12247",
+            label: "12247",
+            level: "plz",
+            parentLabel: "Berlin",
+          }),
+        ]),
+      );
+      expect(digitIds).not.toEqual(
+        expect.arrayContaining([
+          "ortsteil:osm:5712247",
+          "ortsteil:osm:12247773",
+          "ortsteil:osm:12247949",
+        ]),
+      );
+      expect(byDigits.body.hits.every((hit: { label: string }) => hit.label.trim().length > 0)).toBe(
+        true,
+      );
+
+      const byKey = await request(server)
+        .get("/search")
+        .query({ q: "plz5:12247" })
+        .set(auth)
+        .expect(200);
+      expect(byKey.body.hits).toEqual([]);
+      const byOsmKey = await request(server)
+        .get("/search")
+        .query({ q: "ortsteil:osm:5712247" })
+        .set(auth)
+        .expect(200);
+      expect(byOsmKey.body.hits).toEqual([]);
+
+      const byMunich = await request(server).get("/search").query({ q: "München" }).set(auth).expect(200);
+      expect(byMunich.body.hits.some((hit: { level?: string; grain: string }) => hit.level === "plz" || hit.grain === "plz5")).toBe(
+        false,
+      );
+      expect(byMunich.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "stadtteil:s-schwabing", level: "stadtteil" }),
+        ]),
+      );
+
+      const byHamburg = await request(server).get("/search").query({ q: "Hamburg" }).set(auth).expect(200);
+      expect(byHamburg.body.hits.some((hit: { level?: string }) => hit.level === "plz")).toBe(false);
+      expect(byHamburg.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "stadtbezirk:02000002", level: "stadtbezirk" }),
+        ]),
+      );
+
+      const reloaded = await request(server)
+        .get("/search")
+        .query({ geoKey: "ortsteil:osm:5712247" })
+        .set(auth)
+        .expect(200);
+      expect(reloaded.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "ortsteil:osm:5712247",
+            label: "Lankwitz",
+            level: "ortsteil",
+            parentLabel: "Berlin",
+          }),
+        ]),
+      );
+
       const user = await register(`geo-catalog-${Date.now()}@ruehrai.local`);
       const owner = { authorization: `Bearer ${user}` };
       const savedPlz = await request(server)
@@ -358,6 +455,14 @@ async function dropFeaturesFixture(): Promise<void> {
         .send({ label: "Neustadt", grain: "other", geoKey: "ortsteil:o-neustadt-dd" })
         .expect(200);
       expect(savedOrtsteil.body.geometry).toEqual(neustadtDdGeom);
+
+      const savedOsm = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "Lankwitz", grain: "other", geoKey: "ortsteil:osm:5712247" })
+        .expect(200);
+      expect(savedOsm.body.geometry).toEqual(lankwitzGeom);
+      expect(savedOsm.body.geometry.type).toBe("MultiPolygon");
     } finally {
       await admin.query("DROP SCHEMA IF EXISTS geo CASCADE").catch(() => undefined);
       await admin.end();
