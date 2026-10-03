@@ -13,24 +13,29 @@ import type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
-  Recommendation,
   RecommendationCreate,
   RecommendationEvidence,
-  RecommendationSet,
   RevenueDirection,
-  SearchHit,
-  SearchResponse,
   StoreList,
   StoreLocation,
   StoreLocationWrite,
-  TargetRegion,
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
+import { catalogLevelOf, catalogParentName } from "../format.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import type { RuehrApi } from "./client";
-import { ApiError, isGrain, type Session } from "./types.ts";
+import {
+  ApiError,
+  isGrain,
+  type Recommendation,
+  type RecommendationSet,
+  type SearchHit,
+  type SearchResponse,
+  type Session,
+  type TargetRegion,
+} from "./types.ts";
 
 export const DEFAULT_API_BASE_URL = "http://localhost:3000";
 
@@ -268,10 +273,13 @@ function parseTargetRegion(body: TargetRegion): TargetRegion {
   if (body.grain != null && !isGrain(body.grain)) {
     throw new ApiError("Antwort von /target-region ist ungültig.", 502);
   }
+  const raw = body as TargetRegion & { level?: unknown; parentLabel?: unknown };
   return {
     ...body,
     bounds: readContractBounds(body.bounds),
     geometry: readRegionGeometry(body.geometry),
+    level: catalogLevelOf(raw.level),
+    parentLabel: catalogParentName(raw),
   };
 }
 
@@ -368,6 +376,7 @@ function parseHits(body: SearchResponse): SearchHit[] {
       throw new ApiError("Antwort von GET /search ist ungültig.", 502);
     }
     const coords = coordinatesOf(hit);
+    const raw = hit as SearchHit & { level?: unknown; parentLabel?: unknown };
     return {
       id: hit.id,
       label: hit.label,
@@ -375,6 +384,8 @@ function parseHits(body: SearchResponse): SearchHit[] {
       geoKey: typeof hit.geoKey === "string" ? hit.geoKey : null,
       lon: coords?.lon ?? null,
       lat: coords?.lat ?? null,
+      level: catalogLevelOf(raw.level),
+      parentLabel: catalogParentName(raw),
     };
   });
 }
@@ -531,7 +542,15 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
-  return body;
+  const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
+  return {
+    ...body,
+    location: {
+      ...body.location,
+      level: catalogLevelOf(rawLocation.level),
+      parentLabel: catalogParentName(rawLocation),
+    },
+  };
 }
 
 function parseRecommendationEvidence(body: RecommendationEvidence, route: string): void {

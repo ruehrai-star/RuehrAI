@@ -1,4 +1,16 @@
-import type { Grain } from "@ruehrai/api-contracts";
+import type {
+  Grain,
+  Recommendation as ContractRecommendation,
+  RecommendationLocation as ContractRecommendationLocation,
+  RecommendationSet as ContractRecommendationSet,
+  SearchHit as ContractSearchHit,
+  SearchResponse as ContractSearchResponse,
+  TargetRegion as ContractTargetRegion,
+} from "@ruehrai/api-contracts";
+
+/** Catalog `level` on a search / Zielregion hit. Named by the Product-Owner. */
+export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"] as const;
+export type CatalogLevel = (typeof CATALOG_LEVELS)[number];
 
 export type {
   AnalysisBrain,
@@ -16,23 +28,41 @@ export type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   PatternCriterion,
-  Recommendation,
   RecommendationCreate,
   RecommendationEvidence,
-  RecommendationLocation,
-  RecommendationSet,
   RecommendationWindow,
   RegionGeometry,
   RevenueDirection,
   LonLatBounds,
-  SearchHit,
-  SearchResponse,
   StoreLocation,
   StoreLocationWrite,
-  TargetRegion,
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
+
+/**
+ * Catalog `level` is named by the Product-Owner. OpenAPI on main does not
+ * list it yet. The web client accepts it when the backend sends it.
+ */
+export type SearchHit = ContractSearchHit & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
+export type SearchResponse = Omit<ContractSearchResponse, "hits"> & { hits: SearchHit[] };
+export type TargetRegion = ContractTargetRegion & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
+export type RecommendationLocation = ContractRecommendationLocation & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
+export type Recommendation = Omit<ContractRecommendation, "location"> & {
+  location: RecommendationLocation;
+};
+export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
+  items: Recommendation[];
+};
 
 /**
  * Browser session derived from `POST /auth/login` or `POST /auth/register`
@@ -68,4 +98,8 @@ const GRAINS = new Set<Grain>([
 
 export function isGrain(value: unknown): value is Grain {
   return typeof value === "string" && GRAINS.has(value as Grain);
+}
+
+export function isCatalogLevel(value: unknown): value is CatalogLevel {
+  return typeof value === "string" && (CATALOG_LEVELS as readonly string[]).includes(value);
 }

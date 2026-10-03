@@ -96,6 +96,59 @@ test("GET /search sends q and the bearer token", async () => {
   assert.equal(result.hits[0]?.lon, 11.5);
 });
 
+test("GET /search keeps level and parentLabel and does not invent a parent name", async () => {
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [
+          {
+            id: "ot:plagwitz",
+            label: "Plagwitz",
+            grain: "ags",
+            geoKey: "14713000",
+            lon: 12.33,
+            lat: 51.33,
+            level: "ortsteil",
+            parentLabel: "Leipzig",
+            parentName: "ignored",
+            municipalityName: "Leipzig",
+          },
+        ],
+      }),
+  });
+
+  const hit = (await api.search("Plagwitz")).hits[0];
+  assert.equal(hit?.label, "Plagwitz");
+  assert.equal(hit?.level, "ortsteil");
+  assert.equal(hit?.parentLabel, "Leipzig");
+  assert.equal("parentName" in (hit ?? {}), false);
+  assert.equal("municipalityName" in (hit ?? {}), false);
+});
+
+test("GET /search drops a blank parentLabel", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [{ id: "ags:09162000", label: "München", grain: "ags", geoKey: "09162000", parentLabel: "  " }],
+      }),
+  });
+  assert.equal((await api.search("München")).hits[0]?.parentLabel, null);
+});
+
+test("GET /search ignores an unknown level", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [{ id: "ags:09162000", label: "München", grain: "ags", geoKey: "09162000", level: "quartier" }],
+      }),
+  });
+  assert.equal((await api.search("München")).hits[0]?.level, null);
+});
+
 test("protected calls fail before fetch when no token is stored", async () => {
   let called = false;
   const api = createHttpApi({
@@ -240,6 +293,28 @@ test("POST /auth/logout revokes the bearer token and accepts an empty body", asy
   assert.equal(seen.authorization, "Bearer jwt-1");
 });
 
+test("GET /target-region keeps a contract level", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        label: "Plagwitz",
+        grain: "ags",
+        geoKey: "14713000",
+        ags: "14713000",
+        updatedAt: "2026-10-03T12:00:00.000Z",
+        bounds: null,
+        geometry: null,
+        level: "ortsteil",
+        parentLabel: "Leipzig",
+      }),
+  });
+  const region = await api.getTargetRegion();
+  assert.equal(region?.label, "Plagwitz");
+  assert.equal(region?.level, "ortsteil");
+  assert.equal(region?.parentLabel, "Leipzig");
+});
+
 test("GET /target-region maps 404 to an empty region", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
@@ -299,6 +374,7 @@ test("PUT /target-region and store revenue use the contract paths", async () => 
 
   const region = await api.putTargetRegion({ label: "München", grain: "ags", geoKey: "09162000" });
   assert.equal(region.label, "München");
+  assert.equal(region.level, null);
   const store = await api.createStore({
     label: "Nord",
     street: "Weg 1",
@@ -389,6 +465,7 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
   assert.equal(region?.bounds?.east, 11.8);
   assert.equal(region?.bounds?.north, 48.3);
   assert.equal(region?.geometry?.type, "Polygon");
+  assert.equal(region?.level, null);
   const model = buildKarte({
     stores,
     region,

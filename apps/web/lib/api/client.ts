@@ -4,18 +4,15 @@ import type {
   AnalysisRun,
   Credentials,
   RecommendationCreate,
-  RecommendationSet,
   FeatureCollection,
   HealthResponse,
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
-  SearchResponse,
   StoreLocation,
   StoreLocationWrite,
-  TargetRegion,
   TargetRegionWrite,
 } from "@ruehrai/api-contracts";
-import type { Session } from "./types";
+import type { RecommendationSet, SearchResponse, Session, TargetRegion } from "./types";
 
 /**
  * UI-facing client. Methods follow OpenAPI operationIds:

@@ -24,6 +24,7 @@ export function getApi(): RuehrApi {
 
 export type { RuehrApi } from "./client";
 export type {
+  CatalogLevel,
   AnalysisBrain,
   AnalysisInput,
   AnalysisPattern,
@@ -54,6 +55,6 @@ export type {
   TargetRegion,
   TargetRegionWrite,
 } from "./types";
-export { ApiError, isGrain } from "./types";
+export { ApiError, CATALOG_LEVELS, isCatalogLevel, isGrain } from "./types";
 export { coordinatesOf } from "./geo";
 export { toMapFeatureCollection } from "./http";

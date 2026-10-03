@@ -1,6 +1,6 @@
 import type { AnalysisPattern, Recommendation, RecommendationSet, RecommendationWindow } from "@ruehrai/api-contracts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { grainLabel } from "../format.ts";
+import { catalogBadge, catalogParentName } from "../format.ts";
 
 /** UX-Gate labels for the Empfehlungen page. */
 export const RECOMMENDATION_COPY = {
@@ -46,7 +46,10 @@ export function formatAddress(item: Recommendation): string {
 }
 
 export function formatLocationMeta(item: Recommendation): string {
-  return `${grainLabel(item.location.grain, item.location.geoKey)} ${item.location.geoKey}`;
+  const badge = catalogBadge(item.location);
+  const parent = catalogParentName(item.location);
+  const key = item.location.geoKey;
+  return parent ? `${badge} ${parent} ${key}` : `${badge} ${key}`;
 }
 
 export function formatScore(score: number): string {

@@ -12,7 +12,8 @@ import {
   toMapFeatureCollection,
   type SearchHit,
 } from "@/lib/api";
-import { grainLabel } from "@/lib/format";
+import { CatalogParentName } from "@/components/catalog-parent-name";
+import { catalogBadge } from "@/lib/format";
 import {
   LEGEND_LABEL,
   NO_STORES_LABEL,
@@ -258,8 +259,9 @@ export function MapPage() {
         ) : null}
         {selection ? (
           <div className="callout">
-            <span className="badge">{grainLabel(selection.grain, selection.geoKey || selection.id)}</span>
+            <span className="badge">{catalogBadge({ ...selection, geoKey: selection.geoKey || selection.id })}</span>
             <strong>{selection.label}</strong>
+            <CatalogParentName source={selection} />
             {selectionPoint ? (
               <span className="callout-coords">
                 {selectionPoint.lat.toFixed(4)}° N, {selectionPoint.lon.toFixed(4)}° E
