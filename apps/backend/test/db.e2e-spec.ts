@@ -708,8 +708,20 @@ async function dropFeaturesFixture(): Promise<void> {
         FROM features.location_feature_docs
       `);
       await admin.query(
-        `INSERT INTO features.location_feature_docs (geo_key, grain, ref_period, name, title)
-         VALUES ('04011000', 'ags', '2022-05', 'Alpha Ort', 'Alpha Ort')`,
+        `INSERT INTO features.location_feature_docs (geo_key, grain, ref_period, name, title, lon, lat)
+         VALUES
+           ('04011000', 'ags', '2022-05', 'Alpha Ort', 'Alpha Ort', NULL, NULL),
+           ('11000000', 'ags', '2022-05', 'Berlin, Stadt', 'Berlin, Stadt', 13.405, 52.52),
+           ('11000000', 'ags', '2023-01', 'Berlin, Stadt', 'Berlin, Stadt', 13.405, 52.52),
+           ('11000000', 'ags', '2024-01', 'Berlin, Stadt', 'Berlin, Stadt', 13.404954, 52.520008),
+           ('11000000', 'ags', '2021-01', 'Berlin', 'Berlin', 13.405, 52.52),
+           ('11000', 'ags', '2022-05', 'Berlin, kreisfreie Stadt', 'Berlin, kreisfreie Stadt', 13.4, 52.52),
+           ('07233004', 'ags', '2022-05', 'Berlingen', 'Berlingen', 6.45, 50.03),
+           ('07233004', 'ags', '2023-01', 'Berlingen', 'Berlingen', 6.45, 50.03),
+           ('07233004', 'ags', '2024-01', 'Berlingen', 'Berlingen', 6.45, 50.03),
+           ('16061003', 'ags', '2022-05', 'Berlingerode', 'Berlingerode', 10.24, 51.46),
+           ('16061003', 'ags', '2023-01', 'Berlingerode', 'Berlingerode', 10.24, 51.46),
+           ('16061003', 'ags', '2024-01', 'Berlingerode', 'Berlingerode', 10.24, 51.46)`,
       );
       await admin.query("GRANT USAGE ON SCHEMA features TO backend_ro_features");
       await admin.query(
@@ -740,6 +752,37 @@ async function dropFeaturesFixture(): Promise<void> {
         .set(auth)
         .expect(200);
       expect(seedHidden.body.hits).toEqual([]);
+
+      const berlin = await request(app.getHttpServer())
+        .get("/search")
+        .query({ q: "Berlin" })
+        .set(auth)
+        .expect(200);
+      const berlinHits = berlin.body.hits as {
+        id: string;
+        label: string;
+        grain: string;
+        geoKey: string;
+      }[];
+      const berlinStadt = berlinHits.filter(
+        (hit) => hit.geoKey === "11000000" || hit.label === "Berlin" || hit.label === "Berlin, Stadt",
+      );
+      expect(berlinStadt).toHaveLength(1);
+      expect(berlinStadt[0]).toMatchObject({
+        label: "Berlin",
+        grain: "ags",
+        geoKey: "11000000",
+      });
+      expect(berlinStadt[0]?.id).toEqual(expect.any(String));
+      expect(berlinHits.filter((hit) => hit.label === "Berlin, kreisfreie Stadt")).toEqual([
+        expect.objectContaining({ geoKey: "11000", grain: "ags" }),
+      ]);
+      expect(berlinHits.filter((hit) => hit.label === "Berlingen")).toEqual([
+        expect.objectContaining({ geoKey: "07233004" }),
+      ]);
+      expect(berlinHits.filter((hit) => hit.label === "Berlingerode")).toEqual([
+        expect.objectContaining({ geoKey: "16061003" }),
+      ]);
 
       const restrictedUrl = new URL(adminUrl);
       restrictedUrl.username = appDbUser;

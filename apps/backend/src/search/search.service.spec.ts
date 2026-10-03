@@ -277,4 +277,120 @@ describe("SearchService", () => {
     expect(named.hits.map((hit) => hit.id)).toEqual(["stadtteil:s-schwabing"]);
     expect(named.hits.every((hit) => hit.label.trim().length > 0)).toBe(true);
   });
+
+  it("returns one hit per geo key and keeps distinct Berlin places", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({
+      rows: [
+        agsRow("8379", "Berlin, Stadt", "11000000", 13.405, 52.52),
+        agsRow("26787", "Berlin, Stadt", "11000000", 13.405, 52.52),
+        agsRow("40354", "Berlin, Stadt", "11000000", 13.404954, 52.520008),
+        agsRow("14287", "Berlin", "11000000", 13.405, 52.52),
+        agsRow("11000-1", "Berlin, kreisfreie Stadt", "11000", 13.4, 52.52),
+        agsRow("07233004-a", "Berlingen", "07233004", 6.45, 50.03),
+        agsRow("07233004-b", "Berlingen", "07233004", 6.45, 50.03),
+        agsRow("07233004-c", "Berlingen", "07233004", 6.45, 50.03),
+        agsRow("16061003-a", "Berlingerode", "16061003", 10.24, 51.46),
+        agsRow("16061003-b", "Berlingerode", "16061003", 10.24, 51.46),
+        agsRow("16061003-c", "Berlingerode", "16061003", 10.24, 51.46),
+        agsRow("12060020-a", "Bernau bei Berlin, Stadt", "12060020", 13.59, 52.68),
+        agsRow("12060020-b", "Bernau bei Berlin, Stadt", "12060020", 13.59, 52.68),
+        agsRow("12060020-c", "Bernau bei Berlin, Stadt", "12060020", 13.59, 52.68),
+      ],
+    });
+    geoSearch.mockResolvedValue([
+      {
+        id: "ags:11000012",
+        label: "Berlin-Treptow-Köpenick",
+        grain: "ags",
+        geoKey: "11000012",
+        level: "bezirk",
+        parentLabel: "Berlin",
+        geoAgs: "11000000",
+        lon: 13.58,
+        lat: 52.45,
+      },
+      {
+        id: "stadtteil:berlinchen",
+        label: "Berlinchen",
+        grain: "other",
+        geoKey: "stadtteil:berlinchen",
+        level: "stadtteil",
+        parentLabel: "Wittstock/Dosse",
+        geoAgs: "12070040",
+        lon: 12.51,
+        lat: 53.16,
+      },
+      {
+        id: "stadtteil:berliner-chaussee",
+        label: "Berliner Chaussee",
+        grain: "other",
+        geoKey: "stadtteil:berliner-chaussee",
+        level: "stadtteil",
+        parentLabel: "Magdeburg",
+        geoAgs: "15003000",
+        lon: 11.66,
+        lat: 52.12,
+      },
+      {
+        id: "stadtteil:berliner-platz",
+        label: "Berliner Platz",
+        grain: "other",
+        geoKey: "stadtteil:berliner-platz",
+        level: "stadtteil",
+        parentLabel: "Erfurt",
+        geoAgs: "16051000",
+        lon: 11.03,
+        lat: 50.98,
+      },
+    ]);
+
+    const result = await service.search({ q: "Berlin" });
+    const labels = result.hits.map((hit) => hit.label);
+    const byKey = Object.fromEntries(result.hits.map((hit) => [hit.geoKey, hit]));
+
+    expect(labels.filter((label) => label === "Berlin" || label === "Berlin, Stadt")).toHaveLength(1);
+    expect(byKey["11000000"]).toMatchObject({
+      id: "14287",
+      label: "Berlin",
+      grain: "ags",
+      geoKey: "11000000",
+    });
+    expect(labels.filter((label) => label === "Berlin, kreisfreie Stadt")).toEqual(["Berlin, kreisfreie Stadt"]);
+    expect(byKey["11000"]).toMatchObject({ label: "Berlin, kreisfreie Stadt", geoKey: "11000" });
+    expect(labels.filter((label) => label === "Berlingen")).toEqual(["Berlingen"]);
+    expect(byKey["07233004"]).toMatchObject({ label: "Berlingen", geoKey: "07233004" });
+    expect(labels.filter((label) => label === "Berlingerode")).toEqual(["Berlingerode"]);
+    expect(byKey["16061003"]).toMatchObject({ label: "Berlingerode", geoKey: "16061003" });
+    expect(labels.filter((label) => label === "Bernau bei Berlin, Stadt")).toEqual(["Bernau bei Berlin, Stadt"]);
+    expect(result.hits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ags:11000012",
+          label: "Berlin-Treptow-Köpenick",
+          geoKey: "11000012",
+          level: "bezirk",
+        }),
+        expect.objectContaining({
+          label: "Berlinchen",
+          parentLabel: "Wittstock/Dosse",
+          level: "stadtteil",
+        }),
+        expect.objectContaining({
+          label: "Berliner Chaussee",
+          parentLabel: "Magdeburg",
+          level: "stadtteil",
+        }),
+        expect.objectContaining({
+          label: "Berliner Platz",
+          parentLabel: "Erfurt",
+          level: "stadtteil",
+        }),
+      ]),
+    );
+  });
 });
+
+function agsRow(id: string, label: string, geoKey: string, lon: number, lat: number) {
+  return { id, label, grain: "ags", geo_key: geoKey, lon, lat };
+}

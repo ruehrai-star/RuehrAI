@@ -8,6 +8,7 @@ import {
   catalogLevelForBezirk,
   catalogLevelForOrtsteilKind,
   catalogLookupPlan,
+  catalogNameDedupKey,
   toCatalogHit,
 } from "./geo-catalog";
 
@@ -62,6 +63,45 @@ describe("geo catalog contract", () => {
     ).toBe(catalogDedupKey({ id: "ags:11001001", grain: "ags", geoKey: "11001001" }));
     expect(catalogDedupKey({ id: "plz5:80331", grain: "plz5", geoKey: "80331", level: "plz" })).toBe(
       catalogDedupKey({ id: "plz5:80331", grain: "plz5", geoKey: "80331" }),
+    );
+  });
+
+  it("is one hit per geo key, including Berlin Stadt vs Berlin on 11000000", () => {
+    expect(catalogDedupKey({ id: "26787", grain: "ags", geoKey: "11000000" })).toBe(
+      catalogDedupKey({ id: "14287", grain: "ags", geoKey: "11000000" }),
+    );
+    expect(catalogDedupKey({ id: "40354", grain: "ags", geoKey: "11000000" })).toBe(
+      catalogDedupKey({ id: "8379", grain: "ags", geoKey: "11000000" }),
+    );
+    expect(catalogDedupKey({ id: "26787", grain: "ags", geoKey: "11000000" })).toBe(
+      catalogDedupKey({ id: "ags:11000000", grain: "ags", geoKey: "11000000" }),
+    );
+    expect(catalogDedupKey({ id: "krs", grain: "ags", geoKey: "11000" })).not.toBe(
+      catalogDedupKey({ id: "gem", grain: "ags", geoKey: "11000000" }),
+    );
+    expect(catalogDedupKey({ id: "ags:11000012", grain: "ags", geoKey: "11000012", level: "bezirk" })).not.toBe(
+      catalogDedupKey({ id: "14287", grain: "ags", geoKey: "11000000" }),
+    );
+    expect(catalogDedupKey({ id: "a", grain: "ags", geoKey: "07233004" })).toBe(
+      catalogDedupKey({ id: "b", grain: "ags", geoKey: "07233004" }),
+    );
+    expect(catalogDedupKey({ id: "c", grain: "ags", geoKey: "16061003" })).toBe(
+      catalogDedupKey({ id: "d", grain: "ags", geoKey: "16061003" }),
+    );
+  });
+
+  it("treats the same name and parent as one hit, including two empty parents", () => {
+    expect(catalogNameDedupKey({ label: "Berlin, Stadt", parentLabel: null })).toBe(
+      catalogNameDedupKey({ label: "Berlin, Stadt", parentLabel: "" }),
+    );
+    expect(catalogNameDedupKey({ label: "Berlingen", parentLabel: null })).toBe(
+      catalogNameDedupKey({ label: "Berlingen" }),
+    );
+    expect(catalogNameDedupKey({ label: "Berlinchen", parentLabel: "Wittstock/Dosse" })).not.toBe(
+      catalogNameDedupKey({ label: "Berlinchen", parentLabel: "Magdeburg" }),
+    );
+    expect(catalogNameDedupKey({ label: "Berlin, Stadt" })).not.toBe(
+      catalogNameDedupKey({ label: "Berlin" }),
     );
   });
 
