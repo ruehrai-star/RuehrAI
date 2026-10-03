@@ -119,7 +119,7 @@ export function catalogHitVisibleText(source: unknown): string {
   if (!name) return "";
   const parent = catalogParentName(source);
   const badge = catalogBadge(asBadgeSource(source));
-  return [name, parent, badge].filter((part) => part.length > 0).join(" ");
+  return [name, parent, badge].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
 }
 
 function asBadgeSource(source: unknown): CatalogBadgeSource {
