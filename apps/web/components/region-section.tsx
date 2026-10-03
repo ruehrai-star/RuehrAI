@@ -94,7 +94,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
           id="region-q"
           type="search"
           value={query}
-          placeholder="z. B. München, 80331, 09162000"
+          placeholder="z. B. Stadtteil oder PLZ"
           autoComplete="off"
           onChange={(event) => setQuery(event.target.value)}
           aria-controls="region-hits"
@@ -135,7 +135,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
           })}
         </ul>
         {trimmed.length >= 2 && !searching && visibleHits.length === 0 && !searchError ? (
-          <p className="message">Keine Treffer. Gemeinde, PLZ oder AGS versuchen.</p>
+          <p className="message">Keine Treffer. Gemeinde oder PLZ versuchen.</p>
         ) : null}
         {picked && pickedName ? (
           <p className="message">

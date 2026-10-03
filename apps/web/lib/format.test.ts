@@ -161,6 +161,15 @@ test("parentLabel stays empty when the field is missing; no parent name is guess
   assert.equal(catalogHitVisibleText(hit), "12247 PLZ");
 });
 
+test("Zielregion search copy has no AGS, no München, and no AGS example", () => {
+  const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
+  assert.equal(region.includes("AGS"), false);
+  assert.equal(region.includes("09162000"), false);
+  assert.equal(region.includes("München"), false);
+  assert.match(region, /placeholder="z\. B\. Stadtteil oder PLZ"/);
+  assert.match(region, /Keine Treffer\. Gemeinde oder PLZ versuchen\./);
+});
+
 test("Zielregion and search markup never interpolate catalog id or geoKey as visible text", () => {
   const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
   const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
