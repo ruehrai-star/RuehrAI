@@ -132,11 +132,9 @@ async function dropFeaturesFixture(): Promise<void> {
       .set(auth)
       .expect(200);
     expect(response.body.type).toBe("FeatureCollection");
-    expect(response.body.features.length).toBe(3);
-    const geometries = (response.body.features as { geometry: { type: string } }[]).map(
-      (feature) => feature.geometry.type,
-    );
-    expect(geometries).toEqual(expect.arrayContaining(["Point", "Polygon"]));
+    const features = response.body.features as { id: string; geometry: { type: string } }[];
+    expect(features.map((feature) => feature.id)).toEqual(["ags:02000000", "ags:11000000"]);
+    expect(features.every((feature) => feature.geometry.type === "Point")).toBe(true);
 
     await request(app.getHttpServer()).get("/layers/missing-layer").set(auth).expect(404);
   });
@@ -236,7 +234,12 @@ async function dropFeaturesFixture(): Promise<void> {
       grain: "ags",
       geoKey: "09162000",
       ags: "09162000",
-      bounds: { west: 11.36, south: 48.06, east: 11.72, north: 48.25 },
+      bounds: {
+        west: 11.5755 - 0.18,
+        south: 48.1374 - 0.095,
+        east: 11.5755 + 0.18,
+        north: 48.1374 + 0.095,
+      },
     });
     expect(region.body.geometry).toMatchObject({ type: "Polygon" });
     expect(region.body.lon).toBeCloseTo(11.5755);

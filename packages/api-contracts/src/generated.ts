@@ -370,7 +370,7 @@ export interface paths {
          *     Layer rows stay in schema `app` (`map_layers`, `map_features`) until
          *     feature documents have coordinates. Seeded layer ids in local dev:
          *     `demo-gemeinden`, `demo-plz`, `demo-grid100`.
-         *     Geometries are synthetic stubs for this slice (points, plus one rough polygon),
+         *     Geometries on those demo layers are synthetic point stubs,
          *     not official boundaries. Coordinates are WGS84 (EPSG:4326), longitude then latitude.
          */
         get: operations["getLayer"];

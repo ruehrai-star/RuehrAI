@@ -113,7 +113,7 @@ VALUES
   (
     'demo-gemeinden',
     'Demo-Gemeinden',
-    'Synthetische Punkte und ein Kasten für den Dev-Slice. Keine amtlichen Grenzen.'
+    'Synthetische Punkte für den Dev-Slice. Keine amtlichen Grenzen.'
   ),
   (
     'demo-plz',
@@ -127,14 +127,11 @@ VALUES
   )
 ON CONFLICT (id) DO NOTHING;
 
+-- München (ags:09162000) stays in search_places only. Do not seed a rectangle
+-- on demo-gemeinden. 008_drop_muenchen_gemeinde_rectangle.sql deletes the
+-- historical stub from databases that already applied this file.
 INSERT INTO app.map_features (id, layer_id, properties, geometry)
 VALUES
-  (
-    'ags:09162000',
-    'demo-gemeinden',
-    '{"label":"München","grain":"ags","ags":"09162000","stub":true}'::jsonb,
-    '{"type":"Polygon","coordinates":[[[11.36,48.06],[11.72,48.06],[11.72,48.25],[11.36,48.25],[11.36,48.06]]]}'::jsonb
-  ),
   (
     'ags:11000000',
     'demo-gemeinden',

@@ -24,6 +24,8 @@ pnpm start:dev
 
 `007_berlin_bezirke_stubs.sql` legt für die zwölf Berliner Bezirke synthetische Polygone in `app.map_features` (Layer `berlin-bezirke`) und Schwerpunkte in `app.search_places` an. Je Bezirk zwei Ids mit derselben Rechteck-Geometrie: amtlich `ags:11000001` … `ags:11000012` und Alias `ags:11001001` … `ags:11012012` (`11` plus die dreistellige Nummer zweimal), also auch `ags:11006006` (Steglitz-Zehlendorf) und `ags:11007007` (Tempelhof-Schöneberg). `properties.ags` ist der amtliche Schlüssel. Halbe Kantenlänge 0,18° Länge / 0,095° Breite wie `stubPolygon` für grain `ags`. Keine amtlichen Grenzen. Erneutes Ausführen aktualisiert diese Zeilen. Auf STAGE hat Location-Guide diese Rechtecke durch zwölf echte MultiPolygons ersetzt (`ags:11000001` … `ags:11000012`) und die Alias-Zeilen gelöscht. Diese API sät keine weiteren Stubs und schreibt den Alias nicht erneut: `11006006` wird als `11000006` gespeichert.
 
+`008_drop_muenchen_gemeinde_rectangle.sql` löscht `app.map_features` `ags:09162000` auf Layer `demo-gemeinden` (der achsenparallele Kasten aus `001_init.sql`). Kein Ersatzpolygon. `app.search_places` für München bleibt. Berlin `ags:11000000` und Hamburg `ags:02000000` bleiben Punkte. `app.schema_migrations` speichert nur den Dateinamen, deshalb steht der Kasten nicht mehr in `001_init.sql` und die neue Migration entfernt ihn auf einer Datenbank, die `001` schon angewendet hat.
+
 `.env.example` setzt `DATABASE_URL`, `JWT_SECRET` und `PORT`. Das sind lokale Platzhalter. Echte Secrets nicht committen. `DATASCOUT_DATABASE_URL` bleibt auskommentiert: ohne sie liegen Filial-Pins auf dem PLZ-Stub. Darunter steht der Embeddings-Block (STAGE auf Eule, PROD auf Fuchs) nur als Kommentar; siehe [STAGE / Embeddings](#stage--embeddings). Filial-Koordinaten: [Filial-Pins](#filial-pins-data-scout).
 
 ## Seed-Nutzer
@@ -125,7 +127,7 @@ curl -s http://localhost:3000/recommendations \
   -H "authorization: Bearer $TOKEN"
 ```
 
-Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Stubs (Punkte und ein grober Polygon-Kasten), keine amtlichen Grenzen. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
+Gesäte Layer: `demo-gemeinden`, `demo-plz`, `demo-grid100`. Geometrien sind synthetische Punkt-Stubs, keine amtlichen Grenzen. `demo-gemeinden` enthält Berlin und Hamburg als Punkte. München liegt nur in `app.search_places`, nicht als Polygon in diesem Layer. `/layers/{id}` liest diese Tabellen in `app`, auch wenn die Feature-Docs noch keine Koordinaten haben.
 
 `/search` liest `features.v_location_search`, sobald die View mindestens eine Zeile hat. Treffer kommen aus `name` (sonst `title` oder `geo_key`), `grain` und `geo_key`. `lon`/`lat` dürfen null sein. Filter: `q`, `type` (`address` | `ags` | `plz`), `address`, `ags`, `plz`, `geoKey`, `grain`. Ein Treffer ist eine Place-Id, kein Polygon. Der Zielregion-Picker schickt diese Id an `PUT /target-region` ohne `geometry`. Die Fläche liegt in Brain `app.map_features` oder, wenn die dort fehlt, in Data-Scout `geo_ref_bezirk` / `geo_ref_admin` (Location-Guide). Suchzeilen und Point-Features sind keine Umrisse. Ohne Katalog-Polygon und ohne Koordinaten lehnt PUT ab, sofern der Client nicht `geometry` oder `bounds` mitschickt.
 
