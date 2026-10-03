@@ -10,8 +10,26 @@ const GRAIN_LABELS: Record<Grain, string> = {
   other: "Sonstiges",
 };
 
-export function grainLabel(grain: Grain): string {
+/**
+ * German badge for a contract grain.
+ *
+ * Berlin Bezirke stay `ags` in the API. Their canonical 8-digit AGS is
+ * `11000001`–`11000012` (search ids `ags:11000001` … `ags:11000012`).
+ * Those badges say „Bezirk“. Every other `ags` stays „Gemeinde“, including
+ * Berlin `11000000`. Pass `geoKey`, `ags`, or a search id.
+ */
+export function grainLabel(grain: Grain, geoKey?: string | null): string {
+  if (grain === "ags" && isBerlinBezirkAgs(geoKey)) return "Bezirk";
   return GRAIN_LABELS[grain];
+}
+
+function isBerlinBezirkAgs(value: string | null | undefined): boolean {
+  if (typeof value !== "string") return false;
+  let code = value.trim();
+  if (code.startsWith("ags:")) code = code.slice(4);
+  if (!/^[0-9]{8}$/.test(code)) return false;
+  const ags = Number(code);
+  return ags >= 11000001 && ags <= 11000012;
 }
 
 export function zoomForGrain(grain: Grain): number {

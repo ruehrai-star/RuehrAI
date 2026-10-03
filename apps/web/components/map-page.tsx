@@ -229,16 +229,23 @@ export function MapPage() {
           markerKey={karte.markerKey}
           regionKey={karte.regionKey}
         />
-        {karte.showEmptyAddresses ? (
-          <p className="map-empty" role="status">
-            {NO_STORES_LABEL}
-          </p>
-        ) : null}
-        {karte.coordinateGapLabel ? (
-          <p className="map-gap" role="status">
-            {karte.coordinateGapLabel}
-          </p>
-        ) : null}
+        <div className="map-notices">
+          {karte.showEmptyAddresses ? (
+            <p className="map-empty" role="status">
+              {NO_STORES_LABEL}
+            </p>
+          ) : null}
+          {karte.coordinateGapLabel ? (
+            <p className="map-gap" role="status">
+              {karte.coordinateGapLabel}
+            </p>
+          ) : null}
+          {karte.missingAreaLabel ? (
+            <p className="map-area" role="status">
+              {karte.missingAreaLabel}
+            </p>
+          ) : null}
+        </div>
         {mine?.error ? <p className="message message-error map-banner">{mine.error}</p> : null}
         {karte.showLegend ? (
           <div className="map-legend">
@@ -251,7 +258,7 @@ export function MapPage() {
         ) : null}
         {selection ? (
           <div className="callout">
-            <span className="badge">{grainLabel(selection.grain)}</span>
+            <span className="badge">{grainLabel(selection.grain, selection.geoKey || selection.id)}</span>
             <strong>{selection.label}</strong>
             {selectionPoint ? (
               <span className="callout-coords">

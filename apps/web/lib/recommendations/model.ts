@@ -46,7 +46,7 @@ export function formatAddress(item: Recommendation): string {
 }
 
 export function formatLocationMeta(item: Recommendation): string {
-  return `${grainLabel(item.location.grain)} ${item.location.geoKey}`;
+  return `${grainLabel(item.location.grain, item.location.geoKey)} ${item.location.geoKey}`;
 }
 
 export function formatScore(score: number): string {

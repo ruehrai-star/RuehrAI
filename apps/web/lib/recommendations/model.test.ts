@@ -64,6 +64,20 @@ test("a card address, score, window, and short criteria stay in German", () => {
   assert.equal(formatAddress(item), "Schwabing");
   assert.equal(formatAddress({ ...item, title: "Leopoldstraße 12", location: { ...item.location, name: "Schwabing" } }), "Leopoldstraße 12, Schwabing");
   assert.equal(formatLocationMeta(item), "PLZ 80801");
+  assert.equal(
+    formatLocationMeta({
+      ...item,
+      location: { ...item.location, grain: "ags", geoKey: "11000001" },
+    }),
+    "Bezirk 11000001",
+  );
+  assert.equal(
+    formatLocationMeta({
+      ...item,
+      location: { ...item.location, grain: "ags", geoKey: "09162000" },
+    }),
+    "Gemeinde 09162000",
+  );
   assert.equal(formatScore(1), "Passung 100\u00a0%");
   assert.equal(formatWindow({ from: "2026-04", to: "2026-09" }), "April 2026 – September 2026");
   assert.deepEqual(shortCriteria(setWith([item], null).pattern), ["Einwohner · steigend"]);

@@ -20,6 +20,12 @@ import { coordinatesOf } from "../api/geo.ts";
 export const NO_STORES_LABEL = "Noch keine Filialadressen";
 export const LEGEND_LABEL = "Zielregion";
 
+/**
+ * Calm hint when a Zielregion is saved but neither `geometry` nor `bounds`
+ * can fill an area. A lon/lat pair still frames the camera; it is not a polygon.
+ */
+export const MISSING_AREA_LABEL = "Zielregion ist gesetzt. Die Fläche kann noch nicht gezeichnet werden.";
+
 export const FIT_PADDING_PX = 48;
 export const FIT_MAX_ZOOM = 14;
 
@@ -68,6 +74,8 @@ export interface KarteModel {
   showLegend: boolean;
   showEmptyAddresses: boolean;
   coordinateGapLabel: string | null;
+  /** German hint when the Zielregion is set and the overlay has no drawable feature. */
+  missingAreaLabel: string | null;
   camera: MapCamera;
   cameraKey: string;
   markerKey: string;
@@ -85,15 +93,17 @@ export function buildKarte(input: {
   const pins = storePins(input.stores);
   const empfehlungen = empfehlungPins(input.recommendations);
   const overlay = regionOverlay(input.region);
+  const drawable = overlay.collection.features.length > 0;
   const camera = cameraFor(pins, overlay.bounds);
   const signature = dataSignature(input.stores, input.region, overlay);
   return {
     pins,
     empfehlungen,
     region: overlay.collection,
-    showLegend: overlay.collection.features.length > 0,
+    showLegend: drawable,
     showEmptyAddresses: input.addressesKnownEmpty && input.stores.length === 0,
     coordinateGapLabel: input.stores.length > 0 ? coordinateGapLabel(input.stores) : null,
+    missingAreaLabel: input.region && !drawable ? MISSING_AREA_LABEL : null,
     camera,
     cameraKey: cameraKey(camera, signature),
     markerKey: JSON.stringify({ pins, empfehlungen }),
