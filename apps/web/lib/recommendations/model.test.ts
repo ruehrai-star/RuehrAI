@@ -73,27 +73,27 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
 test("a card address, score, window, and short criteria stay in German", () => {
   assert.equal(formatAddress(item), "Schwabing");
   assert.equal(formatAddress({ ...item, title: "Leopoldstraße 12", location: { ...item.location, name: "Schwabing" } }), "Leopoldstraße 12, Schwabing");
-  assert.equal(formatLocationMeta(item), "PLZ 80801");
+  assert.equal(formatLocationMeta(item), "PLZ");
   assert.equal(
     formatLocationMeta({
       ...item,
       location: { ...item.location, grain: "ags", geoKey: "11000001" },
     }),
-    "Bezirk 11000001",
+    "Bezirk",
   );
   assert.equal(
     formatLocationMeta({
       ...item,
       location: { ...item.location, grain: "ags", geoKey: "09162000" },
     }),
-    "Gemeinde 09162000",
+    "Gemeinde",
   );
   assert.equal(
     formatLocationMeta({
       ...item,
       location: { ...item.location, grain: "ags", geoKey: "14713000", level: "ortsteil" },
     }),
-    "Ortsteil 14713000",
+    "Ortsteil",
   );
   assert.equal(
     formatLocationMeta({
@@ -106,7 +106,7 @@ test("a card address, score, window, and short criteria stay in German", () => {
         parentLabel: "Leipzig",
       },
     }),
-    "Ortsteil Leipzig 14713000",
+    "Ortsteil Leipzig",
   );
   assert.equal(
     formatLocationMeta({
@@ -119,11 +119,49 @@ test("a card address, score, window, and short criteria stay in German", () => {
         parentName: "Berlin",
       } as Recommendation["location"],
     }),
-    "Stadtteil 11000001",
+    "Stadtteil",
   );
   assert.equal(formatScore(1), "Passung 100\u00a0%");
   assert.equal(formatWindow({ from: "2026-04", to: "2026-09" }), "April 2026 – September 2026");
   assert.deepEqual(shortCriteria(setWith([item], null).pattern), ["Einwohner · steigend"]);
+});
+
+test("recommendation copy never shows the catalog key", () => {
+  const bezirk = {
+    ...item,
+    id: "ags:11000001",
+    location: { ...item.location, grain: "ags" as const, geoKey: "11000001" },
+  };
+  const prefixed = {
+    ...item,
+    id: "plz5:80801",
+    location: { ...item.location, geoKey: "plz5:80801" },
+  };
+  const withParent = {
+    ...item,
+    location: {
+      ...item.location,
+      grain: "ags" as const,
+      geoKey: "14713000",
+      level: "ortsteil" as const,
+      parentLabel: "Leipzig",
+    },
+  };
+  const keyedTitle = formatAddress({ ...item, title: "plz5:80801", location: { ...item.location, name: null } });
+  const visible = [
+    formatAddress(item),
+    keyedTitle,
+    formatLocationMeta(item),
+    formatLocationMeta(bezirk),
+    formatLocationMeta(prefixed),
+    formatLocationMeta(withParent),
+  ].join(" ");
+  assert.equal(keyedTitle, "");
+  for (const key of ["80801", "11000001", "14713000", "plz5:80801", "ags:11000001", item.id, item.location.geoKey]) {
+    assert.equal(visible.includes(key), false, `catalog key leaked: ${key}`);
+  }
+  assert.equal(visible.includes("PLZ 80801"), false);
+  assert.equal(visible.includes("Bezirk 11000001"), false);
 });
 
 test("one match surfaces the thin-region hint and the Backend reason", () => {

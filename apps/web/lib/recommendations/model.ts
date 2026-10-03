@@ -1,6 +1,6 @@
 import type { AnalysisPattern, Recommendation, RecommendationSet, RecommendationWindow } from "@ruehrai/api-contracts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogParentName } from "../format.ts";
+import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
 
 /** UX-Gate labels for the Empfehlungen page. */
 export const RECOMMENDATION_COPY = {
@@ -53,17 +53,23 @@ export function rankLabel(rank: number): string {
 }
 
 export function formatAddress(item: Recommendation): string {
-  const title = item.title.trim();
-  const name = item.location.name?.trim() ?? "";
-  if (name && name !== title) return `${title}, ${name}`;
+  const title = visiblePlaceText(item.title);
+  const name = visiblePlaceText(item.location.name);
+  if (name && name !== title) return title ? `${title}, ${name}` : name;
   return title;
+}
+
+function visiblePlaceText(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return "";
+  return trimmed;
 }
 
 export function formatLocationMeta(item: Recommendation): string {
   const badge = catalogBadge(item.location);
   const parent = catalogParentName(item.location);
-  const key = item.location.geoKey;
-  return parent ? `${badge} ${parent} ${key}` : `${badge} ${key}`;
+  return [badge, parent].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
 }
 
 export function formatScore(score: number): string {

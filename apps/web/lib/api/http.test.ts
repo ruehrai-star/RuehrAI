@@ -351,6 +351,41 @@ test("GET /target-region keeps a contract level on list items", async () => {
   assert.equal(items[0]?.parentLabel, "Leipzig");
 });
 
+test("GET /target-region omits a saved row that has no place name", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        items: [
+          {
+            label: "ortsteil:osm:5712247",
+            grain: "other",
+            geoKey: "ortsteil:osm:5712247",
+            updatedAt: "2026-10-03T12:00:00.000Z",
+            bounds: null,
+            geometry: null,
+            level: "ortsteil",
+            parentLabel: "Berlin",
+          },
+          {
+            label: "München",
+            grain: "ags",
+            geoKey: "09162000",
+            updatedAt: "2026-10-03T12:00:00.000Z",
+            bounds: null,
+            geometry: null,
+          },
+        ],
+      }),
+  });
+  const items = await api.listTargetRegions();
+  assert.deepEqual(
+    items.map((item) => item.label),
+    ["München"],
+  );
+  assert.equal(items[0]?.geoKey, "09162000");
+});
+
 test("GET /target-region maps 404 and an empty list to no rows", async () => {
   const missing = createHttpApi({
     getAccessToken: () => "jwt-1",

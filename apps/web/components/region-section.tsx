@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CatalogParentName } from "@/components/catalog-parent-name";
 import { ApiError, getApi, type AnalysisPattern, type SearchHit, type TargetRegion } from "@/lib/api";
 import { revenueDirectionLabel } from "@/lib/analysis/model";
-import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
+import { catalogBadge, catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
 import { regionHasDrawableArea } from "@/lib/map/karte";
 import {
   REGION_LIST_COPY,
@@ -92,9 +92,10 @@ export function RegionSection({
   const trimmed = query.trim();
   const searching = trimmed.length >= 2 && resultQuery !== trimmed;
   const visibleHits = trimmed.length >= 2 && resultQuery === trimmed ? visibleSearchHits(hits) : [];
+  const visibleItems = visibleSavedRegions(items);
 
   async function addHit(hit: SearchHit) {
-    if (isHitInList(hit, items) || !catalogPlaceName(hit)) return;
+    if (isHitInList(hit, visibleItems) || !catalogPlaceName(hit)) return;
     await onAdd(hit);
     setQuery("");
     setHits([]);
@@ -106,11 +107,11 @@ export function RegionSection({
     <section className="section-card" id="zielregion" aria-labelledby="zielregion-title">
       <h2 id="zielregion-title">{REGION_LIST_COPY.heading}</h2>
 
-      {items.length === 0 ? <p className="message">{REGION_LIST_COPY.empty}</p> : null}
+      {visibleItems.length === 0 ? <p className="message">{REGION_LIST_COPY.empty}</p> : null}
 
-      {items.length > 0 ? (
+      {visibleItems.length > 0 ? (
         <ul className="region-list">
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const key = regionListKey(item);
             const name = catalogPlaceName(item);
             const badge = catalogBadge(item);
@@ -178,7 +179,7 @@ export function RegionSection({
         <ul id="region-hits" className="results">
           {visibleHits.map((hit) => {
             const name = catalogPlaceName(hit);
-            const inList = isHitInList(hit, items);
+            const inList = isHitInList(hit, visibleItems);
             const badge = catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id });
             return (
               <li key={hit.id}>

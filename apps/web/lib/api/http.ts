@@ -23,7 +23,7 @@ import type {
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
-import { catalogLevelOf, catalogParentName } from "../format.ts";
+import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import type { RuehrApi } from "./client";
@@ -285,7 +285,7 @@ function parseTargetRegionList(body: TargetRegionList): TargetRegion[] {
   if (!body || !Array.isArray(body.items)) {
     throw new ApiError("Antwort von /target-region ist ungültig.", 502);
   }
-  return body.items.map(parseTargetRegion);
+  return visibleSavedRegions(body.items.map(parseTargetRegion));
 }
 
 function parseTargetRegion(body: TargetRegion): TargetRegion {

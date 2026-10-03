@@ -1,4 +1,5 @@
 import type { SearchHit, TargetRegion } from "../api/types.ts";
+import { catalogPlaceName, visibleSavedRegions } from "../format.ts";
 import { catalogIdForSave } from "./model.ts";
 
 /** User-visible copy for the Zielregionen list. */
@@ -72,7 +73,8 @@ export function isHitInList(hit: SearchHit, items: readonly TargetRegion[]): boo
 
 /** Newest add first. A second add of the same key does not insert another row. */
 export function addRegionToFront(items: readonly TargetRegion[], added: TargetRegion): TargetRegion[] {
-  return [added, ...items.filter((item) => !samePlace(item, added))];
+  if (catalogPlaceName(added) === null) return visibleSavedRegions(items);
+  return visibleSavedRegions([added, ...items.filter((item) => !samePlace(item, added))]);
 }
 
 export function removeRegion(items: readonly TargetRegion[], key: string): TargetRegion[] {

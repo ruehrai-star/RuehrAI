@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SearchHit, TargetRegion } from "../api/types.ts";
-import { catalogHitVisibleText, catalogParentName, catalogPlaceName, isCatalogKey } from "../format.ts";
+import { catalogHitVisibleText, catalogParentName, catalogPlaceName, isCatalogKey, visibleSavedRegions } from "../format.ts";
 import { MISSING_AREA_LABEL, buildKarte, readRegionGeometry } from "../map/karte.ts";
 import { recommendationEmptyCopy, recommendationSubtitle } from "../recommendations/model.ts";
 import {
@@ -114,6 +114,8 @@ test("catalog keys stay on the row for save and are not rendered", () => {
   assert.equal(text.includes("ags:"), false);
   assert.equal(catalogPlaceName(keyOnly), null);
   assert.equal(catalogHitVisibleText(keyOnly), "");
+  assert.deepEqual(visibleSavedRegions([saved, keyOnly]).map((item) => item.label), ["Lankwitz"]);
+  assert.deepEqual(addRegionToFront([saved], keyOnly).map((item) => item.label), ["Lankwitz"]);
 });
 
 test("an old München row without level or parentLabel shows the name only", () => {

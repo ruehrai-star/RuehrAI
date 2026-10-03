@@ -9,6 +9,7 @@ import {
   grainLabel,
   isCatalogKey,
   isSubAreaLevel,
+  visibleSavedRegions,
   visibleSearchHits,
 } from "./format.ts";
 
@@ -147,6 +148,27 @@ test("a hit without a place name is dropped even when badge or parentLabel exist
     visibleSearchHits([keyOnly, blank, named]).map((hit) => hit.label),
     ["12247"],
   );
+  assert.deepEqual(
+    visibleSavedRegions([keyOnly, blank, named]).map((item) => item.label),
+    ["12247"],
+  );
+});
+
+test("a saved Zielregion row without a place name is omitted from the list", () => {
+  const nameless = {
+    label: "ortsteil:osm:5712247",
+    geoKey: "ortsteil:osm:5712247",
+    grain: "other" as const,
+    level: "ortsteil" as const,
+    parentLabel: "Berlin",
+  };
+  const blank = { label: "  ", geoKey: "ags:09162000", grain: "ags" as const };
+  const named = { label: "München", geoKey: "09162000", grain: "ags" as const };
+  assert.equal(catalogPlaceName(nameless), null);
+  assert.deepEqual(
+    visibleSavedRegions([nameless, blank, named]).map((item) => item.label),
+    ["München"],
+  );
 });
 
 test("parentLabel stays empty when the field is missing; no parent name is guessed", () => {
@@ -185,12 +207,16 @@ test("search-panel user-visible copy has no AGS and no 09162000", () => {
 test("Zielregion and search markup never interpolate catalog id or geoKey as visible text", () => {
   const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
   const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
-  for (const source of [region, search]) {
+  const recommendations = readFileSync(new URL("../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  const recModel = readFileSync(new URL("./recommendations/model.ts", import.meta.url), "utf8");
+  for (const source of [region, search, recommendations]) {
     assert.equal(source.includes("hit-id"), false);
     assert.equal(source.includes("{hit.geoKey ?? hit.id}"), false);
     assert.equal(source.includes("<span className=\"hit-id\">"), false);
     assert.equal(source.includes("{saved.geoKey"), false);
+    assert.equal(source.includes("{item.location.geoKey}"), false);
   }
+  assert.equal(recModel.includes("item.location.geoKey"), false);
 });
 
 test("parent name renders only from parentLabel when it is a non-empty string", () => {
