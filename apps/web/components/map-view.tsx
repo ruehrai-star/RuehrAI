@@ -47,6 +47,7 @@ interface MapViewProps {
   camera: MapCamera;
   markerKey: string;
   regionKey: string;
+  onMarkRegion?: (geoKey: string) => void;
 }
 
 function walkPositions(coordinates: unknown, visit: (position: Position) => void): void {
@@ -237,6 +238,7 @@ export function MapView({
   camera,
   markerKey,
   regionKey,
+  onMarkRegion,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -244,6 +246,7 @@ export function MapView({
   const selectionRef = useRef(selection);
   const selectedFeatureId = useRef<string | number | null>(null);
   const onSelectRef = useRef(onSelect);
+  const onMarkRegionRef = useRef(onMarkRegion);
   const layerRef = useRef(layer);
   const regionRef = useRef(region);
   const pinsRef = useRef(pins);
@@ -260,6 +263,10 @@ export function MapView({
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  useEffect(() => {
+    onMarkRegionRef.current = onMarkRegion;
+  }, [onMarkRegion]);
 
   useEffect(() => {
     layerRef.current = layer;
@@ -339,7 +346,7 @@ export function MapView({
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
           "fill-color": REGION_FILL,
-          "fill-opacity": REGION_FILL_OPACITY,
+          "fill-opacity": ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
         },
       });
       map.addLayer({
@@ -348,8 +355,8 @@ export function MapView({
         source: "zielregion",
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
-          "line-color": REGION_LINE,
-          "line-width": 2,
+          "line-color": ["case", ["==", ["get", "marked"], true], "#0f2a4d", REGION_LINE],
+          "line-width": ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
         },
       });
       map.addSource("selection", { type: "geojson", data: EMPTY });
@@ -373,6 +380,20 @@ export function MapView({
       };
       for (const layerId of ["layer-fill", "layer-circle"]) {
         map.on("click", layerId, selectFeature);
+        map.on("mouseenter", layerId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layerId, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
+      const markOutline = (event: { features?: MapGeoJSONFeature[] }) => {
+        const feature = event.features?.[0];
+        const key = feature?.properties?.geoKey;
+        if (typeof key === "string" && key.length > 0) onMarkRegionRef.current?.(key);
+      };
+      for (const layerId of ["zielregion-fill", "zielregion-line"]) {
+        map.on("click", layerId, markOutline);
         map.on("mouseenter", layerId, () => {
           map.getCanvas().style.cursor = "pointer";
         });

@@ -110,6 +110,11 @@ export function visibleSearchHits<T>(hits: readonly T[]): T[] {
   return hits.filter((hit) => catalogPlaceName(hit) !== null);
 }
 
+/** Saved Zielregion rows without a place name stay out of the list. */
+export function visibleSavedRegions<T>(items: readonly T[]): T[] {
+  return items.filter((item) => catalogPlaceName(item) !== null);
+}
+
 /**
  * Visible Zielregion copy: place name, optional parentLabel, level badge.
  * Catalog keys (`id`, `geoKey`) are omitted even when they are present.

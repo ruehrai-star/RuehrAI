@@ -36,14 +36,12 @@ export type {
   LonLatBounds,
   StoreLocation,
   StoreLocationWrite,
+  TargetRegionList,
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
 
-/**
- * Catalog `level` is named by the Product-Owner. OpenAPI on main does not
- * list it yet. The web client accepts it when the backend sends it.
- */
+/** Catalog `level` follows OpenAPI `CatalogLevel` when the backend sends it. */
 export type SearchHit = ContractSearchHit & {
   level?: CatalogLevel | null;
   parentLabel?: string | null;

@@ -325,37 +325,82 @@ test("POST /auth/logout revokes the bearer token and accepts an empty body", asy
   assert.equal(seen.authorization, "Bearer jwt-1");
 });
 
-test("GET /target-region keeps a contract level", async () => {
+test("GET /target-region keeps a contract level on list items", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
     fetch: async () =>
       jsonResponse({
-        label: "Plagwitz",
-        grain: "ags",
-        geoKey: "14713000",
-        ags: "14713000",
-        updatedAt: "2026-10-03T12:00:00.000Z",
-        bounds: null,
-        geometry: null,
-        level: "ortsteil",
-        parentLabel: "Leipzig",
+        items: [
+          {
+            label: "Plagwitz",
+            grain: "ags",
+            geoKey: "14713000",
+            ags: "14713000",
+            updatedAt: "2026-10-03T12:00:00.000Z",
+            bounds: null,
+            geometry: null,
+            level: "ortsteil",
+            parentLabel: "Leipzig",
+          },
+        ],
       }),
   });
-  const region = await api.getTargetRegion();
-  assert.equal(region?.label, "Plagwitz");
-  assert.equal(region?.level, "ortsteil");
-  assert.equal(region?.parentLabel, "Leipzig");
+  const items = await api.listTargetRegions();
+  assert.equal(items[0]?.label, "Plagwitz");
+  assert.equal(items[0]?.level, "ortsteil");
+  assert.equal(items[0]?.parentLabel, "Leipzig");
 });
 
-test("GET /target-region maps 404 to an empty region", async () => {
+test("GET /target-region omits a saved row that has no place name", async () => {
   const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        items: [
+          {
+            label: "ortsteil:osm:5712247",
+            grain: "other",
+            geoKey: "ortsteil:osm:5712247",
+            updatedAt: "2026-10-03T12:00:00.000Z",
+            bounds: null,
+            geometry: null,
+            level: "ortsteil",
+            parentLabel: "Berlin",
+          },
+          {
+            label: "München",
+            grain: "ags",
+            geoKey: "09162000",
+            updatedAt: "2026-10-03T12:00:00.000Z",
+            bounds: null,
+            geometry: null,
+          },
+        ],
+      }),
+  });
+  const items = await api.listTargetRegions();
+  assert.deepEqual(
+    items.map((item) => item.label),
+    ["München"],
+  );
+  assert.equal(items[0]?.geoKey, "09162000");
+});
+
+test("GET /target-region maps 404 and an empty list to no rows", async () => {
+  const missing = createHttpApi({
     getAccessToken: () => "jwt-1",
     fetch: async () => jsonResponse({ statusCode: 404, message: "Not found" }, 404),
   });
-  assert.equal(await api.getTargetRegion(), null);
+  assert.deepEqual(await missing.listTargetRegions(), []);
+
+  const empty = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => jsonResponse({ items: [] }),
+  });
+  assert.deepEqual(await empty.listTargetRegions(), []);
 });
 
-test("PUT /target-region and store revenue use the contract paths", async () => {
+test("POST /target-region and store revenue use the contract paths", async () => {
   const calls: string[] = [];
   const api = createHttpApi({
     baseUrl: "http://backend.test",
@@ -404,7 +449,7 @@ test("PUT /target-region and store revenue use the contract paths", async () => 
     },
   });
 
-  const region = await api.putTargetRegion({ label: "München", grain: "ags", geoKey: "09162000" });
+  const region = await api.addTargetRegion({ label: "München", grain: "ags", geoKey: "09162000" });
   assert.equal(region.label, "München");
   assert.equal(region.level, null);
   const store = await api.createStore({
@@ -418,10 +463,26 @@ test("PUT /target-region and store revenue use the contract paths", async () => 
   const points = await api.putStoreRevenue("3", [{ year: 2026, month: 1, revenueEur: null }]);
   assert.equal(points[0]?.revenueEur, null);
   assert.deepEqual(calls, [
-    "PUT http://backend.test/target-region",
+    "POST http://backend.test/target-region",
     "POST http://backend.test/stores",
     "PUT http://backend.test/stores/3/revenue",
   ]);
+});
+
+test("DELETE /target-region/{geoKey} encodes the catalog key", async () => {
+  const seen: { url?: string; method?: string } = {};
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    getAccessToken: () => "jwt-1",
+    fetch: async (input, init) => {
+      seen.url = String(input);
+      seen.method = init?.method;
+      return new Response(null, { status: 204 });
+    },
+  });
+  await api.removeTargetRegion("ortsteil:osm:5712247");
+  assert.equal(seen.method, "DELETE");
+  assert.equal(seen.url, "http://backend.test/target-region/ortsteil%3Aosm%3A5712247");
 });
 
 test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps map geometry", async () => {
@@ -462,25 +523,29 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
       }
       if (url.endsWith("/target-region")) {
         return jsonResponse({
-          label: "München",
-          grain: "ags",
-          geoKey: "09162000",
-          lon: 11.5,
-          lat: 48.1,
-          updatedAt: "2026-09-29T12:00:00.000Z",
-          bounds: { west: 11.3, south: 48.0, east: 11.8, north: 48.3 },
-          geometry: {
-            type: "Polygon",
-            coordinates: [
-              [
-                [11.3, 48.0],
-                [11.8, 48.0],
-                [11.8, 48.3],
-                [11.3, 48.3],
-                [11.3, 48.0],
-              ],
-            ],
-          },
+          items: [
+            {
+              label: "München",
+              grain: "ags",
+              geoKey: "09162000",
+              lon: 11.5,
+              lat: 48.1,
+              updatedAt: "2026-09-29T12:00:00.000Z",
+              bounds: { west: 11.3, south: 48.0, east: 11.8, north: 48.3 },
+              geometry: {
+                type: "Polygon",
+                coordinates: [
+                  [
+                    [11.3, 48.0],
+                    [11.8, 48.0],
+                    [11.8, 48.3],
+                    [11.3, 48.3],
+                    [11.3, 48.0],
+                  ],
+                ],
+              },
+            },
+          ],
         });
       }
       return jsonResponse({ statusCode: 500, message: url }, 500);
@@ -491,7 +556,8 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
   assert.equal(stores[0]?.lon, 11.575);
   assert.equal(stores[0]?.lat, 48.137);
   assert.equal(stores[1]?.street, "Alexanderplatz 1");
-  const region = await api.getTargetRegion();
+  const items = await api.listTargetRegions();
+  const region = items[0];
   assert.equal(region?.bounds?.west, 11.3);
   assert.equal(region?.bounds?.south, 48);
   assert.equal(region?.bounds?.east, 11.8);
@@ -500,7 +566,8 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
   assert.equal(region?.level, null);
   const model = buildKarte({
     stores,
-    region,
+    regions: items,
+    markedKey: region?.geoKey ?? null,
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -557,7 +624,7 @@ test("GET /stores keeps numeric-string coordinates and does not treat them as mi
   assert.equal(stores[1]?.lon, null);
   const model = buildKarte({
     stores,
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: false,
   });

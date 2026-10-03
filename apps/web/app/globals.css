@@ -705,12 +705,62 @@ input {
   gap: 8px;
 }
 
+.region-list,
 .store-list {
   display: flex;
   flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.region-list {
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.region-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+
+.region-row.is-marked {
+  border-color: #1d3f73;
+}
+
+.region-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.region-row-main .hit {
+  flex: 1;
+}
+
+.hit.is-added {
+  cursor: default;
+}
+
+.hit-added {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.verlauf {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #f4f7f6;
+}
+
+.verlauf h3 {
+  margin: 0;
 }
 
 .store-row {

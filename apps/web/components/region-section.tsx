@@ -1,27 +1,47 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, getApi, type SearchHit, type TargetRegion, type TargetRegionWrite } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
-import { toTargetRegionWrite } from "@/lib/locations/model";
+import { ApiError, getApi, type AnalysisPattern, type SearchHit, type TargetRegion } from "@/lib/api";
+import { revenueDirectionLabel } from "@/lib/analysis/model";
+import { catalogBadge, catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
+import { regionHasDrawableArea } from "@/lib/map/karte";
+import {
+  REGION_LIST_COPY,
+  isHitInList,
+  regionListKey,
+} from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
 
 interface RegionSectionProps {
-  saved: TargetRegion | null;
-  canSave: boolean;
-  saving: boolean;
+  items: TargetRegion[];
+  markedKey: string | null;
+  adding: boolean;
+  removingKey: string | null;
   error: string | null;
   notice: string | null;
-  onSave: (draft: TargetRegionWrite) => Promise<void>;
+  onMark: (key: string) => void;
+  onAdd: (hit: SearchHit) => Promise<void>;
+  onRemove: (key: string) => Promise<void>;
 }
 
-export function RegionSection({ saved, canSave, saving, error, notice, onSave }: RegionSectionProps) {
+export function RegionSection({
+  items,
+  markedKey,
+  adding,
+  removingKey,
+  error,
+  notice,
+  onMark,
+  onAdd,
+  onRemove,
+}: RegionSectionProps) {
+  const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [resultQuery, setResultQuery] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<SearchHit | null>(null);
+  const [pattern, setPattern] = useState<AnalysisPattern | null>(null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -51,55 +71,100 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
     };
   }, [query]);
 
+  useEffect(() => {
+    if (!markedKey) return;
+    let cancelled = false;
+    getApi()
+      .getAnalysisPattern()
+      .then((latest) => {
+        if (cancelled) return;
+        setPattern(latest?.pattern ?? null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPattern(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [markedKey]);
+
   const trimmed = query.trim();
   const searching = trimmed.length >= 2 && resultQuery !== trimmed;
-  const visibleHits =
-    trimmed.length >= 2 && resultQuery === trimmed ? visibleSearchHits(hits) : [];
-  const savedName = saved ? catalogPlaceName(saved) : null;
-  const pickedName = picked ? catalogPlaceName(picked) : null;
+  const visibleHits = trimmed.length >= 2 && resultQuery === trimmed ? visibleSearchHits(hits) : [];
+  const visibleItems = visibleSavedRegions(items);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!picked || !catalogPlaceName(picked)) return;
-    await onSave(toTargetRegionWrite(picked));
+  async function addHit(hit: SearchHit) {
+    if (isHitInList(hit, visibleItems) || !catalogPlaceName(hit)) return;
+    await onAdd(hit);
+    setQuery("");
+    setHits([]);
+    setResultQuery("");
+    searchRef.current?.focus();
   }
 
   return (
     <section className="section-card" id="zielregion" aria-labelledby="zielregion-title">
-      <h2 id="zielregion-title">Zielregion</h2>
-      <p className="stub-copy">
-        Gebiet, in dem der neue Laden eröffnet werden soll. Suche einen Treffer und speichere die Auswahl.
-      </p>
-      <ol className="steps">
-        <li>Region suchen</li>
-        <li>Treffer wählen</li>
-        <li>Zielregion speichern</li>
-      </ol>
+      <h2 id="zielregion-title">{REGION_LIST_COPY.heading}</h2>
 
-      {saved ? (
-        <p className="status-line">
-          <span>
-            Gespeichert:{savedName ? <> <strong>{savedName}</strong></> : null}
-            <CatalogParentName source={saved} />
-          </span>
-          {saved.grain || saved.level ? <span className="badge">{catalogBadge(saved)}</span> : null}
-        </p>
-      ) : (
-        <p className="message">Noch keine Zielregion gespeichert.</p>
-      )}
+      {visibleItems.length === 0 ? <p className="message">{REGION_LIST_COPY.empty}</p> : null}
 
-      <form className="stack" onSubmit={onSubmit}>
-        <label htmlFor="region-q">Region suchen</label>
+      {visibleItems.length > 0 ? (
+        <ul className="region-list">
+          {visibleItems.map((item) => {
+            const key = regionListKey(item);
+            const name = catalogPlaceName(item);
+            const badge = catalogBadge(item);
+            const marked = markedKey === key;
+            const missing = !regionHasDrawableArea(item);
+            return (
+              <li key={key} className={marked ? "region-row is-marked" : "region-row"}>
+                <div className="region-row-main">
+                  <button
+                    type="button"
+                    className={marked ? "hit is-active" : "hit"}
+                    aria-pressed={marked}
+                    onClick={() => onMark(key)}
+                  >
+                    <span className="hit-label">
+                      {name}
+                      <CatalogParentName source={item} />
+                    </span>
+                    {badge ? (
+                      <span className="hit-meta">
+                        <span className="badge">{badge}</span>
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    disabled={removingKey === key}
+                    onClick={() => void onRemove(key)}
+                  >
+                    {REGION_LIST_COPY.remove}
+                  </button>
+                </div>
+                {missing ? <p className="message">{REGION_LIST_COPY.missingArea}</p> : null}
+                {marked ? <Verlauf pattern={pattern} /> : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      <div className="stack">
+        <label htmlFor="region-q">Zielregion suchen</label>
         <input
+          ref={searchRef}
           id="region-q"
           type="search"
           value={query}
-          placeholder="z. B. Stadtteil oder PLZ"
+          placeholder={REGION_LIST_COPY.searchPlaceholder}
           autoComplete="off"
           onChange={(event) => setQuery(event.target.value)}
           aria-controls="region-hits"
         />
-        <p className="hint">Die Suche nutzt das Backend. Die Auswahl wird erst mit Speichern übernommen.</p>
         {searchError ? (
           <p className="message message-error" role="alert">
             {searchError}
@@ -113,39 +178,38 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
         </div>
         <ul id="region-hits" className="results">
           {visibleHits.map((hit) => {
-            const active = picked?.id === hit.id;
+            const name = catalogPlaceName(hit);
+            const inList = isHitInList(hit, visibleItems);
+            const badge = catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id });
             return (
               <li key={hit.id}>
-                <button
-                  type="button"
-                  className={active ? "hit is-active" : "hit"}
-                  aria-pressed={active}
-                  onClick={() => setPicked(hit)}
-                >
+                <div className={inList ? "hit is-added" : "hit"}>
                   <span className="hit-label">
-                    {catalogPlaceName(hit)}
+                    {name}
                     <CatalogParentName source={hit} />
                   </span>
                   <span className="hit-meta">
-                    <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
+                    {badge ? <span className="badge">{badge}</span> : null}
+                    {inList ? (
+                      <span className="hit-added">{REGION_LIST_COPY.added}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={adding || !name}
+                        onClick={() => void addHit(hit)}
+                      >
+                        {REGION_LIST_COPY.add}
+                      </button>
+                    )}
                   </span>
-                </button>
+                </div>
               </li>
             );
           })}
         </ul>
         {trimmed.length >= 2 && !searching && visibleHits.length === 0 && !searchError ? (
-          <p className="message">Keine Treffer. Stadtteil oder PLZ versuchen.</p>
-        ) : null}
-        {picked && pickedName ? (
-          <p className="message">
-            Auswahl: <strong>{pickedName}</strong>
-            <CatalogParentName source={picked} />
-            {picked.grain || picked.level ? <span className="badge">{catalogBadge(picked)}</span> : null}
-            {savedName === pickedName && saved?.geoKey === (picked.geoKey ?? null)
-              ? " · entspricht der gespeicherten Zielregion"
-              : " · noch nicht gespeichert"}
-          </p>
+          <p className="message">{REGION_LIST_COPY.noHits}</p>
         ) : null}
         {error ? (
           <p className="message message-error" role="alert">
@@ -157,10 +221,21 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
             {notice}
           </p>
         ) : null}
-        <button type="submit" className="button" disabled={!canSave || !picked || !pickedName || saving}>
-          {saving ? "Speichern …" : "Zielregion speichern"}
-        </button>
-      </form>
+      </div>
     </section>
+  );
+}
+
+function Verlauf({ pattern }: { pattern: AnalysisPattern | null }) {
+  return (
+    <div className="verlauf">
+      <h3>{REGION_LIST_COPY.verlauf}</h3>
+      {pattern ? (
+        <>
+          <p className="summary-line">{pattern.summary}</p>
+          <p className="hint">Umsatzrichtung: {revenueDirectionLabel(pattern.revenueDirection)}</p>
+        </>
+      ) : null}
+    </div>
   );
 }

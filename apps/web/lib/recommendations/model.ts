@@ -1,6 +1,6 @@
 import type { AnalysisPattern, Recommendation, RecommendationSet, RecommendationWindow } from "@ruehrai/api-contracts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogParentName } from "../format.ts";
+import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
 
 /** UX-Gate labels for the Empfehlungen page. */
 export const RECOMMENDATION_COPY = {
@@ -12,6 +12,8 @@ export const RECOMMENDATION_COPY = {
   rationale: "Begründung",
   details: "Details",
   empty: "Keine passenden Standorte in der Zielregion.",
+  emptyPlural: "Keine passenden Standorte in den Zielregionen.",
+  subtitlePlural: "Top 3 in Ihren Zielregionen",
   thin: "Die Zielregion ist dünn besetzt.",
   compute: "Empfehlungen berechnen",
   running: "Empfehlungen werden ermittelt …",
@@ -34,22 +36,40 @@ const MONTHS = [
   "Dezember",
 ] as const;
 
+export function recommendationSubtitle(regionCount: number): string | null {
+  if (regionCount <= 0) return null;
+  if (regionCount === 1) return RECOMMENDATION_COPY.subtitle;
+  return RECOMMENDATION_COPY.subtitlePlural;
+}
+
+export function recommendationEmptyCopy(regionCount: number): string | null {
+  if (regionCount <= 0) return null;
+  if (regionCount === 1) return RECOMMENDATION_COPY.empty;
+  return RECOMMENDATION_COPY.emptyPlural;
+}
+
 export function rankLabel(rank: number): string {
   return `Rang ${rank}`;
 }
 
 export function formatAddress(item: Recommendation): string {
-  const title = item.title.trim();
-  const name = item.location.name?.trim() ?? "";
-  if (name && name !== title) return `${title}, ${name}`;
+  const title = visiblePlaceText(item.title);
+  const name = visiblePlaceText(item.location.name);
+  if (name && name !== title) return title ? `${title}, ${name}` : name;
   return title;
+}
+
+function visiblePlaceText(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return "";
+  return trimmed;
 }
 
 export function formatLocationMeta(item: Recommendation): string {
   const badge = catalogBadge(item.location);
   const parent = catalogParentName(item.location);
-  const key = item.location.geoKey;
-  return parent ? `${badge} ${parent} ${key}` : `${badge} ${key}`;
+  return [badge, parent].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
 }
 
 export function formatScore(score: number): string {
@@ -79,7 +99,11 @@ export function recommendationStatus(set: RecommendationSet): { empty: boolean; 
   const empty = set.items.length === 0;
   const thin = set.items.length > 0 && set.items.length < 3;
   const reason = set.reason?.trim() ? set.reason.trim() : null;
-  if (empty && reason?.includes(RECOMMENDATION_COPY.empty)) {
+  if (
+    empty &&
+    reason &&
+    (reason.includes(RECOMMENDATION_COPY.empty) || reason.includes(RECOMMENDATION_COPY.emptyPlural))
+  ) {
     return { empty: false, thin: false, reason };
   }
   return { empty, thin, reason };

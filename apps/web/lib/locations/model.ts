@@ -21,15 +21,13 @@ export interface MonthRow {
 const REVENUE_YEAR_SPAN = 3;
 
 /**
- * Search hits are place ids, not polygons. PUT copies a Polygon or
- * MultiPolygon from Brain `app.map_features`, then Data-Scout
- * `geo_ref_bezirk` / `geo_ref_admin`. Official outlines are catalog data
- * (Location-Guide). The API stores a Berlin Bezirk alias (`11006006`) as
- * `1100000N`. A hit with no catalog polygon and no `lon`/`lat` is rejected
- * unless the client adds `geometry` or `bounds`.
+ * Search hits are place ids, not polygons. POST /target-region copies a
+ * Polygon or MultiPolygon from the catalog. Official outlines are catalog
+ * data (Location-Guide). The API stores a Berlin Bezirk alias (`11006006`)
+ * as `1100000N`.
  *
- * Catalog id is kept on the hit and sent as `geoKey` so PUT can store the
- * outline. A prefixed id such as `plz5:12247` or `ortsteil:osm:5712247`
+ * Catalog id is kept on the hit and sent as `geoKey` so the outline can be
+ * stored. A prefixed id such as `plz5:12247` or `ortsteil:osm:5712247`
  * wins over a bare `geoKey`. The request still carries that id; it is only
  * hidden in the UI.
  */

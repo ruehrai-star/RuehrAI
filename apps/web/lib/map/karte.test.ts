@@ -54,7 +54,7 @@ test("saved addresses become Stecknadeln with a German address popup", () => {
       store({ id: "1", street: "Marienplatz 1", postalCode: "80331", city: "München", lon: 11.575, lat: 48.137 }),
       store({ id: "2", street: "Alexanderplatz 1", postalCode: "10178", city: "Berlin", lon: 13.413, lat: 52.522 }),
     ],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -85,7 +85,7 @@ test("addresses without coordinates stay pinned when a pair exists and are not t
   ];
   const model = buildKarte({
     stores,
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: true,
   });
@@ -107,7 +107,7 @@ test("saved addresses with no coordinates use the coordinate hint, not the empty
       store({ id: "2", street: "Weg 2", lon: null, lat: null }),
       store({ id: "3", street: "Weg 3", lon: null, lat: null }),
     ],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: true,
   });
@@ -129,7 +129,7 @@ test("a numeric coordinate string is a pin and a blank pair is not", () => {
       store({ id: "1", street: "Weg 1", lon: "11.575" as unknown as number, lat: "48.137" as unknown as number }),
       store({ id: "2", street: "Weg 2", lon: " " as unknown as number, lat: "" as unknown as number }),
     ],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -144,7 +144,7 @@ test("a numeric coordinate string is a pin and a blank pair is not", () => {
 test("no saved addresses use the empty label and the Germany overview", () => {
   const model = buildKarte({
     stores: [],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: true,
   });
@@ -158,7 +158,7 @@ test("no saved addresses use the empty label and the Germany overview", () => {
 test("an unknown address list does not claim the empty state", () => {
   const model = buildKarte({
     stores: [],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -169,7 +169,7 @@ test("an unknown address list does not claim the empty state", () => {
 test("Zielregion geometry is a fill and the camera frames addresses plus the area", () => {
   const model = buildKarte({
     stores: [store({ id: "1", street: "Weg 1", lon: 13.4, lat: 52.5 })],
-    region: region({ geometry: MUNICH_BOX, bounds: { west: 11, south: 47.5, east: 12, north: 49 } }),
+    regions: [region({ geometry: MUNICH_BOX, bounds: { west: 11, south: 47.5, east: 12, north: 49 } })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -180,93 +180,87 @@ test("Zielregion geometry is a fill and the camera frames addresses plus the are
   assert.equal(model.camera.kind, "bounds");
   if (model.camera.kind === "bounds") {
     assert.equal(model.camera.bounds.west, 11);
-    assert.equal(model.camera.bounds.south, 47.5);
+    assert.equal(model.camera.bounds.south, 48);
     assert.equal(model.camera.bounds.east, 13.4);
     assert.equal(model.camera.bounds.north, 52.5);
   }
 });
 
-test("OpenAPI LonLatBounds frame the camera and a bbox array does not", () => {
+test("OpenAPI LonLatBounds do not draw a rectangle and do not frame the camera", () => {
   const named = buildKarte({
     stores: [],
-    region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
+    regions: [region({ bounds: { west: 11, south: 48, east: 12, north: 49 } })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(named.showLegend, false);
-  assert.equal(named.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(named.missingAreaLabel, null);
   assert.equal(named.region.features.length, 0);
-  assert.equal(named.camera.kind, "bounds");
-  if (named.camera.kind === "bounds") {
-    assert.deepEqual(named.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
-  }
+  assert.equal(named.camera.kind, "germany");
 
   const arrayBounds = buildKarte({
     stores: [],
-    region: region({ bounds: [11, 48, 12, 49] }),
+    regions: [region({ bounds: [11, 48, 12, 49] })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(arrayBounds.showLegend, false);
-  assert.equal(arrayBounds.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(arrayBounds.missingAreaLabel, null);
   assert.equal(arrayBounds.region.features.length, 0);
   assert.equal(arrayBounds.camera.kind, "germany");
 });
 
-test("bounds alone show the missing-area hint and a point-only region does not fill", () => {
+test("bounds alone and a point-only region do not fill and do not leave a rectangle", () => {
   const boundsOnly = buildKarte({
     stores: [],
-    region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
+    regions: [region({ bounds: { west: 11, south: 48, east: 12, north: 49 } })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(boundsOnly.showLegend, false);
-  assert.equal(boundsOnly.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(boundsOnly.missingAreaLabel, null);
   assert.equal(boundsOnly.region.features.length, 0);
-  assert.equal(boundsOnly.camera.kind, "bounds");
-  if (boundsOnly.camera.kind === "bounds") {
-    assert.deepEqual(boundsOnly.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
-  }
+  assert.equal(boundsOnly.camera.kind, "germany");
 
   const pointOnly = buildKarte({
     stores: [],
-    region: region({
-      lon: 11.5,
-      lat: 48.1,
-      geometry: { type: "Point", coordinates: [11.5, 48.1] },
-    }),
+    regions: [
+      region({
+        lon: 11.5,
+        lat: 48.1,
+        geometry: { type: "Point", coordinates: [11.5, 48.1] },
+      }),
+    ],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(pointOnly.showLegend, false);
-  assert.equal(pointOnly.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(pointOnly.missingAreaLabel, null);
   assert.equal(pointOnly.region.features.length, 0);
-  assert.equal(pointOnly.camera.kind, "bounds");
-  if (pointOnly.camera.kind === "bounds") {
-    assert.equal(pointOnly.camera.bounds.west, 11.5);
-    assert.equal(pointOnly.camera.bounds.east, 11.5);
-  }
+  assert.equal(pointOnly.camera.kind, "germany");
 });
 
 test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored", () => {
   const multi = buildKarte({
     stores: [],
-    region: region({
-      geometry: {
-        type: "MultiPolygon",
-        coordinates: [
-          [
+    regions: [
+      region({
+        geometry: {
+          type: "MultiPolygon",
+          coordinates: [
             [
-              [11, 48],
-              [12, 48],
-              [12, 49],
-              [11, 49],
-              [11, 48],
+              [
+                [11, 48],
+                [12, 48],
+                [12, 49],
+                [11, 49],
+                [11, 48],
+              ],
             ],
           ],
-        ],
-      },
-    }),
+        },
+      }),
+    ],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -276,72 +270,76 @@ test("MultiPolygon geometry is the overlay and other GeoJSON types are ignored",
 
   const wrapped = buildKarte({
     stores: [],
-    region: region({
-      geometry: {
-        type: "FeatureCollection",
-        features: [{ type: "Feature", geometry: MUNICH_BOX, properties: {} }],
-      },
-    }),
+    regions: [
+      region({
+        geometry: {
+          type: "FeatureCollection",
+          features: [{ type: "Feature", geometry: MUNICH_BOX, properties: {} }],
+        },
+      }),
+    ],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(wrapped.showLegend, false);
-  assert.equal(wrapped.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(wrapped.missingAreaLabel, null);
   assert.equal(wrapped.region.features.length, 0);
   assert.equal(wrapped.camera.kind, "germany");
 
   const broken = buildKarte({
     stores: [],
-    region: region({ geometry: { type: "Polygon", coordinates: "nein" }, bounds: { west: 1, south: 2, east: 0, north: 3 } }),
+    regions: [region({ geometry: { type: "Polygon", coordinates: "nein" }, bounds: { west: 1, south: 2, east: 0, north: 3 } })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(broken.showLegend, false);
-  assert.equal(broken.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(broken.missingAreaLabel, null);
   assert.equal(broken.region.features.length, 0);
   assert.equal(broken.camera.kind, "germany");
 });
 
-test("a set Zielregion without geometry or bounds shows the missing-area hint and no fill", () => {
+test("a set Zielregion without geometry or bounds draws no fill and no rectangle", () => {
   const stage = buildKarte({
     stores: [store({ id: "1", street: "Weg 1", lon: 11.58, lat: 48.14 })],
-    region: region({
-      label: "München",
-      grain: "ags",
-      ags: "09162000",
-      lon: 11.575,
-      lat: 48.137,
-      geometry: null,
-      bounds: null,
-    }),
+    regions: [
+      region({
+        label: "München",
+        grain: "ags",
+        ags: "09162000",
+        lon: 11.575,
+        lat: 48.137,
+        geometry: null,
+        bounds: null,
+      }),
+    ],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(stage.region.features.length, 0);
   assert.equal(stage.showLegend, false);
-  assert.equal(stage.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(stage.missingAreaLabel, null);
   assert.equal(stage.camera.kind, "bounds");
   if (stage.camera.kind === "bounds") {
-    assert.equal(stage.camera.bounds.west, 11.575);
+    assert.equal(stage.camera.bounds.west, 11.58);
     assert.equal(stage.camera.bounds.east, 11.58);
   }
 
   const noPoint = buildKarte({
     stores: [],
-    region: region({ geometry: null, bounds: null, lon: null, lat: null }),
+    regions: [region({ geometry: null, bounds: null, lon: null, lat: null })],
     recommendations: [],
     addressesKnownEmpty: false,
   });
   assert.equal(noPoint.region.features.length, 0);
   assert.equal(noPoint.showLegend, false);
-  assert.equal(noPoint.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(noPoint.missingAreaLabel, null);
   assert.equal(noPoint.camera.kind, "germany");
 });
 
 test("Top-3 Empfehlungen use a different color from Bestand pins", () => {
   const withTop3 = buildKarte({
     stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
-    region: null,
+    regions: [],
     recommendations: [recommendation("plz5:80801", "Schwabing", 11.58, 48.16)],
     addressesKnownEmpty: false,
   });
@@ -351,7 +349,7 @@ test("Top-3 Empfehlungen use a different color from Bestand pins", () => {
 
   const bestandOnly = buildKarte({
     stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
-    region: null,
+    regions: [],
     recommendations: [],
     addressesKnownEmpty: false,
   });
@@ -362,7 +360,7 @@ test("Top-3 Empfehlungen use a different color from Bestand pins", () => {
 test("recommendation points stay off the fit and use a different kind", () => {
   const model = buildKarte({
     stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
-    region: null,
+    regions: [],
     recommendations: [
       recommendation("plz5:80801", "Schwabing", 11.58, 48.16),
       recommendation("plz5:10115", "Mitte", null, null),
@@ -379,10 +377,52 @@ test("recommendation points stay off the fit and use a different kind", () => {
   }
 });
 
+test("every drawable outline is on the map and the marked one is distinct", () => {
+  const lankwitz = region({
+    label: "Lankwitz",
+    geoKey: "ortsteil:osm:5712247",
+    geometry: MUNICH_BOX,
+  });
+  const berlin = region({
+    label: "Berlin",
+    geoKey: "11000000",
+    geometry: {
+      type: "Polygon",
+      coordinates: [
+        [
+          [13, 52],
+          [14, 52],
+          [14, 53],
+          [13, 53],
+          [13, 52],
+        ],
+      ],
+    },
+  });
+  const model = buildKarte({
+    stores: [],
+    regions: [lankwitz, berlin],
+    markedKey: "ortsteil:osm:5712247",
+    recommendations: [],
+    addressesKnownEmpty: true,
+  });
+  assert.equal(model.region.features.length, 2);
+  assert.equal(model.showLegend, true);
+  assert.equal(model.region.features[0]?.properties?.marked, true);
+  assert.equal(model.region.features[1]?.properties?.marked, false);
+  assert.equal(model.region.features[0]?.properties?.name, LEGEND_LABEL);
+  assert.equal(model.region.features[1]?.properties?.name, LEGEND_LABEL);
+  assert.equal(model.camera.kind, "bounds");
+  if (model.camera.kind === "bounds") {
+    assert.equal(model.camera.bounds.west, 11);
+    assert.equal(model.camera.bounds.east, 14);
+  }
+});
+
 test("the camera key changes with address data and stays put for recommendations", () => {
   const base = {
     stores: [store({ id: "1", street: "Weg 1", lon: 11.5, lat: 48.1 })],
-    region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
+    regions: [region({ bounds: { west: 11, south: 48, east: 12, north: 49 } })],
     recommendations: [] as Recommendation[],
     addressesKnownEmpty: false,
   };
