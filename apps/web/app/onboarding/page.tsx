@@ -9,9 +9,9 @@ export default function OnboardingPage() {
   return (
     <PlaceholderPage kicker="Platzhalter" title="Einstieg">
       <p>
-        Nach der Anmeldung lädt die Karte den Layer <code>demo-gemeinden</code> vom Backend. Die
-        Suche findet Adressen, PLZ und Gemeindeschlüssel über <code>GET /search</code>. Die
-        fachliche Datenbasis bleibt in <code>docs/datenbasis</code>.
+        Nach den Standorten öffnet sich der Verlauf, nicht die Karte. Die Suche findet Adressen,
+        PLZ und Gemeindeschlüssel über <code>GET /search</code>. Die fachliche Datenbasis bleibt
+        in <code>docs/datenbasis</code>.
       </p>
     </PlaceholderPage>
   );

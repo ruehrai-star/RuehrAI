@@ -134,8 +134,15 @@ code {
 }
 
 .nav-link.is-active {
-  background: #e7f3f1;
-  color: var(--teal-deep);
+  background: transparent;
+  color: var(--clay);
+  box-shadow: inset 0 -2px 0 var(--clay);
+  border-radius: 0;
+}
+
+.nav-link:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: 3px;
 }
 
 .account {
@@ -398,15 +405,15 @@ input {
 }
 
 .steckadel {
-  width: 24px;
-  height: 36px;
+  width: 18px;
+  height: 18px;
   border: 0;
   filter: drop-shadow(0 1px 2px rgba(20, 63, 60, 0.45));
 }
 
 .empfehlung-punkt {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: 0;
   background: transparent;
   filter: drop-shadow(0 1px 2px rgba(216, 90, 42, 0.45));
@@ -760,6 +767,240 @@ input {
   font-size: 11px;
 }
 
+.verlauf-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  flex: 1;
+  min-height: 0;
+  background: #0f1c1b;
+  color: #f3efe6;
+}
+
+.verlauf-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 28px 32px 40px;
+  overflow: auto;
+}
+
+.verlauf-kicker {
+  margin: 0;
+  color: var(--clay);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.verlauf-region {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.verlauf-levels {
+  margin: 0;
+  color: #b7c4c2;
+  font-size: 13px;
+}
+
+.verlauf-level-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verlauf-level-list a {
+  color: #f3efe6;
+  text-decoration: none;
+  border-bottom: 1px solid #2a3f3c;
+}
+
+.verlauf-level-list a:hover,
+.verlauf-level-list a:focus-visible {
+  border-bottom-color: var(--clay);
+}
+
+.verlauf-compare h1 {
+  margin: 0 0 18px;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.verlauf-years {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verlauf-year-label,
+.verlauf-year-evidence {
+  margin: 0;
+  color: #b7c4c2;
+  font-size: 13px;
+}
+
+.verlauf-year-value {
+  margin: 4px 0;
+  color: var(--clay);
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 28px;
+  font-weight: 560;
+}
+
+.verlauf-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  color: #b7c4c2;
+  font-size: 12px;
+}
+
+.verlauf-months li {
+  padding-bottom: 3px;
+  border-bottom: 2px solid var(--clay);
+}
+
+.verlauf-months-quiet li {
+  border-bottom-color: #2a3f3c;
+}
+
+.verlauf-next {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.verlauf-next-text,
+.verlauf-next-address {
+  margin: 0;
+  font-size: 18px;
+}
+
+.verlauf-next-address {
+  color: var(--clay);
+}
+
+.verlauf-top {
+  margin-top: 12px;
+}
+
+.verlauf-top h2 {
+  margin: 0 0 8px;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 22px;
+  font-weight: 560;
+}
+
+.verlauf-top3 {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verlauf-top3 li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0;
+  border-top: 1px solid #2a3f3c;
+}
+
+.verlauf-rank {
+  margin: 0;
+  color: #b7c4c2;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.verlauf-address {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 620;
+}
+
+.verlauf-rationale {
+  margin: 0;
+  color: #b7c4c2;
+}
+
+.verlauf-revenue {
+  margin-top: auto;
+  padding-top: 20px;
+  color: #b7c4c2;
+  font-size: 13px;
+}
+
+.verlauf-revenue summary {
+  cursor: pointer;
+}
+
+.verlauf-proof {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 16px 16px 0;
+  border-left: 1px solid #2a3f3c;
+}
+
+.verlauf-proof .verlauf-kicker {
+  padding: 0 16px 10px;
+}
+
+.verlauf-proof-stage {
+  flex: 1;
+  min-height: 360px;
+  border: 1px solid #2a3f3c;
+  border-right: 0;
+}
+
+.verlauf-page .button-quiet {
+  border-color: #2a3f3c;
+  color: #f3efe6;
+}
+
+.verlauf-page .message,
+.verlauf-page .hint {
+  color: #b7c4c2;
+}
+
+.verlauf-page .message-error {
+  color: #f0b4a3;
+}
+
+.verlauf-page .banner {
+  background: transparent;
+  border-color: #5a3a2c;
+  color: #f3efe6;
+}
+
+.verlauf-page .badge {
+  background: #1d3330;
+  color: #f3efe6;
+}
+
 @media (max-width: 760px) {
   .app {
     height: auto;
@@ -778,6 +1019,23 @@ input {
     height: auto;
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(420px, 72vh);
+  }
+
+  .verlauf-page {
+    grid-template-columns: 1fr;
+  }
+
+  .verlauf-proof {
+    min-height: 360px;
+    padding: 0 0 16px;
+    border-left: 0;
+    border-top: 1px solid #2a3f3c;
+  }
+
+  .verlauf-proof-stage {
+    min-height: 320px;
+    border-right: 1px solid #2a3f3c;
+    border-left: 0;
   }
 
   .panel {

@@ -14,7 +14,7 @@
     "lint": "eslint",
     "pretypecheck": "pnpm --filter @ruehrai/api-contracts build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/api/http.test.ts lib/api/analysis.test.ts lib/api/geo.test.ts lib/session-storage.test.ts lib/user-message.test.ts lib/locations/model.test.ts lib/format.test.ts lib/analysis/model.test.ts lib/analysis/poll.test.ts lib/api/recommendations.test.ts lib/recommendations/model.test.ts lib/map/karte.test.ts"
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/api/http.test.ts lib/api/analysis.test.ts lib/api/geo.test.ts lib/session-storage.test.ts lib/user-message.test.ts lib/locations/model.test.ts lib/format.test.ts lib/analysis/model.test.ts lib/analysis/poll.test.ts lib/api/recommendations.test.ts lib/recommendations/model.test.ts lib/map/karte.test.ts lib/verlauf/model.test.ts"
   },
   "dependencies": {
     "@ruehrai/api-contracts": "workspace:*",
