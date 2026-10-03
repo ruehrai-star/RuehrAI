@@ -21,8 +21,8 @@ export const NO_STORES_LABEL = "Noch keine Filialadressen";
 export const LEGEND_LABEL = "Zielregion";
 
 /**
- * Calm hint when a Zielregion is saved but neither `geometry` nor `bounds`
- * can fill an area. A lon/lat pair still frames the camera; it is not a polygon.
+ * Hint when a Zielregion is saved and there is no Polygon or MultiPolygon to
+ * draw. Bounds and a lon/lat pair still frame the camera; they are not a fill.
  */
 export const MISSING_AREA_LABEL = "Zielregion ist gesetzt. Die Fläche kann noch nicht gezeichnet werden.";
 
@@ -174,9 +174,9 @@ export function regionOverlay(region: TargetRegion | null): {
   const point = coordinatesOf(region);
   if (point) bounds = extendBounds(bounds, point.lon, point.lat);
 
-  // Draw the API polygon as returned. A bounds rectangle is only the fallback
-  // when `geometry` is null.
-  const features = areas.length > 0 ? areas : rectangleFeature(contractBounds);
+  // The blue overlay is only a real Polygon or MultiPolygon. Bounds frame the
+  // camera and never become a rectangle or any other stub fill.
+  const features = areas;
   return {
     collection: { type: "FeatureCollection", features },
     bounds,
@@ -237,27 +237,6 @@ function dataSignature(
     ? [region.label, region.updatedAt, region.lon ?? "", region.lat ?? "", overlay.collection.features.length].join("~")
     : "";
   return `${storesPart}#${regionPart}`;
-}
-
-function rectangleFeature(bounds: Bounds | null): Feature[] {
-  if (!bounds || !hasArea(bounds)) return [];
-  const polygon: Polygon = {
-    type: "Polygon",
-    coordinates: [
-      [
-        [bounds.west, bounds.south],
-        [bounds.east, bounds.south],
-        [bounds.east, bounds.north],
-        [bounds.west, bounds.north],
-        [bounds.west, bounds.south],
-      ],
-    ],
-  };
-  return [{ type: "Feature", properties: { name: LEGEND_LABEL }, geometry: polygon }];
-}
-
-function hasArea(bounds: Bounds): boolean {
-  return bounds.east > bounds.west && bounds.north > bounds.south;
 }
 
 function extendBounds(bounds: Bounds | null, lon: number, lat: number): Bounds {

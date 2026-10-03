@@ -186,15 +186,17 @@ test("Zielregion geometry is a fill and the camera frames addresses plus the are
   }
 });
 
-test("OpenAPI LonLatBounds frame the region and a bbox array does not", () => {
+test("OpenAPI LonLatBounds frame the camera and a bbox array does not", () => {
   const named = buildKarte({
     stores: [],
     region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
     recommendations: [],
     addressesKnownEmpty: false,
   });
-  assert.equal(named.showLegend, true);
-  assert.equal(named.missingAreaLabel, null);
+  assert.equal(named.showLegend, false);
+  assert.equal(named.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(named.region.features.length, 0);
+  assert.equal(named.camera.kind, "bounds");
   if (named.camera.kind === "bounds") {
     assert.deepEqual(named.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
   }
@@ -211,17 +213,20 @@ test("OpenAPI LonLatBounds frame the region and a bbox array does not", () => {
   assert.equal(arrayBounds.camera.kind, "germany");
 });
 
-test("bounds alone draw a rectangle and a point-only region does not", () => {
+test("bounds alone show the missing-area hint and a point-only region does not fill", () => {
   const boundsOnly = buildKarte({
     stores: [],
     region: region({ bounds: { west: 11, south: 48, east: 12, north: 49 } }),
     recommendations: [],
     addressesKnownEmpty: false,
   });
-  assert.equal(boundsOnly.showLegend, true);
-  assert.equal(boundsOnly.missingAreaLabel, null);
-  assert.equal(boundsOnly.region.features[0]?.geometry.type, "Polygon");
+  assert.equal(boundsOnly.showLegend, false);
+  assert.equal(boundsOnly.missingAreaLabel, MISSING_AREA_LABEL);
+  assert.equal(boundsOnly.region.features.length, 0);
   assert.equal(boundsOnly.camera.kind, "bounds");
+  if (boundsOnly.camera.kind === "bounds") {
+    assert.deepEqual(boundsOnly.camera.bounds, { west: 11, south: 48, east: 12, north: 49 });
+  }
 
   const pointOnly = buildKarte({
     stores: [],
