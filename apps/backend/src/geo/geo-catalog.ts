@@ -61,17 +61,41 @@ export function toCatalogHit(row: CatalogHitRow): CatalogSearchHit | null {
   };
 }
 
+/** One search hit per geo key. `11000000` and `11000` stay different keys. */
 export function catalogDedupKey(hit: { id: string; grain: string; geoKey?: string | null; level?: string | null }): string {
   if (hit.level === "plz" || hit.grain === "plz5" || hit.grain === "plz8") {
     const plz = bareCatalogKey(hit.geoKey) ?? bareCatalogKey(hit.id);
     return plz ? `plz:${plz}` : `id:${hit.id}`;
   }
-  const bare = bareCatalogKey(hit.geoKey) ?? bareCatalogKey(hit.id);
+  const bare = geoIdentityKey(hit);
   if (bare) {
     const official = canonicalBerlinBezirkAgs(bare);
     if (isOfficialBerlinBezirkAgs(official)) return `bezirk:${official}`;
+    return `key:${bare}`;
   }
   return `id:${hit.id}`;
+}
+
+/**
+ * Same visible name may appear more than once only when `parentLabel`
+ * distinguishes the rows. Empty and missing parents are the same parent.
+ */
+export function catalogNameDedupKey(hit: { label: string; parentLabel?: string | null }): string {
+  const label = hit.label.trim().toLocaleLowerCase("de");
+  const parent = (hit.parentLabel ?? "").trim().toLocaleLowerCase("de");
+  return `name:${label}|${parent}`;
+}
+
+/** Bare geo key used for "one hit per geo key". Numeric feature ids are not keys. */
+function geoIdentityKey(hit: { id: string; geoKey?: string | null }): string | null {
+  const fromGeo = bareCatalogKey(hit.geoKey);
+  if (fromGeo) return fromGeo;
+  if (!isPrefixedCatalogId(hit.id)) return null;
+  return bareCatalogKey(hit.id);
+}
+
+function isPrefixedCatalogId(value: string): boolean {
+  return /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil):/i.test(value.trim());
 }
 
 export function bareCatalogKey(value: string | null | undefined): string | null {

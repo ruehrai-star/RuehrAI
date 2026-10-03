@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { isMissingFeaturesRelation } from "../database/pg-error";
-import { CatalogLevel, catalogDedupKey } from "../geo/geo-catalog";
+import { CatalogLevel, catalogDedupKey, catalogNameDedupKey } from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchQueryDto } from "./search.dto";
 import {
@@ -108,28 +108,30 @@ function toHit(row: HitRow): SearchHit | null {
 }
 
 function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): SearchHit[] {
+  const keepPlz = allowPlzHits(q);
+  const needle = q?.trim().toLowerCase() ?? "";
+  const candidates = [...catalog, ...existing]
+    .filter((hit) => hasVisibleLabel(hit.label) && (keepPlz || !isPlzHit(hit)))
+    .sort((left, right) => compareSearchHits(left, right, needle));
   const seen = new Set<string>();
   const merged: SearchHit[] = [];
-  const keepPlz = allowPlzHits(q);
-  for (const hit of [...catalog, ...existing]) {
-    if (!hasVisibleLabel(hit.label)) continue;
-    if (!keepPlz && isPlzHit(hit)) continue;
-    const key = catalogDedupKey(hit);
-    if (seen.has(key)) continue;
-    seen.add(key);
+  for (const hit of candidates) {
+    const keys = [catalogDedupKey(hit), catalogNameDedupKey(hit)];
+    if (keys.some((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
     merged.push(hit);
   }
-  const needle = q?.trim().toLowerCase() ?? "";
-  merged.sort((left, right) => {
-    const rankDelta = hitRank(left, needle) - hitRank(right, needle);
-    if (rankDelta !== 0) return rankDelta;
-    const labels = left.label.localeCompare(right.label, "de");
-    if (labels !== 0) return labels;
-    const parents = (left.parentLabel ?? "").localeCompare(right.parentLabel ?? "", "de");
-    if (parents !== 0) return parents;
-    return left.id.localeCompare(right.id);
-  });
   return merged.slice(0, 50);
+}
+
+function compareSearchHits(left: SearchHit, right: SearchHit, needle: string): number {
+  const rankDelta = hitRank(left, needle) - hitRank(right, needle);
+  if (rankDelta !== 0) return rankDelta;
+  const labels = left.label.localeCompare(right.label, "de");
+  if (labels !== 0) return labels;
+  const parents = (left.parentLabel ?? "").localeCompare(right.parentLabel ?? "", "de");
+  if (parents !== 0) return parents;
+  return left.id.localeCompare(right.id);
 }
 
 function hitRank(hit: SearchHit, needle: string): number {
