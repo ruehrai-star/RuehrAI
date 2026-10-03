@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { DataScoutService } from "../database/data-scout.service";
 import { canonicalRegionKeys, isOfficialBerlinBezirkAgs } from "./bezirk-ags";
+import { GeoCatalogService } from "./geo-catalog.service";
 import { queryAdminOutline, queryBezirkOutline } from "./region-outline-lookup";
 import { LonLat } from "./region-geometry";
 
@@ -14,9 +15,9 @@ export interface RegionLookup {
 
 export interface RegionCatalogHit {
   /**
-   * Polygon or MultiPolygon. Brain `app.map_features` wins. When that misses,
-   * Data-Scout `geo_ref_bezirk` (Berlin Bezirk) or `geo_ref_admin`
-   * (Gemeinde, Kreis, Land, transformed to WGS84).
+   * Polygon or MultiPolygon. Brain `geo` catalog (PLZ, Bezirk, Stadtteil,
+   * Ortsteil) wins. When that misses, a non-stub `app.map_features` row,
+   * then Data-Scout `geo_ref_bezirk` / `geo_ref_admin`.
    */
   geometry: unknown | null;
   /** WGS84 point from `app.search_places`, a Point feature, or the Data-Scout centroid. */
@@ -38,6 +39,7 @@ export class PlaceCatalogService {
   constructor(
     private readonly db: DatabaseService,
     private readonly scout?: DataScoutService,
+    private readonly geoCatalog?: GeoCatalogService,
   ) {}
 
   /** PLZ5 centroid. `search_places` first, then a Point in `map_features`. */
@@ -106,21 +108,29 @@ export class PlaceCatalogService {
       return { geometry: null, point: null };
     }
 
+    const geoHit = await this.geoCatalog?.lookupOutline(normalized);
+    if (geoHit?.geometry) {
+      return geoHit;
+    }
+
     const [features, places] = await Promise.all([
       this.db.query<GeometryRow>(
         `SELECT geometry
          FROM app.map_features
-         WHERE id = ANY($1::text[])
-            OR (
-              $2::text IS NOT NULL
-              AND properties->>'ags' = $2
-              AND geometry->>'type' IN ('Polygon', 'MultiPolygon')
-            )
-            OR (
-              $3::text IS NOT NULL
-              AND properties->>'plz' = $3
-              AND geometry->>'type' IN ('Polygon', 'MultiPolygon')
-            )
+         WHERE COALESCE(properties->>'stub', 'false') <> 'true'
+           AND (
+             id = ANY($1::text[])
+             OR (
+               $2::text IS NOT NULL
+               AND properties->>'ags' = $2
+               AND geometry->>'type' IN ('Polygon', 'MultiPolygon')
+             )
+             OR (
+               $3::text IS NOT NULL
+               AND properties->>'plz' = $3
+               AND geometry->>'type' IN ('Polygon', 'MultiPolygon')
+             )
+           )
          ORDER BY
            CASE WHEN geometry->>'type' IN ('Polygon', 'MultiPolygon') THEN 0 ELSE 1 END,
            CASE WHEN id = ANY($1::text[]) THEN 0 ELSE 1 END,

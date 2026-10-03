@@ -6,7 +6,22 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/configure-app";
 import { DatabaseService } from "../src/database/database.service";
+import { GeoCatalogService } from "../src/geo/geo-catalog.service";
 import { SearchService } from "../src/search/search.service";
+
+const muenchenOutline = {
+  type: "MultiPolygon" as const,
+  coordinates: [
+    [
+      [
+        [11.36, 48.06],
+        [11.72, 48.06],
+        [11.6, 48.25],
+        [11.36, 48.06],
+      ],
+    ],
+  ],
+};
 
 const runDb = process.env.RUN_DB_TESTS === "1";
 
@@ -123,6 +138,232 @@ async function dropFeaturesFixture(): Promise<void> {
     );
   });
 
+  it("searches Brain geo catalog levels and stores the MultiPolygon on PUT", async () => {
+    const adminUrl = process.env.DATABASE_URL;
+    if (!adminUrl) throw new Error("DATABASE_URL is required");
+    const admin = new Pool({ connectionString: adminUrl, max: 1 });
+    const token = await login("dev@ruehrai.local", "dev-password");
+    const auth = { authorization: `Bearer ${token}` };
+    const server = app.getHttpServer();
+
+    try {
+      await admin.query("CREATE EXTENSION IF NOT EXISTS postgis");
+    } catch {
+      await admin.end();
+      return;
+    }
+
+    const ring = (points: number[][]) => [points];
+    const multi = (points: number[][]) => ({
+      type: "MultiPolygon",
+      coordinates: [ring([...points, points[0]!])],
+    });
+    const plzGeom = multi([
+      [11.57, 48.13],
+      [11.59, 48.13],
+      [11.58, 48.15],
+    ]);
+    const mitteGeom = multi([
+      [13.36, 52.51],
+      [13.42, 52.51],
+      [13.39, 52.54],
+    ]);
+    const altonaGeom = multi([
+      [9.9, 53.54],
+      [10.0, 53.54],
+      [9.95, 53.57],
+    ]);
+    const schwabingGeom = multi([
+      [11.57, 48.16],
+      [11.6, 48.16],
+      [11.58, 48.18],
+    ]);
+    const neustadtDdGeom = multi([
+      [13.73, 51.05],
+      [13.76, 51.05],
+      [13.74, 51.07],
+    ]);
+    const neustadtHbGeom = multi([
+      [8.78, 53.07],
+      [8.81, 53.07],
+      [8.79, 53.09],
+    ]);
+
+    try {
+      await admin.query("DROP SCHEMA IF EXISTS geo CASCADE");
+      await admin.query("CREATE SCHEMA geo");
+      await admin.query(`
+        CREATE TABLE geo.geo_ref_admin (
+          geo_ags text PRIMARY KEY,
+          name text NOT NULL
+        )
+      `);
+      await admin.query(`
+        CREATE TABLE geo.geo_ref_plz (
+          geo_plz5 text PRIMARY KEY,
+          geo_ags text,
+          geom geometry(MultiPolygon, 4326)
+        )
+      `);
+      await admin.query(`
+        CREATE TABLE geo.geo_ref_bezirk (
+          geo_bezirk_id text PRIMARY KEY,
+          name text NOT NULL,
+          geo_ags text,
+          geom geometry(MultiPolygon, 4326)
+        )
+      `);
+      await admin.query(`
+        CREATE TABLE geo.geo_ref_ortsteil (
+          geo_ortsteil_id text PRIMARY KEY,
+          name text NOT NULL,
+          kind text NOT NULL,
+          geo_ags text,
+          geom geometry(MultiPolygon, 4326)
+        )
+      `);
+      await admin.query(
+        `INSERT INTO geo.geo_ref_admin (geo_ags, name) VALUES
+           ('09162000', 'München'),
+           ('11000000', 'Berlin'),
+           ('02000000', 'Hamburg'),
+           ('14612000', 'Dresden'),
+           ('04011000', 'Bremen')`,
+      );
+      await admin.query(
+        `INSERT INTO geo.geo_ref_plz (geo_plz5, geo_ags, geom) VALUES
+           ('80331', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+           ('00000', '09162000', ST_GeomFromText('MULTIPOLYGON EMPTY', 4326))`,
+        [JSON.stringify(plzGeom)],
+      );
+      await admin.query(
+        `INSERT INTO geo.geo_ref_bezirk (geo_bezirk_id, name, geo_ags, geom) VALUES
+           ('11000001', 'Mitte', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+           ('02000002', 'Altona', '02000000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))`,
+        [JSON.stringify(mitteGeom), JSON.stringify(altonaGeom)],
+      );
+      await admin.query(
+        `INSERT INTO geo.geo_ref_ortsteil (geo_ortsteil_id, name, kind, geo_ags, geom) VALUES
+           ('s-schwabing', 'Schwabing', 'stadtteil', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+           ('o-neustadt-dd', 'Neustadt', 'ortsteil', '14612000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+           ('o-neustadt-hb', 'Neustadt', 'ortsteil', '04011000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+           ('g-fake', 'Nicht zeigen', 'gemeinde', '09162000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))`,
+        [JSON.stringify(schwabingGeom), JSON.stringify(neustadtDdGeom), JSON.stringify(neustadtHbGeom)],
+      );
+      await admin.query("GRANT USAGE ON SCHEMA geo TO PUBLIC");
+      await admin.query("GRANT SELECT ON ALL TABLES IN SCHEMA geo TO PUBLIC");
+
+      const plz = await request(server).get("/search").query({ q: "80331" }).set(auth).expect(200);
+      expect(plz.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "plz5:80331",
+            label: "80331",
+            grain: "plz5",
+            geoKey: "80331",
+            level: "plz",
+            parentLabel: "München",
+            geoAgs: "09162000",
+          }),
+        ]),
+      );
+      expect(plz.body.hits.some((hit: { id: string }) => hit.id.includes("00000"))).toBe(false);
+
+      const berlin = await request(server).get("/search").query({ q: "Mitte" }).set(auth).expect(200);
+      expect(berlin.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "ags:11000001",
+            grain: "ags",
+            geoKey: "11000001",
+            level: "bezirk",
+            parentLabel: "Berlin",
+            geoAgs: "11000000",
+          }),
+        ]),
+      );
+
+      const hamburg = await request(server).get("/search").query({ q: "Altona" }).set(auth).expect(200);
+      expect(hamburg.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "stadtbezirk:02000002",
+            grain: "other",
+            level: "stadtbezirk",
+            parentLabel: "Hamburg",
+            geoAgs: "02000000",
+          }),
+        ]),
+      );
+
+      const stadtteil = await request(server).get("/search").query({ q: "Schwabing" }).set(auth).expect(200);
+      expect(stadtteil.body.hits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "stadtteil:s-schwabing",
+            level: "stadtteil",
+            parentLabel: "München",
+            geoAgs: "09162000",
+          }),
+        ]),
+      );
+      expect(stadtteil.body.hits.some((hit: { level?: string }) => hit.level === "gemeinde")).toBe(false);
+
+      const neustadt = await request(server).get("/search").query({ q: "Neustadt" }).set(auth).expect(200);
+      const named = (neustadt.body.hits as { label: string; parentLabel?: string; geoAgs?: string }[]).filter(
+        (hit) => hit.label === "Neustadt",
+      );
+      expect(named).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ parentLabel: "Dresden", geoAgs: "14612000", level: "ortsteil" }),
+          expect.objectContaining({ parentLabel: "Bremen", geoAgs: "04011000", level: "ortsteil" }),
+        ]),
+      );
+
+      const user = await register(`geo-catalog-${Date.now()}@ruehrai.local`);
+      const owner = { authorization: `Bearer ${user}` };
+      const savedPlz = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "80331", grain: "plz5", geoKey: "80331", plz: "80331" })
+        .expect(200);
+      expect(savedPlz.body.geometry).toMatchObject({ type: "MultiPolygon" });
+      expect(savedPlz.body.geometry.coordinates[0][0].length).toBeGreaterThan(4);
+
+      const savedBezirk = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "Mitte", grain: "ags", geoKey: "11000001", ags: "11000001" })
+        .expect(200);
+      expect(savedBezirk.body.geometry).toEqual(mitteGeom);
+      expect(savedBezirk.body.ags).toBe("11000001");
+
+      const savedStadtbezirk = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "Altona", grain: "other", geoKey: "stadtbezirk:02000002" })
+        .expect(200);
+      expect(savedStadtbezirk.body.geometry).toEqual(altonaGeom);
+
+      const savedStadtteil = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "Schwabing", grain: "other", geoKey: "stadtteil:s-schwabing" })
+        .expect(200);
+      expect(savedStadtteil.body.geometry).toEqual(schwabingGeom);
+
+      const savedOrtsteil = await request(server)
+        .put("/target-region")
+        .set(owner)
+        .send({ label: "Neustadt", grain: "other", geoKey: "ortsteil:o-neustadt-dd" })
+        .expect(200);
+      expect(savedOrtsteil.body.geometry).toEqual(neustadtDdGeom);
+    } finally {
+      await admin.query("DROP SCHEMA IF EXISTS geo CASCADE").catch(() => undefined);
+      await admin.end();
+    }
+  });
+
   it("returns a GeoJSON feature collection and 404 for an unknown layer", async () => {
     const token = await login("dev@ruehrai.local", "dev-password");
     const auth = { authorization: `Bearer ${token}` };
@@ -225,6 +466,7 @@ async function dropFeaturesFixture(): Promise<void> {
         ags: "09162000",
         lon: 11.5755,
         lat: 48.1374,
+        geometry: muenchenOutline,
       })
       .expect(200);
     expect(region.body).toMatchObject({
@@ -232,14 +474,9 @@ async function dropFeaturesFixture(): Promise<void> {
       grain: "ags",
       geoKey: "09162000",
       ags: "09162000",
-      bounds: {
-        west: 11.5755 - 0.18,
-        south: 48.1374 - 0.095,
-        east: 11.5755 + 0.18,
-        north: 48.1374 + 0.095,
-      },
+      bounds: { west: 11.36, south: 48.06, east: 11.72, north: 48.25 },
     });
-    expect(region.body.geometry).toMatchObject({ type: "Polygon" });
+    expect(region.body.geometry).toEqual(muenchenOutline);
     expect(region.body.lon).toBeCloseTo(11.5755);
     expect(region.body.lat).toBeCloseTo(48.1374);
     await request(server).get("/target-region").set(other).expect(404);
@@ -405,7 +642,7 @@ async function dropFeaturesFixture(): Promise<void> {
       featureDb = new DatabaseService({
         get: (key: string) => (key === "DATABASE_URL" ? restrictedUrl.toString() : undefined),
       } as ConfigService);
-      const restricted = new SearchService(featureDb);
+      const restricted = new SearchService(featureDb, new GeoCatalogService(featureDb));
       await expect(restricted.search({ geoKey: "04011000" })).resolves.toEqual({
         hits: [
           {
@@ -477,7 +714,13 @@ async function dropFeaturesFixture(): Promise<void> {
       await request(server)
         .put("/target-region")
         .set(auth)
-        .send({ label: "München", grain: "ags", geoKey: "09162000", ags: "09162000" })
+        .send({
+          label: "München",
+          grain: "ags",
+          geoKey: "09162000",
+          ags: "09162000",
+          geometry: muenchenOutline,
+        })
         .expect(200);
       const created = await request(server)
         .post("/stores")
@@ -622,7 +865,13 @@ async function dropFeaturesFixture(): Promise<void> {
       await request(server)
         .put("/target-region")
         .set(auth)
-        .send({ label: "München", grain: "ags", geoKey: "09162000", ags: "09162000" })
+        .send({
+          label: "München",
+          grain: "ags",
+          geoKey: "09162000",
+          ags: "09162000",
+          geometry: muenchenOutline,
+        })
         .expect(200);
       const created = await request(server)
         .post("/stores")

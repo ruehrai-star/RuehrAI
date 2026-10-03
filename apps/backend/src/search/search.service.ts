@@ -1,6 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { isMissingFeaturesRelation } from "../database/pg-error";
+import { CatalogLevel, catalogDedupKey } from "../geo/geo-catalog";
+import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchQueryDto } from "./search.dto";
 import { toContainsPattern } from "./search.util";
 
@@ -9,6 +11,9 @@ export interface SearchHit {
   label: string;
   grain: string;
   geoKey: string | null;
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+  geoAgs?: string | null;
   lon: number | null;
   lat: number | null;
 }
@@ -27,12 +32,23 @@ export class SearchService {
   private readonly logger = new Logger(SearchService.name);
   private fallbackNoted = false;
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly geoCatalog: GeoCatalogService,
+  ) {}
 
   async search(query: SearchQueryDto): Promise<{ hits: SearchHit[] }> {
+    const [catalog, fallback] = await Promise.all([
+      this.geoCatalog.search(query),
+      this.searchExisting(query),
+    ]);
+    return { hits: mergeHits(catalog, fallback, query.q) };
+  }
+
+  private async searchExisting(query: SearchQueryDto): Promise<SearchHit[]> {
     const fromView = await this.searchFeatureView(query);
-    if (fromView) return { hits: fromView };
-    return { hits: await this.searchSeed(query) };
+    if (fromView) return fromView;
+    return this.searchSeed(query);
   }
 
   private async searchFeatureView(query: SearchQueryDto): Promise<SearchHit[] | null> {
@@ -91,6 +107,36 @@ function toHit(row: HitRow): SearchHit {
     lon: toCoord(row.lon),
     lat: toCoord(row.lat),
   };
+}
+
+function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): SearchHit[] {
+  const seen = new Set<string>();
+  const merged: SearchHit[] = [];
+  for (const hit of [...catalog, ...existing]) {
+    const key = catalogDedupKey(hit);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(hit);
+  }
+  const needle = q?.trim().toLowerCase() ?? "";
+  merged.sort((left, right) => {
+    const rankDelta = hitRank(left, needle) - hitRank(right, needle);
+    if (rankDelta !== 0) return rankDelta;
+    const labels = left.label.localeCompare(right.label, "de");
+    if (labels !== 0) return labels;
+    const parents = (left.parentLabel ?? "").localeCompare(right.parentLabel ?? "", "de");
+    if (parents !== 0) return parents;
+    return left.id.localeCompare(right.id);
+  });
+  return merged.slice(0, 50);
+}
+
+function hitRank(hit: SearchHit, needle: string): number {
+  if (!needle) return 1;
+  if (hit.label.toLowerCase() === needle) return 0;
+  if ((hit.geoKey ?? "").toLowerCase() === needle) return 0;
+  if (hit.id.toLowerCase() === needle || hit.id.toLowerCase().endsWith(`:${needle}`)) return 0;
+  return 1;
 }
 
 function toCoord(value: number | string | null): number | null {

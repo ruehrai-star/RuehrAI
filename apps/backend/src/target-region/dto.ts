@@ -86,9 +86,10 @@ export class TargetRegionWriteDto {
 
   /**
    * GeoJSON Polygon or MultiPolygon. Validated in the service.
-   * A search place id is not an outline. PUT copies Brain `app.map_features`,
-   * then Data-Scout `geo_ref_bezirk` or `geo_ref_admin`, and never persists
-   * null geometry. Berlin Bezirk aliases are stored as `1100000N`.
+   * A search place id is not an outline. PUT copies Brain `geo` (PLZ, Bezirk,
+   * Stadtteil, Ortsteil), then a non-stub `app.map_features` row, then
+   * Data-Scout, and never persists null geometry. Bounds and points are not
+   * turned into a rectangle. Berlin Bezirk aliases are stored as `1100000N`.
    */
   @IsOptional()
   @Allow()

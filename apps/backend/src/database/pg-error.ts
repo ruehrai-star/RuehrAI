@@ -34,6 +34,20 @@ export function isMissingFeaturesRelation(error: unknown): boolean {
   return code === "42P01" || code === "3F000";
 }
 
+/**
+ * Brain `geo` catalog cannot be read: missing schema/table, no PostGIS
+ * (`ST_*` undefined), or `backend_ro_features` has no SELECT.
+ */
+export function isGeoCatalogUnavailable(error: unknown): boolean {
+  const code = pgErrorCode(error);
+  return (
+    code === "42P01" ||
+    code === "3F000" ||
+    code === "42883" ||
+    code === "42501"
+  );
+}
+
 /** Connected user or backend_ro_features may not read this relation. */
 export function isFeaturesAccessDenied(error: unknown): boolean {
   return pgErrorCode(error) === "42501";

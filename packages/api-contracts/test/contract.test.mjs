@@ -41,6 +41,16 @@ test("v0.5 covers health, auth, search, layers, customer inputs, analysis, recom
     assert.ok(searchParams.includes(name), name);
   }
   assert.equal(doc.components.schemas.SearchHit.properties.geoKey.nullable, true);
+  assert.deepEqual(doc.components.schemas.CatalogLevel.enum, [
+    "plz",
+    "bezirk",
+    "stadtbezirk",
+    "stadtteil",
+    "ortsteil",
+  ]);
+  assert.equal(doc.components.schemas.SearchHit.properties.parentLabel.nullable, true);
+  assert.equal(doc.components.schemas.SearchHit.properties.parent, undefined);
+  assert.equal(doc.components.schemas.SearchHit.properties.level.nullable, true);
 
   const hitRequired = doc.components.schemas.SearchHit.required;
   assert.deepEqual(hitRequired, ["id", "label", "grain"]);

@@ -5,7 +5,6 @@ import {
   geometryFromUnknown,
   parseRegionGeometry,
   resolveRegionMap,
-  stubPolygon,
 } from "./region-geometry";
 
 const square = {
@@ -91,8 +90,20 @@ describe("region geometry", () => {
     expect(resolved.lat).toBe(1);
   });
 
-  it("builds an ags-sized stub around a catalog point", () => {
-    const resolved = resolveRegionMap({
+  it("does not draw a rectangle from bounds or a catalog point", () => {
+    const fromBounds = resolveRegionMap({
+      grain: "ags",
+      lon: 11.5,
+      lat: 48.5,
+      bounds: { west: 11, south: 48, east: 12, north: 49 },
+      geometry: null,
+      catalogGeometry: null,
+      catalogPoint: null,
+    });
+    expect(fromBounds.geometry).toBeNull();
+    expect(fromBounds.bounds).toBeNull();
+
+    const fromPoint = resolveRegionMap({
       grain: "ags",
       lon: null,
       lat: null,
@@ -101,12 +112,9 @@ describe("region geometry", () => {
       catalogGeometry: null,
       catalogPoint: { lon: 13.405, lat: 52.52 },
     });
-    expect(resolved.geometry).toEqual(stubPolygon(13.405, 52.52, "ags"));
-    expect(resolved.bounds).toEqual({
-      west: 13.405 - 0.18,
-      south: 52.52 - 0.095,
-      east: 13.405 + 0.18,
-      north: 52.52 + 0.095,
-    });
+    expect(fromPoint.geometry).toBeNull();
+    expect(fromPoint.bounds).toBeNull();
+    expect(fromPoint.lon).toBe(13.405);
+    expect(fromPoint.lat).toBe(52.52);
   });
 });

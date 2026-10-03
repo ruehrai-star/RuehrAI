@@ -216,46 +216,28 @@ describe("TargetRegionService", () => {
     expect(params.slice(8, 12)).toEqual([13, 52.3, 13.6, 52.7]);
   });
 
-  it("turns client bounds into a rectangular overlay", async () => {
-    query.mockResolvedValue({ rows: [savedRow()] });
-    await service.put("4", {
-      label: "Kasten",
-      bounds: { west: 11, south: 48, east: 12, north: 49 },
-      lon: 11.5,
-      lat: 48.5,
-    });
-    expect(lookupRegion).not.toHaveBeenCalled();
-    const params = query.mock.calls[0]?.[1] as unknown[];
-    expect(JSON.parse(params[12] as string)).toEqual({
-      type: "Polygon",
-      coordinates: [
-        [
-          [11, 48],
-          [12, 48],
-          [12, 49],
-          [11, 49],
-          [11, 48],
-        ],
-      ],
-    });
+  it("refuses bounds without a catalog or client polygon", async () => {
+    await expect(
+      service.put("4", {
+        label: "Kasten",
+        bounds: { west: 11, south: 48, east: 12, north: 49 },
+        lon: 11.5,
+        lat: 48.5,
+      }),
+    ).rejects.toThrow(TARGET_REGION_NO_MAP_AREA);
+    expect(lookupRegion).toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
   });
 
-  it("builds a stub polygon around a catalog point when no outline exists", async () => {
+  it("refuses a catalog point when there is no outline", async () => {
     lookupRegion.mockResolvedValue({
       geometry: { type: "Point", coordinates: [13.405, 52.52] },
       point: { lon: 13.405, lat: 52.52 },
     });
-    query.mockResolvedValue({ rows: [savedRow()] });
-    await service.put("4", { label: "Berlin", grain: "ags", ags: "11000000" });
-    const params = query.mock.calls[0]?.[1] as unknown[];
-    const geometry = JSON.parse(params[12] as string) as {
-      type: string;
-      coordinates: number[][][];
-    };
-    expect(geometry.type).toBe("Polygon");
-    expect(geometry.coordinates[0]?.[0]).toEqual([13.405 - 0.18, 52.52 - 0.095]);
-    expect(params[6]).toBeCloseTo(13.405);
-    expect(params[7]).toBeCloseTo(52.52);
+    await expect(service.put("4", { label: "Berlin", grain: "ags", ags: "11000000" })).rejects.toThrow(
+      TARGET_REGION_NO_MAP_AREA,
+    );
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("leaves a stored null outline on read when the catalog still has none", async () => {
