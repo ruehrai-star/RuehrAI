@@ -43,7 +43,7 @@ describe("fillMissingCatalogDisplay", () => {
         { label: "Mitte", grain: "ags", geoKey: "11000001", ags: "11000001", plz: null, level: null, parentLabel: null },
         search,
       ),
-    ).resolves.toMatchObject({ level: null });
+    ).resolves.toMatchObject({ level: "bezirk" });
     await expect(
       fillMissingCatalogDisplay(
         {
@@ -58,6 +58,75 @@ describe("fillMissingCatalogDisplay", () => {
         search,
       ),
     ).resolves.toMatchObject({ level: null });
+  });
+
+  it("sets stadtbezirk and catalog parent on an official AGS district", async () => {
+    const search = jest.fn().mockImplementation(async (query: { geoKey?: string; ags?: string }) => {
+      if (query.geoKey === "09162004") return [];
+      if (query.ags === "09162000") return [{ parentLabel: "München", level: "stadtteil" }];
+      return [];
+    });
+    const filled = await fillMissingCatalogDisplay(
+      {
+        label: "Bezirk München Schwabing-West",
+        grain: "ags",
+        geoKey: "09162004",
+        ags: "09162004",
+        plz: null,
+        level: null,
+        parentLabel: null,
+      },
+      search,
+    );
+    expect(filled.level).toBe("stadtbezirk");
+    expect(filled.parentLabel).toBe("München");
+    expect(filled.label).toBe("Bezirk München Schwabing-West");
+  });
+
+  it("does not invent a parent name when the catalog has none", async () => {
+    const search = jest.fn().mockResolvedValue([]);
+    const filled = await fillMissingCatalogDisplay(
+      {
+        label: "Bezirk München Schwabing-West",
+        grain: "ags",
+        geoKey: "09162004",
+        ags: "09162004",
+        plz: null,
+        level: null,
+        parentLabel: null,
+      },
+      search,
+    );
+    expect(filled.level).toBe("stadtbezirk");
+    expect(filled.parentLabel).toBeNull();
+  });
+
+  it("reclassifies an official AGS district that arrived as gemeinde", async () => {
+    const search = jest.fn().mockResolvedValue([]);
+    const lookupAdmin = jest.fn().mockResolvedValue(new Map([["09162000", "München"]]));
+    const district = await fillMissingCatalogDisplay(
+      {
+        label: "Bezirk München Altstadt-Lehel",
+        grain: "ags",
+        geoKey: "09162001",
+        ags: "09162001",
+        plz: null,
+        level: "gemeinde",
+        parentLabel: null,
+      },
+      search,
+      lookupAdmin,
+    );
+    expect(district).toMatchObject({
+      label: "Bezirk München Altstadt-Lehel",
+      level: "stadtbezirk",
+      parentLabel: "München",
+    });
+    await expect(fillMissingCatalogDisplay(muenchen, search, lookupAdmin)).resolves.toMatchObject({
+      label: "München",
+      level: "gemeinde",
+      parentLabel: null,
+    });
   });
 
   it("fills an old PLZ row from the catalog the way a fresh add would", async () => {

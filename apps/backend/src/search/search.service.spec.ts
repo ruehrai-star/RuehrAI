@@ -7,13 +7,16 @@ describe("SearchService", () => {
   const query = jest.fn();
   const queryReadingFeatures = jest.fn();
   const geoSearch = jest.fn();
+  const lookupAdminNames = jest.fn();
   let service: SearchService;
 
   beforeEach(async () => {
     query.mockReset();
     queryReadingFeatures.mockReset();
     geoSearch.mockReset();
+    lookupAdminNames.mockReset();
     geoSearch.mockResolvedValue([]);
+    lookupAdminNames.mockResolvedValue(new Map());
     query.mockResolvedValue({
       rows: [
         {
@@ -35,7 +38,7 @@ describe("SearchService", () => {
       providers: [
         SearchService,
         { provide: DatabaseService, useValue: { query, queryReadingFeatures } },
-        { provide: GeoCatalogService, useValue: { search: geoSearch } },
+        { provide: GeoCatalogService, useValue: { search: geoSearch, lookupAdminNames } },
       ],
     }).compile();
     service = moduleRef.get(SearchService);
@@ -107,6 +110,73 @@ describe("SearchService", () => {
         lat: null,
       },
     ]);
+  });
+
+  it("classifies official AGS districts as stadtbezirk and copies catalog parentLabel", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({
+      rows: [
+        {
+          id: "ags:09162004",
+          label: "Bezirk München Schwabing-West",
+          grain: "ags",
+          geo_key: "09162004",
+          lon: 11.57,
+          lat: 48.17,
+        },
+        {
+          id: "ags:09162001",
+          label: "Bezirk München Altstadt-Lehel",
+          grain: "ags",
+          geo_key: "09162001",
+          lon: 11.58,
+          lat: 48.14,
+        },
+        {
+          id: "ags:09162000",
+          label: "München",
+          grain: "ags",
+          geo_key: "09162000",
+          lon: 11.58,
+          lat: 48.14,
+        },
+      ],
+    });
+    geoSearch.mockResolvedValue([
+      {
+        id: "stadtbezirk:osm:54383",
+        label: "Allach-Untermenzing",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:54383",
+        level: "stadtbezirk",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.46,
+        lat: 48.2,
+      },
+    ]);
+    lookupAdminNames.mockResolvedValue(new Map([["09162000", "München"]]));
+
+    const result = await service.search({ q: "München" });
+    const byKey = Object.fromEntries(result.hits.map((hit) => [hit.geoKey, hit]));
+    expect(byKey["09162000"]).toMatchObject({ level: "gemeinde", label: "München" });
+    expect(byKey["09162000"]?.parentLabel).toBeUndefined();
+    expect(byKey["09162004"]).toMatchObject({
+      label: "Bezirk München Schwabing-West",
+      grain: "ags",
+      level: "stadtbezirk",
+      parentLabel: "München",
+    });
+    expect(byKey["09162001"]).toMatchObject({
+      label: "Bezirk München Altstadt-Lehel",
+      level: "stadtbezirk",
+      parentLabel: "München",
+    });
+    expect(byKey["stadtbezirk:osm:54383"]).toMatchObject({
+      level: "stadtbezirk",
+      parentLabel: "München",
+    });
+    expect(result.hits.some((hit) => hit.geoKey === "09162004" && hit.level === "gemeinde")).toBe(false);
   });
 
   it("uses the seed catalog when the feature view has no rows", async () => {

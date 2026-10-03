@@ -155,7 +155,11 @@ export class AnalysisService {
     if (regionRows.length === 0) throw new NotFoundException(REGION_MISSING);
     const regions = await Promise.all(
       regionRows.map((row) =>
-        fillMissingCatalogDisplay(toRegion(row), (query) => this.geoCatalog.search(query)),
+        fillMissingCatalogDisplay(
+          toRegion(row),
+          (query) => this.geoCatalog.search(query),
+          (keys) => this.geoCatalog.lookupAdminNames(keys),
+        ),
       ),
     );
     const region = regions[0];

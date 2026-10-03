@@ -40,7 +40,7 @@ describe("AnalysisService", () => {
       { query } as unknown as DatabaseService,
       { search } as unknown as BrainSearchService,
       { derive } as unknown as PatternService,
-      { search: catalogSearch } as unknown as GeoCatalogService,
+      { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
     );
   });
 

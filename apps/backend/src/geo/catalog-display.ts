@@ -1,5 +1,12 @@
 import { emptyToNull } from "../customer/values";
-import { CatalogLevel, catalogLevelForPlace, isGeoCatalogLevel } from "./geo-catalog";
+import {
+  CatalogLevel,
+  applyAdminCatalogDisplay,
+  catalogLevelForPlace,
+  isGeoCatalogLevel,
+  officialAgsKey,
+  parentMunicipalityAgs,
+} from "./geo-catalog";
 
 export interface CatalogDisplayQuery {
   geoKey?: string;
@@ -11,6 +18,7 @@ export interface CatalogDisplayHit {
   label?: string | null;
   level?: CatalogLevel | null;
   parentLabel?: string | null;
+  geoAgs?: string | null;
 }
 
 export interface CatalogDisplayPlace {
@@ -45,6 +53,7 @@ export function catalogPlaceQuery(input: {
 export async function fillMissingCatalogDisplay<T extends CatalogDisplayPlace>(
   region: T,
   search: (query: CatalogDisplayQuery) => Promise<CatalogDisplayHit[]>,
+  lookupAdmin?: (keys: string[]) => Promise<Map<string, string | null>>,
 ): Promise<T> {
   if (isGeoCatalogLevel(region.level) && region.parentLabel != null) return region;
   const query = catalogPlaceQuery(region);
@@ -54,9 +63,24 @@ export async function fillMissingCatalogDisplay<T extends CatalogDisplayPlace>(
     : isGeoCatalogLevel(hit?.level)
       ? hit.level
       : null;
+  let parentLabel = region.parentLabel ?? emptyToNull(hit?.parentLabel);
+  let level = fromCatalog ?? catalogLevelForPlace(region);
+  const key = officialAgsKey(region.geoKey) ?? officialAgsKey(region.ags);
+  const parentKey = parentMunicipalityAgs(key);
+  if (lookupAdmin) {
+    const adminKeys = [key, parentKey].filter((value): value is string => Boolean(value));
+    const admin = adminKeys.length > 0 ? await lookupAdmin(adminKeys) : new Map();
+    const applied = applyAdminCatalogDisplay({ ...region, level, parentLabel }, admin);
+    level = fromCatalog ?? applied.level;
+    parentLabel = parentLabel ?? applied.parentLabel;
+  }
+  if (level === "stadtbezirk" && !parentLabel && parentKey) {
+    const parentHits = await search({ ags: parentKey });
+    parentLabel = emptyToNull(parentHits.find((row) => row.parentLabel)?.parentLabel);
+  }
   return {
     ...region,
-    level: fromCatalog ?? catalogLevelForPlace(region),
-    parentLabel: region.parentLabel ?? emptyToNull(hit?.parentLabel),
+    level,
+    parentLabel,
   };
 }

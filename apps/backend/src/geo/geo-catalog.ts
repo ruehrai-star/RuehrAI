@@ -45,9 +45,44 @@ export function persistedCatalogLevel(value: unknown): GeoCatalogLevel | null {
   return isGeoCatalogLevel(value) ? value : null;
 }
 
+export function officialAgsKey(value: string | null | undefined): string | null {
+  const key = bareCatalogKey(value);
+  return key && /^[0-9]{8}$/.test(key) ? key : null;
+}
+
 /**
- * Municipality: grain `ags` (or a bare 8-digit AGS), and not a Berlin Bezirk.
- * Never a PLZ, Bezirk, Stadtbezirk, Stadtteil, or Ortsteil.
+ * Parent Gemeinde AGS for an official Stadtbezirk key such as `09162004`
+ * → `09162000`. Berlin Bezirke map to `11000000`. Not a guess of the name.
+ */
+export function parentMunicipalityAgs(value: string | null | undefined): string | null {
+  const key = officialAgsKey(value);
+  if (!key || key.endsWith("000")) return null;
+  const official = canonicalBerlinBezirkAgs(key);
+  if (isOfficialBerlinBezirkAgs(official)) return "11000000";
+  return `${key.slice(0, 5)}000`;
+}
+
+/**
+ * Official AGS Stadtbezirk / Bezirk: 8 digits, not the municipality `*000`.
+ * Berlin `11000001`–`11000012` are included here; their token is `bezirk`.
+ */
+export function isAgsDistrictPlace(input: {
+  grain?: string | null;
+  geoKey?: string | null;
+  ags?: string | null;
+}): boolean {
+  const grain = input.grain ?? null;
+  if (grain === "plz5" || grain === "plz8" || grain === "other" || grain === "ags5") return false;
+  const rawKey = input.geoKey ?? input.ags ?? "";
+  if (/^(plz5|plz8|stadtteil|ortsteil):/i.test(rawKey.trim())) return false;
+  const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
+  if (!key || key.endsWith("000")) return false;
+  return true;
+}
+
+/**
+ * Municipality: grain `ags` (or a bare 8-digit AGS) ending in `000`.
+ * Never a PLZ, Berlin Bezirk, Stadtbezirk, Stadtteil, or Ortsteil.
  */
 export function isMunicipalityPlace(input: {
   grain?: string | null;
@@ -58,10 +93,11 @@ export function isMunicipalityPlace(input: {
   if (grain === "plz5" || grain === "plz8" || grain === "other" || grain === "ags5") return false;
   const rawKey = input.geoKey ?? input.ags ?? "";
   if (/^(plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil):/i.test(rawKey.trim())) return false;
-  const key = bareCatalogKey(input.geoKey) ?? bareCatalogKey(input.ags);
-  if (key && isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return false;
-  if (grain === "ags") return true;
-  return Boolean(key && /^[0-9]{8}$/.test(key));
+  const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
+  if (!key) return false;
+  if (isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return false;
+  if (!key.endsWith("000")) return false;
+  return grain === "ags" || grain == null;
 }
 
 /** Catalog sub-area token wins. A municipality without one is `gemeinde`. */
@@ -72,8 +108,37 @@ export function catalogLevelForPlace(input: {
   level?: string | null;
 }): CatalogLevel | null {
   if (isGeoCatalogLevel(input.level)) return input.level;
+  const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
+  if (key && isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return "bezirk";
+  if (isAgsDistrictPlace(input)) return "stadtbezirk";
   if (isMunicipalityPlace(input)) return "gemeinde";
   return null;
+}
+
+/**
+ * When `geo.geo_ref_admin` lists an AGS, that row is a municipality (`gemeinde`).
+ * A key that is only a child of such a municipality stays `stadtbezirk`/`bezirk`.
+ * Missing admin names leave `parentLabel` empty — never invent one.
+ */
+export function applyAdminCatalogDisplay(
+  input: {
+    grain?: string | null;
+    geoKey?: string | null;
+    ags?: string | null;
+    level?: string | null;
+    parentLabel?: string | null;
+  },
+  adminNames: Map<string, string | null>,
+): { level: CatalogLevel | null; parentLabel: string | null } {
+  const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
+  const parentKey = parentMunicipalityAgs(key);
+  if (key && adminNames.has(key) && !isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) {
+    return { level: "gemeinde", parentLabel: null };
+  }
+  const level = catalogLevelForPlace(input);
+  const parentLabel =
+    emptyToNull(input.parentLabel) ?? (parentKey ? emptyToNull(adminNames.get(parentKey)) : null);
+  return { level, parentLabel };
 }
 
 export function catalogLevelForBezirk(id: string): "bezirk" | "stadtbezirk" {
@@ -342,7 +407,14 @@ export const GEO_CATALOG_SEARCH_SQL = `
     AND ($1::text IS NULL OR src.geo_ags = $1 OR src.geo_key = $1 OR src.id = ('ags:' || $1) OR src.id = ('stadtbezirk:' || $1))
     AND ($2::text IS NULL OR (src.level = 'plz' AND src.geo_key = $2))
     AND $3::text IS NULL
-    AND ($6::text IS NULL OR src.geo_key = $6 OR src.id = $6)
+    AND (
+      $6::text IS NULL
+      OR src.geo_key = $6
+      OR src.id = $6
+      OR src.geo_key = ('stadtbezirk:' || $6)
+      OR src.id = ('stadtbezirk:' || $6)
+      OR src.id = ('ags:' || $6)
+    )
     AND ($7::text IS NULL OR src.grain = $7)
     AND ($8::boolean OR src.level <> 'plz')
     AND (

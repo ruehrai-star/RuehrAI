@@ -13,6 +13,7 @@ import {
   GEO_ORTSTEIL_OUTLINE_SQL,
   GEO_PLZ_OUTLINE_SQL,
   catalogLookupPlan,
+  officialAgsKey,
   toCatalogHit,
 } from "./geo-catalog";
 import { LonLat } from "./region-geometry";
@@ -52,6 +53,34 @@ export class GeoCatalogService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Names from `geo.geo_ref_admin` for exact AGS keys.
+   * Used to tell a Gemeinde from an official AGS Stadtbezirk.
+   */
+  async lookupAdminNames(agsKeys: string[]): Promise<Map<string, string | null>> {
+    const keys = [...new Set(agsKeys.map((key) => officialAgsKey(key)).filter((key): key is string => Boolean(key)))];
+    const found = new Map<string, string | null>();
+    if (keys.length === 0) return found;
+    try {
+      const result = await this.db.queryReadingFeatures<{ geo_ags: string; name: string | null }>(
+        `SELECT geo_ags::text AS geo_ags, NULLIF(btrim(name), '') AS name
+         FROM geo.geo_ref_admin
+         WHERE geo_ags::text = ANY($1::text[])`,
+        [keys],
+      );
+      for (const row of result.rows) {
+        found.set(row.geo_ags, row.name);
+      }
+    } catch (error) {
+      if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error)) {
+        this.noteUnavailable(error);
+        return found;
+      }
+      throw error;
+    }
+    return found;
   }
 
   async lookupOutline(input: {

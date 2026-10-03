@@ -97,6 +97,23 @@ describe("GeoCatalogService", () => {
     await expect(service.search({ q: "Mitte" })).resolves.toEqual([]);
   });
 
+  it("looks up municipality names by exact AGS", async () => {
+    queryReadingFeatures.mockResolvedValue({
+      rows: [{ geo_ags: "09162000", name: "München" }],
+    });
+    await expect(service.lookupAdminNames(["09162004", "ags:09162000", "09162000"])).resolves.toEqual(
+      new Map([["09162000", "München"]]),
+    );
+    expect(queryReadingFeatures.mock.calls[0]?.[1]).toEqual([["09162004", "09162000"]]);
+  });
+
+  it("returns an empty admin map when schema geo is missing", async () => {
+    queryReadingFeatures.mockRejectedValue(
+      Object.assign(new Error('relation "geo.geo_ref_admin" does not exist'), { code: "42P01" }),
+    );
+    await expect(service.lookupAdminNames(["09162000"])).resolves.toEqual(new Map());
+  });
+
   it("retries without geo.geo_ref_admin", async () => {
     queryReadingFeatures
       .mockRejectedValueOnce(
