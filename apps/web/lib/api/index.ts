@@ -53,6 +53,7 @@ export type {
   StoreLocation,
   StoreLocationWrite,
   TargetRegion,
+  TargetRegionList,
   TargetRegionWrite,
 } from "./types";
 export { ApiError, CATALOG_LEVELS, isCatalogLevel, isGrain } from "./types";

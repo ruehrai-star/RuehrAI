@@ -8,7 +8,9 @@ import {
   formatScore,
   formatWindow,
   rankLabel,
+  recommendationEmptyCopy,
   recommendationStatus,
+  recommendationSubtitle,
   shortCriteria,
 } from "./model.ts";
 
@@ -52,12 +54,20 @@ function setWith(items: Recommendation[], reason: string | null): Recommendation
 test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.title, "Empfehlungen");
   assert.equal(RECOMMENDATION_COPY.subtitle, "Top 3 in Ihrer Zielregion");
+  assert.equal(RECOMMENDATION_COPY.subtitlePlural, "Top 3 in Ihren Zielregionen");
   assert.equal(RECOMMENDATION_COPY.patternHeading, "Abgeleitetes Muster");
   assert.equal(RECOMMENDATION_COPY.address, "Adresse");
   assert.equal(RECOMMENDATION_COPY.rationale, "Begründung");
   assert.equal(RECOMMENDATION_COPY.details, "Details");
   assert.equal(RECOMMENDATION_COPY.empty, "Keine passenden Standorte in der Zielregion.");
+  assert.equal(RECOMMENDATION_COPY.emptyPlural, "Keine passenden Standorte in den Zielregionen.");
   assert.equal(rankLabel(1), "Rang 1");
+  assert.equal(recommendationSubtitle(0), null);
+  assert.equal(recommendationEmptyCopy(0), null);
+  assert.equal(recommendationSubtitle(1), "Top 3 in Ihrer Zielregion");
+  assert.equal(recommendationEmptyCopy(1), "Keine passenden Standorte in der Zielregion.");
+  assert.equal(recommendationSubtitle(2), "Top 3 in Ihren Zielregionen");
+  assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in den Zielregionen.");
 });
 
 test("a card address, score, window, and short criteria stay in German", () => {

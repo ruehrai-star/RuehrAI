@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
 import { catalogBadge, catalogPlaceName } from "@/lib/format";
+import { ensureMarkedKey } from "@/lib/locations/regions";
 import {
   LEGEND_LABEL,
   NO_STORES_LABEL,
@@ -47,7 +48,8 @@ export function MapPage() {
   const [snapshot, setSnapshot] = useState<{
     token: string;
     stores: StoreLocation[] | null;
-    region: TargetRegion | null;
+    regions: TargetRegion[];
+    markedKey: string | null;
     recommendations: Recommendation[];
     error: string | null;
     ready: boolean;
@@ -103,26 +105,28 @@ export function MapPage() {
       const api = getApi();
       Promise.all([
         api.listStores(),
-        api.getTargetRegion(),
+        api.listTargetRegions(),
         api.getRecommendations().catch(() => null),
       ])
-        .then(([nextStores, nextRegion, nextRecommendations]) => {
+        .then(([nextStores, nextRegions, nextRecommendations]) => {
           if (cancelled || current !== request) return;
-          setSnapshot({
+          setSnapshot((currentSnapshot) => ({
             token,
             stores: nextStores,
-            region: nextRegion,
+            regions: nextRegions,
+            markedKey: ensureMarkedKey(nextRegions, currentSnapshot?.token === token ? currentSnapshot.markedKey : null),
             recommendations: nextRecommendations?.items ?? [],
             error: null,
             ready: true,
-          });
+          }));
         })
         .catch((error: unknown) => {
           if (cancelled || current !== request) return;
           setSnapshot({
             token,
             stores: null,
-            region: null,
+            regions: [],
+            markedKey: null,
             recommendations: [],
             error: errorText(error, "Filialadressen konnten nicht geladen werden."),
             ready: true,
@@ -183,7 +187,8 @@ export function MapPage() {
     () =>
       buildKarte({
         stores: mine?.stores ?? [],
-        region: mine?.region ?? null,
+        regions: mine?.regions ?? [],
+        markedKey: mine?.markedKey ?? null,
         recommendations: mine?.recommendations ?? [],
         addressesKnownEmpty: Boolean(mine?.ready && mine.stores && mine.stores.length === 0),
       }),
@@ -229,6 +234,9 @@ export function MapPage() {
           camera={karte.camera}
           markerKey={karte.markerKey}
           regionKey={karte.regionKey}
+          onMarkRegion={(key) =>
+            setSnapshot((current) => (current ? { ...current, markedKey: key } : current))
+          }
         />
         <div className="map-notices">
           {karte.showEmptyAddresses ? (

@@ -17,7 +17,7 @@ import type { RecommendationSet, SearchResponse, Session, TargetRegion } from ".
 /**
  * UI-facing client. Methods follow OpenAPI operationIds:
  * `getHealth`, `searchPlaces`, `getLayer`, `login`, `register`, `logout`,
- * `getTargetRegion`, `putTargetRegion`, `listStores`, `createStore`,
+ * `listTargetRegions`, `addTargetRegion`, `removeTargetRegion`, `clearTargetRegions`, `listStores`, `createStore`,
  * `updateStore`, `deleteStore`, `listStoreRevenue`, `putStoreRevenue`,
  * `getAnalysisInput`, `createAnalysisRun`, `getAnalysisRun`, `getAnalysisPattern`,
  * `getRecommendations`, `createRecommendations`.
@@ -29,8 +29,10 @@ export interface RuehrApi {
   login(body: Credentials): Promise<Session>;
   register(body: Credentials): Promise<Session>;
   logout(): Promise<void>;
-  getTargetRegion(): Promise<TargetRegion | null>;
-  putTargetRegion(body: TargetRegionWrite): Promise<TargetRegion>;
+  listTargetRegions(): Promise<TargetRegion[]>;
+  addTargetRegion(body: TargetRegionWrite): Promise<TargetRegion>;
+  removeTargetRegion(geoKey: string): Promise<void>;
+  clearTargetRegions(): Promise<void>;
   listStores(): Promise<StoreLocation[]>;
   createStore(body: StoreLocationWrite): Promise<StoreLocation>;
   updateStore(id: string, body: StoreLocationWrite): Promise<StoreLocation>;

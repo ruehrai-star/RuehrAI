@@ -166,8 +166,10 @@ test("Zielregion search copy has no AGS, no München, and no AGS example", () =>
   assert.equal(region.includes("AGS"), false);
   assert.equal(region.includes("09162000"), false);
   assert.equal(region.includes("München"), false);
-  assert.match(region, /placeholder="z\. B\. Stadtteil oder PLZ"/);
-  assert.match(region, /Keine Treffer\. Stadtteil oder PLZ versuchen\./);
+  assert.match(region, /placeholder=\{REGION_LIST_COPY.searchPlaceholder\}/);
+  assert.match(region, /REGION_LIST_COPY.noHits/);
+  assert.match(region, /REGION_LIST_COPY.empty/);
+  assert.match(region, /REGION_LIST_COPY.added/);
   assert.equal(region.includes("Gemeinde"), false);
 });
 

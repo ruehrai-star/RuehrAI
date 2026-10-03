@@ -1,6 +1,7 @@
 import type { Recommendation, RegionGeometry, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { coordinatesOf } from "../api/geo.ts";
+import { regionListKey } from "../locations/regions.ts";
 
 /**
  * Map model for the Karte page (KAN-48, KAN-50, KAN-51) on OpenAPI 0.5.0.
@@ -10,11 +11,12 @@ import { coordinatesOf } from "../api/geo.ts";
  * That is a coordinate hint, not the empty state. The empty copy is only for
  * zero saved addresses.
  *
- * `GET` / `PUT /target-region` returns:
- * - `bounds`: `LonLatBounds` `{ west, south, east, north }` for fitBounds
+ * `GET /target-region` returns `{ items }`. Each item may carry:
  * - `geometry`: GeoJSON Polygon or MultiPolygon for the colored overlay
+ * - `bounds`: extent of that geometry. Bounds never become a rectangle.
  *
- * Both are null when the region has no outline and no catalog point.
+ * The camera frames drawn outlines and store pins. A row without a
+ * Polygon or MultiPolygon does not contribute bounds.
  */
 
 export const NO_STORES_LABEL = "Noch keine Filialadressen";
@@ -74,7 +76,7 @@ export interface KarteModel {
   showLegend: boolean;
   showEmptyAddresses: boolean;
   coordinateGapLabel: string | null;
-  /** German hint when the Zielregion is set and the overlay has no drawable feature. */
+  /** Kept for the Karte notices slot; missing-area copy now lives on the list row. */
   missingAreaLabel: string | null;
   camera: MapCamera;
   cameraKey: string;
@@ -86,16 +88,17 @@ const EMPTY_REGION: FeatureCollection = { type: "FeatureCollection", features: [
 
 export function buildKarte(input: {
   stores: StoreLocation[];
-  region: TargetRegion | null;
+  regions: TargetRegion[];
+  markedKey?: string | null;
   recommendations: Recommendation[];
   addressesKnownEmpty: boolean;
 }): KarteModel {
   const pins = storePins(input.stores);
   const empfehlungen = empfehlungPins(input.recommendations);
-  const overlay = regionOverlay(input.region);
+  const overlay = regionsOverlay(input.regions ?? [], input.markedKey ?? null);
   const drawable = overlay.collection.features.length > 0;
   const camera = cameraFor(pins, overlay.bounds);
-  const signature = dataSignature(input.stores, input.region, overlay);
+  const signature = dataSignature(input.stores, input.regions, overlay);
   return {
     pins,
     empfehlungen,
@@ -103,12 +106,16 @@ export function buildKarte(input: {
     showLegend: drawable,
     showEmptyAddresses: input.addressesKnownEmpty && input.stores.length === 0,
     coordinateGapLabel: input.stores.length > 0 ? coordinateGapLabel(input.stores) : null,
-    missingAreaLabel: input.region && !drawable ? MISSING_AREA_LABEL : null,
+    missingAreaLabel: null,
     camera,
     cameraKey: cameraKey(camera, signature),
     markerKey: JSON.stringify({ pins, empfehlungen }),
     regionKey: JSON.stringify(overlay.collection),
   };
+}
+
+export function regionHasDrawableArea(region: TargetRegion): boolean {
+  return readRegionGeometry(region.geometry) !== null;
 }
 
 export function storePins(stores: StoreLocation[]): StorePin[] {
@@ -163,20 +170,28 @@ export function regionOverlay(region: TargetRegion | null): {
   collection: FeatureCollection;
   bounds: Bounds | null;
 } {
-  if (!region) return { collection: EMPTY_REGION, bounds: null };
-  const contractBounds = readContractBounds(region.bounds);
-  const geometry = readRegionGeometry(region.geometry);
-  const areas = geometry ? areaFeatures(geometry) : [];
-  let bounds = contractBounds;
-  for (const position of geometry ? positionsOf(geometry) : []) {
-    bounds = extendBounds(bounds, position.lon, position.lat);
-  }
-  const point = coordinatesOf(region);
-  if (point) bounds = extendBounds(bounds, point.lon, point.lat);
+  return regionsOverlay(region ? [region] : [], region ? regionListKey(region) : null);
+}
 
-  // The blue overlay is only a real Polygon or MultiPolygon. Bounds frame the
-  // camera and never become a rectangle or any other stub fill.
-  const features = areas;
+export function regionsOverlay(
+  regions: readonly TargetRegion[],
+  markedKey: string | null,
+): {
+  collection: FeatureCollection;
+  bounds: Bounds | null;
+} {
+  if (regions.length === 0) return { collection: EMPTY_REGION, bounds: null };
+  const features: Feature[] = [];
+  let bounds: Bounds | null = null;
+  for (const region of regions) {
+    const geometry = readRegionGeometry(region.geometry);
+    if (!geometry) continue;
+    const key = regionListKey(region);
+    features.push(...areaFeatures(geometry, key, key === markedKey));
+    for (const position of positionsOf(geometry)) {
+      bounds = extendBounds(bounds, position.lon, position.lat);
+    }
+  }
   return {
     collection: { type: "FeatureCollection", features },
     bounds,
@@ -223,7 +238,7 @@ function cameraKey(camera: MapCamera, signature: string): string {
 
 function dataSignature(
   stores: StoreLocation[],
-  region: TargetRegion | null,
+  regions: readonly TargetRegion[],
   overlay: { collection: FeatureCollection; bounds: Bounds | null },
 ): string {
   const storesPart = stores
@@ -233,9 +248,11 @@ function dataSignature(
       ),
     )
     .join("|");
-  const regionPart = region
-    ? [region.label, region.updatedAt, region.lon ?? "", region.lat ?? "", overlay.collection.features.length].join("~")
-    : "";
+  const regionPart = regions
+    .map((region) =>
+      [regionListKey(region), region.label, region.updatedAt, overlay.collection.features.length].join("~"),
+    )
+    .join("|");
   return `${storesPart}#${regionPart}`;
 }
 
@@ -249,14 +266,21 @@ function extendBounds(bounds: Bounds | null, lon: number, lat: number): Bounds {
   };
 }
 
-function areaFeatures(geometry: RegionGeometry): Feature[] {
+function areaFeatures(geometry: RegionGeometry, geoKey: string, marked: boolean): Feature[] {
   const record = asRecord(geometry);
   if (!record || !geometryPositions(record).ok) return [];
   const shape =
     record.type === "Polygon"
       ? { type: "Polygon" as const, coordinates: record.coordinates as Polygon["coordinates"] }
       : { type: "MultiPolygon" as const, coordinates: record.coordinates as Polygon["coordinates"][] };
-  return [{ type: "Feature", properties: { name: LEGEND_LABEL }, geometry: shape }];
+  return [
+    {
+      type: "Feature",
+      id: geoKey,
+      properties: { name: LEGEND_LABEL, geoKey, marked },
+      geometry: shape,
+    },
+  ];
 }
 
 function positionsOf(geometry: RegionGeometry): { lon: number; lat: number }[] {

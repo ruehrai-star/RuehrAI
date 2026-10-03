@@ -12,6 +12,8 @@ export const RECOMMENDATION_COPY = {
   rationale: "Begründung",
   details: "Details",
   empty: "Keine passenden Standorte in der Zielregion.",
+  emptyPlural: "Keine passenden Standorte in den Zielregionen.",
+  subtitlePlural: "Top 3 in Ihren Zielregionen",
   thin: "Die Zielregion ist dünn besetzt.",
   compute: "Empfehlungen berechnen",
   running: "Empfehlungen werden ermittelt …",
@@ -33,6 +35,18 @@ const MONTHS = [
   "November",
   "Dezember",
 ] as const;
+
+export function recommendationSubtitle(regionCount: number): string | null {
+  if (regionCount <= 0) return null;
+  if (regionCount === 1) return RECOMMENDATION_COPY.subtitle;
+  return RECOMMENDATION_COPY.subtitlePlural;
+}
+
+export function recommendationEmptyCopy(regionCount: number): string | null {
+  if (regionCount <= 0) return null;
+  if (regionCount === 1) return RECOMMENDATION_COPY.empty;
+  return RECOMMENDATION_COPY.emptyPlural;
+}
 
 export function rankLabel(rank: number): string {
   return `Rang ${rank}`;
@@ -79,7 +93,11 @@ export function recommendationStatus(set: RecommendationSet): { empty: boolean; 
   const empty = set.items.length === 0;
   const thin = set.items.length > 0 && set.items.length < 3;
   const reason = set.reason?.trim() ? set.reason.trim() : null;
-  if (empty && reason?.includes(RECOMMENDATION_COPY.empty)) {
+  if (
+    empty &&
+    reason &&
+    (reason.includes(RECOMMENDATION_COPY.empty) || reason.includes(RECOMMENDATION_COPY.emptyPlural))
+  ) {
     return { empty: false, thin: false, reason };
   }
   return { empty, thin, reason };

@@ -12,8 +12,10 @@ import {
   formatScore,
   formatWindow,
   rankLabel,
+  recommendationEmptyCopy,
   recommendationSourceLabel,
   recommendationStatus,
+  recommendationSubtitle,
   shortCriteria,
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
@@ -27,12 +29,15 @@ export function EmpfehlungenPage() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [set, setSet] = useState<RecommendationSet | null>(null);
+  const [regionCount, setRegionCount] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const request = useRef(0);
 
   const visible = Boolean(session && loadedEmail === session.email && phase !== "loading");
   const visibleSet = visible && phase !== "running" ? set : null;
   const status = visibleSet ? recommendationStatus(visibleSet) : null;
+  const subtitle = recommendationSubtitle(regionCount ?? 0);
+  const emptyCopy = recommendationEmptyCopy(regionCount ?? 0);
 
   useEffect(() => {
     if (!session) return;
@@ -44,9 +49,13 @@ export function EmpfehlungenPage() {
       setSet(null);
       setActionError(null);
       try {
-        const latest = await api.getRecommendations();
+        const [latest, regions] = await Promise.all([
+          api.getRecommendations(),
+          api.listTargetRegions().catch(() => []),
+        ]);
         if (cancelled) return;
         setSet(latest);
+        setRegionCount(regions.length);
         setLoadedEmail(email);
         setPhase("idle");
       } catch (caught) {
@@ -69,9 +78,13 @@ export function EmpfehlungenPage() {
     setPhase("running");
     setActionError(null);
     try {
-      const created = await api.createRecommendations();
+      const [created, regions] = await Promise.all([
+        api.createRecommendations(),
+        api.listTargetRegions().catch(() => []),
+      ]);
       if (request.current !== token) return;
       setSet(created);
+      setRegionCount(regions.length);
       setPhase("idle");
     } catch (caught) {
       if (request.current !== token) return;
@@ -85,7 +98,6 @@ export function EmpfehlungenPage() {
       <main className="sheet" id="inhalt">
         <p className="stub-kicker">Empfehlung</p>
         <h1>{RECOMMENDATION_COPY.title}</h1>
-        <p className="stub-copy">{RECOMMENDATION_COPY.subtitle}</p>
         <p className="stub-copy">Die Empfehlungen stehen nach der Anmeldung zur Verfügung.</p>
         <div className="auth-actions">
           <Link href="/login" className="button">
@@ -103,7 +115,7 @@ export function EmpfehlungenPage() {
     <main className="sheet" id="inhalt" aria-busy={phase === "running" || phase === "loading"}>
       <p className="stub-kicker">Empfehlung</p>
       <h1>{RECOMMENDATION_COPY.title}</h1>
-      <p className="stub-copy">{RECOMMENDATION_COPY.subtitle}</p>
+      {subtitle ? <p className="stub-copy">{subtitle}</p> : null}
 
       {phase === "loading" ? <p className="message">Empfehlungen werden geladen …</p> : null}
       {phase === "running" ? (
@@ -147,9 +159,9 @@ export function EmpfehlungenPage() {
       ) : null}
 
       {visibleSet && status?.thin ? <p className="banner">{RECOMMENDATION_COPY.thin}</p> : null}
-      {visibleSet && status?.empty ? (
+      {visibleSet && status?.empty && emptyCopy ? (
         <p className="message" role="status">
-          {RECOMMENDATION_COPY.empty}
+          {emptyCopy}
         </p>
       ) : null}
       {visibleSet && status?.reason ? <p className="message">{status.reason}</p> : null}

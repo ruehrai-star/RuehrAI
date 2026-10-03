@@ -3,7 +3,7 @@ import { EmpfehlungenPage } from "@/components/empfehlungen-page";
 
 export const metadata: Metadata = {
   title: "Empfehlungen · RuehrAI",
-  description: "Top 3 in Ihrer Zielregion.",
+  description: "Empfehlungen.",
 };
 
 export default function Page() {

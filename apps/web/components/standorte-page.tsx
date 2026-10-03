@@ -5,12 +5,20 @@ import { useEffect, useState } from "react";
 import type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
+  SearchHit,
   StoreLocation,
   StoreLocationWrite,
   TargetRegion,
-  TargetRegionWrite,
 } from "@/lib/api";
 import { getLocationApi } from "@/lib/locations/api";
+import { toTargetRegionWrite } from "@/lib/locations/model";
+import {
+  addRegionToFront,
+  ensureMarkedKey,
+  nextMarkedKeyAfterAdd,
+  nextMarkedKeyAfterRemove,
+  removeRegion,
+} from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
 import { RegionSection } from "./region-section";
 import { RevenueSection } from "./revenue-section";
@@ -20,13 +28,15 @@ import { StoreSection } from "./store-section";
 export function StandortePage() {
   const { session } = useSession();
   const api = getLocationApi();
-  const [region, setRegion] = useState<TargetRegion | null>(null);
+  const [regions, setRegions] = useState<TargetRegion[]>([]);
+  const [markedKey, setMarkedKey] = useState<string | null>(null);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [storeId, setStoreId] = useState<string | null>(null);
   const [revenue, setRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [revenueStoreId, setRevenueStoreId] = useState<string | null>(null);
-  const [regionSaving, setRegionSaving] = useState(false);
+  const [regionAdding, setRegionAdding] = useState(false);
+  const [regionRemovingKey, setRegionRemovingKey] = useState<string | null>(null);
   const [storePending, setStorePending] = useState<string | null>(null);
   const [revenueSaving, setRevenueSaving] = useState(false);
   const [regionError, setRegionError] = useState<string | null>(null);
@@ -38,7 +48,8 @@ export function StandortePage() {
   const [revenueNotice, setRevenueNotice] = useState<string | null>(null);
 
   const loading = Boolean(session && loadedEmail !== session.email);
-  const visibleRegion = loadedEmail === session?.email ? region : null;
+  const visibleRegions = loadedEmail === session?.email ? regions : [];
+  const visibleMarkedKey = loadedEmail === session?.email ? markedKey : null;
   const visibleStores = loadedEmail === session?.email ? stores : [];
   const revenueLoading = Boolean(session && storeId && revenueStoreId !== storeId);
   const visibleRevenue = revenueStoreId === storeId ? revenue : [];
@@ -47,10 +58,11 @@ export function StandortePage() {
     if (!session) return;
     let cancelled = false;
     const email = session.email;
-    Promise.all([api.getTargetRegion(), api.listStores()])
-      .then(([nextRegion, nextStores]) => {
+    Promise.all([api.listTargetRegions(), api.listStores()])
+      .then(([nextRegions, nextStores]) => {
         if (cancelled) return;
-        setRegion(nextRegion);
+        setRegions(nextRegions);
+        setMarkedKey(ensureMarkedKey(nextRegions, null));
         setStores(nextStores);
         setStoreId((current) =>
           current && nextStores.some((store) => store.id === current) ? current : (nextStores[0]?.id ?? null),
@@ -91,18 +103,38 @@ export function StandortePage() {
     };
   }, [session, api, storeId]);
 
-  async function saveRegion(draft: TargetRegionWrite) {
-    setRegionSaving(true);
+  async function addRegion(hit: SearchHit) {
+    setRegionAdding(true);
     setRegionError(null);
     setRegionNotice(null);
     try {
-      const saved = await api.putTargetRegion(draft);
-      setRegion(saved);
-      setRegionNotice("Zielregion gespeichert.");
+      const added = await api.addTargetRegion(toTargetRegionWrite(hit));
+      setRegions((current) => {
+        const next = addRegionToFront(current, added);
+        setMarkedKey((currentMark) => nextMarkedKeyAfterAdd(current, added, currentMark));
+        return next;
+      });
     } catch (caught) {
       setRegionError(errorText(caught, "Zielregion konnte nicht gespeichert werden."));
     } finally {
-      setRegionSaving(false);
+      setRegionAdding(false);
+    }
+  }
+
+  async function deleteRegion(key: string) {
+    setRegionRemovingKey(key);
+    setRegionError(null);
+    setRegionNotice(null);
+    try {
+      await api.removeTargetRegion(key);
+      setRegions((current) => {
+        setMarkedKey((currentMark) => nextMarkedKeyAfterRemove(current, key, currentMark));
+        return removeRegion(current, key);
+      });
+    } catch (caught) {
+      setRegionError(errorText(caught, "Zielregion konnte nicht entfernt werden."));
+    } finally {
+      setRegionRemovingKey(null);
     }
   }
 
@@ -175,7 +207,7 @@ export function StandortePage() {
       <main className="sheet" id="inhalt">
         <p className="stub-kicker">Standorte</p>
         <h1>Anmeldung erforderlich</h1>
-        <p className="stub-copy">Zielregion, Filialadressen und Umsatz stehen nach der Anmeldung zur Verfügung.</p>
+        <p className="stub-copy">Zielregionen, Filialadressen und Umsatz stehen nach der Anmeldung zur Verfügung.</p>
         <div className="auth-actions">
           <Link href="/login" className="button">
             Anmelden
@@ -192,9 +224,9 @@ export function StandortePage() {
     <main className="sheet" id="inhalt">
       <p className="stub-kicker">Standort-Eingaben</p>
       <h1>Standorte</h1>
-      <p className="stub-copy">Zielregion, bestehende Filialen und monatlicher Umsatz für das angemeldete Konto.</p>
+      <p className="stub-copy">Zielregionen, bestehende Filialen und monatlicher Umsatz für das angemeldete Konto.</p>
       <nav className="section-nav" aria-label="Standort-Eingaben">
-        <a href="#zielregion">Zielregion</a>
+        <a href="#zielregion">Zielregionen</a>
         <a href="#filialadressen">Filialadressen</a>
         <a href="#umsatz">Umsatz</a>
       </nav>
@@ -210,12 +242,15 @@ export function StandortePage() {
         </p>
       ) : null}
       <RegionSection
-        saved={visibleRegion}
-        canSave
-        saving={regionSaving}
+        items={visibleRegions}
+        markedKey={visibleMarkedKey}
+        adding={regionAdding}
+        removingKey={regionRemovingKey}
         error={regionError}
         notice={regionNotice}
-        onSave={saveRegion}
+        onMark={setMarkedKey}
+        onAdd={addRegion}
+        onRemove={deleteRegion}
       />
       <StoreSection
         stores={visibleStores}

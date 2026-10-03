@@ -3,7 +3,7 @@ import { StandortePage } from "@/components/standorte-page";
 
 export const metadata: Metadata = {
   title: "Standorte · RuehrAI",
-  description: "Zielregion, Filialadressen und monatlicher Umsatz.",
+  description: "Zielregionen, Filialadressen und monatlicher Umsatz.",
 };
 
 export default function Page() {

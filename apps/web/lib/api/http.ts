@@ -19,6 +19,7 @@ import type {
   StoreList,
   StoreLocation,
   StoreLocationWrite,
+  TargetRegionList,
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
@@ -143,18 +144,32 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       await request<void>("/auth/logout", { method: "POST", auth: true, empty: true });
     },
 
-    async getTargetRegion(): Promise<TargetRegion | null> {
-      const body = await request<TargetRegion | null>("/target-region", { auth: true, nullOn404: true });
-      return body ? parseTargetRegion(body) : null;
+    async listTargetRegions(): Promise<TargetRegion[]> {
+      const body = await request<TargetRegionList | null>("/target-region", { auth: true, nullOn404: true });
+      return body ? parseTargetRegionList(body) : [];
     },
 
-    async putTargetRegion(region: TargetRegionWrite): Promise<TargetRegion> {
+    async addTargetRegion(region: TargetRegionWrite): Promise<TargetRegion> {
       const body = await request<TargetRegion>("/target-region", {
-        method: "PUT",
+        method: "POST",
         auth: true,
         body: JSON.stringify(region),
       });
       return parseTargetRegion(body);
+    },
+
+    async removeTargetRegion(geoKey: string): Promise<void> {
+      const key = geoKey.trim();
+      if (!key) throw new ApiError("Antwort von /target-region ist ungültig.", 502);
+      await request<void>(`/target-region/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        auth: true,
+        empty: true,
+      });
+    },
+
+    async clearTargetRegions(): Promise<void> {
+      await request<void>("/target-region", { method: "DELETE", auth: true, empty: true });
     },
 
     async listStores(): Promise<StoreLocation[]> {
@@ -264,6 +279,13 @@ async function sessionFromToken(
     expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
     email: credentials.email.trim().toLowerCase(),
   };
+}
+
+function parseTargetRegionList(body: TargetRegionList): TargetRegion[] {
+  if (!body || !Array.isArray(body.items)) {
+    throw new ApiError("Antwort von /target-region ist ungültig.", 502);
+  }
+  return body.items.map(parseTargetRegion);
 }
 
 function parseTargetRegion(body: TargetRegion): TargetRegion {
@@ -439,7 +461,14 @@ function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"):
       }
     }
   }
-  return body;
+  if (body.regions !== undefined && !Array.isArray(body.regions)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  return {
+    ...body,
+    region: parseTargetRegion(body.region),
+    ...(Array.isArray(body.regions) ? { regions: body.regions.map(parseTargetRegion) } : {}),
+  };
 }
 
 function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
