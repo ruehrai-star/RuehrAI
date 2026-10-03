@@ -2,7 +2,8 @@
 
 import type { FormEvent } from "react";
 import type { SearchHit } from "@/lib/api";
-import { grainLabel } from "@/lib/format";
+import { CatalogParentName } from "@/components/catalog-parent-name";
+import { catalogBadge } from "@/lib/format";
 
 const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
 
@@ -88,9 +89,12 @@ export function SearchPanel({
                 aria-pressed={active}
                 onClick={() => onSelect(hit)}
               >
-                <span className="hit-label">{hit.label}</span>
+                <span className="hit-label">
+                  {hit.label}
+                  <CatalogParentName source={hit} />
+                </span>
                 <span className="hit-meta">
-                  <span className="badge">{grainLabel(hit.grain, hit.geoKey || hit.id)}</span>
+                  <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
                   <span className="hit-id">{hit.id}</span>
                 </span>
               </button>

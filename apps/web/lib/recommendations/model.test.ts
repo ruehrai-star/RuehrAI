@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Recommendation, RecommendationSet } from "@ruehrai/api-contracts";
+import type { Recommendation, RecommendationSet } from "../api/types.ts";
 import {
   RECOMMENDATION_COPY,
   formatAddress,
@@ -77,6 +77,26 @@ test("a card address, score, window, and short criteria stay in German", () => {
       location: { ...item.location, grain: "ags", geoKey: "09162000" },
     }),
     "Gemeinde 09162000",
+  );
+  assert.equal(
+    formatLocationMeta({
+      ...item,
+      location: { ...item.location, grain: "ags", geoKey: "14713000", level: "ortsteil" },
+    }),
+    "Ortsteil 14713000",
+  );
+  assert.equal(
+    formatLocationMeta({
+      ...item,
+      location: {
+        ...item.location,
+        grain: "ags",
+        geoKey: "11000001",
+        level: "stadtteil",
+        parentName: "Berlin",
+      } as Recommendation["location"],
+    }),
+    "Stadtteil 11000001",
   );
   assert.equal(formatScore(1), "Passung 100\u00a0%");
   assert.equal(formatWindow({ from: "2026-04", to: "2026-09" }), "April 2026 – September 2026");

@@ -1,4 +1,7 @@
-import type { Grain } from "./api/types";
+import { isCatalogLevel, type CatalogLevel, type Grain } from "./api/types.ts";
+
+export type { CatalogLevel } from "./api/types.ts";
+export { CATALOG_LEVELS, isCatalogLevel } from "./api/types.ts";
 
 const GRAIN_LABELS: Record<Grain, string> = {
   address: "Adresse",
@@ -10,6 +13,24 @@ const GRAIN_LABELS: Record<Grain, string> = {
   other: "Sonstiges",
 };
 
+const CATALOG_LEVEL_LABELS: Record<CatalogLevel, string> = {
+  plz: "PLZ",
+  bezirk: "Bezirk",
+  stadtbezirk: "Stadtbezirk",
+  stadtteil: "Stadtteil",
+  ortsteil: "Ortsteil",
+};
+
+const SUB_AREA_LEVELS = new Set<CatalogLevel>(["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
+
+export interface CatalogBadgeSource {
+  level?: unknown;
+  grain?: Grain | null;
+  geoKey?: string | null;
+  ags?: string | null;
+  id?: string | null;
+}
+
 /**
  * German badge for a contract grain.
  *
@@ -17,10 +38,47 @@ const GRAIN_LABELS: Record<Grain, string> = {
  * `11000001`–`11000012` (search ids `ags:11000001` … `ags:11000012`).
  * Those badges say „Bezirk“. Every other `ags` stays „Gemeinde“, including
  * Berlin `11000000`. Pass `geoKey`, `ags`, or a search id.
+ *
+ * A present catalog `level` is mapped by `catalogBadge` and must not be
+ * overridden by this AGS special case.
  */
 export function grainLabel(grain: Grain, geoKey?: string | null): string {
   if (grain === "ags" && isBerlinBezirkAgs(geoKey)) return "Bezirk";
   return GRAIN_LABELS[grain];
+}
+
+export function catalogLevelOf(value: unknown): CatalogLevel | null {
+  return isCatalogLevel(value) ? value : null;
+}
+
+/**
+ * Zielregion catalog badge. A present `level` wins, including over the Berlin
+ * AGS 11000001–12 „Bezirk“ fallback. Sub-areas never become „Gemeinde“.
+ * Municipality hits without `level` keep the grain badge („Gemeinde“ / „Bezirk“).
+ */
+export function catalogBadge(source: CatalogBadgeSource): string {
+  const level = catalogLevelOf(source.level);
+  if (level) return CATALOG_LEVEL_LABELS[level];
+  if (source.grain) return grainLabel(source.grain, source.ags || source.geoKey || source.id);
+  return "";
+}
+
+export function isSubAreaLevel(value: unknown): boolean {
+  const level = catalogLevelOf(value);
+  return level !== null && SUB_AREA_LEVELS.has(level);
+}
+
+/**
+ * Parent municipality name next to a catalog hit.
+ *
+ * OpenAPI `SearchHit`, `TargetRegion`, and `RecommendationLocation` on main
+ * do not name this field (checked 2026-10-03; no open backend contract PR).
+ * Do not read a guessed JSON key (`parentName`, `municipalityName`, …).
+ * When the contract adds the field, return its trimmed non-empty string here.
+ */
+export function catalogParentName(source: unknown): string | null {
+  void source;
+  return null;
 }
 
 function isBerlinBezirkAgs(value: string | null | undefined): boolean {

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, getApi, type SearchHit, type TargetRegion, type TargetRegionWrite } from "@/lib/api";
-import { grainLabel } from "@/lib/format";
+import { CatalogParentName } from "@/components/catalog-parent-name";
+import { catalogBadge } from "@/lib/format";
 import { toTargetRegionWrite } from "@/lib/locations/model";
 import { errorText } from "@/lib/user-message";
 
@@ -76,9 +77,10 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
         <p className="status-line">
           <span>
             Gespeichert: <strong>{saved.label}</strong>
+            <CatalogParentName source={saved} />
             {saved.geoKey ? ` · ${saved.geoKey}` : ""}
           </span>
-          {saved.grain ? <span className="badge">{grainLabel(saved.grain, saved.ags || saved.geoKey)}</span> : null}
+          {saved.grain || saved.level ? <span className="badge">{catalogBadge(saved)}</span> : null}
         </p>
       ) : (
         <p className="message">Noch keine Zielregion gespeichert.</p>
@@ -118,9 +120,12 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
                   aria-pressed={active}
                   onClick={() => setPicked(hit)}
                 >
-                  <span className="hit-label">{hit.label}</span>
+                  <span className="hit-label">
+                    {hit.label}
+                    <CatalogParentName source={hit} />
+                  </span>
                   <span className="hit-meta">
-                    <span className="badge">{grainLabel(hit.grain, hit.geoKey || hit.id)}</span>
+                    <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
                     <span className="hit-id">{hit.geoKey ?? hit.id}</span>
                   </span>
                 </button>

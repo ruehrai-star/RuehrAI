@@ -296,6 +296,12 @@ input {
   font-weight: 620;
 }
 
+.hit-parent {
+  margin-left: 0.4em;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
 .hit-meta {
   display: flex;
   gap: 8px;
