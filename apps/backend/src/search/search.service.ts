@@ -4,7 +4,13 @@ import { isMissingFeaturesRelation } from "../database/pg-error";
 import { CatalogLevel, catalogDedupKey } from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchQueryDto } from "./search.dto";
-import { toContainsPattern } from "./search.util";
+import {
+  allowPlzHits,
+  hasVisibleLabel,
+  isInternalCatalogKeyQuery,
+  isPlzHit,
+  searchFilterParams,
+} from "./search.util";
 
 export interface SearchHit {
   id: string;
@@ -38,6 +44,9 @@ export class SearchService {
   ) {}
 
   async search(query: SearchQueryDto): Promise<{ hits: SearchHit[] }> {
+    if (isInternalCatalogKeyQuery(query.q)) {
+      return { hits: [] };
+    }
     const [catalog, fallback] = await Promise.all([
       this.geoCatalog.search(query),
       this.searchExisting(query),
@@ -62,9 +71,9 @@ export class SearchService {
       }
       const result = await this.db.queryReadingFeatures<HitRow>(
         FEATURE_SEARCH_SQL,
-        filterParams(query),
+        searchFilterParams(query),
       );
-      return result.rows.map(toHit);
+      return result.rows.map(toHit).filter((hit): hit is SearchHit => hit !== null);
     } catch (error) {
       if (isMissingFeaturesRelation(error)) {
         this.noteFallback("features.v_location_search is not installed");
@@ -75,8 +84,8 @@ export class SearchService {
   }
 
   private async searchSeed(query: SearchQueryDto): Promise<SearchHit[]> {
-    const result = await this.db.query<HitRow>(SEED_SEARCH_SQL, filterParams(query));
-    return result.rows.map(toHit);
+    const result = await this.db.query<HitRow>(SEED_SEARCH_SQL, searchFilterParams(query));
+    return result.rows.map(toHit).filter((hit): hit is SearchHit => hit !== null);
   }
 
   private noteFallback(reason: string): void {
@@ -86,22 +95,11 @@ export class SearchService {
   }
 }
 
-function filterParams(query: SearchQueryDto): unknown[] {
-  return [
-    query.ags ?? null,
-    query.plz ?? null,
-    query.address ? toContainsPattern(query.address) : null,
-    query.q ? toContainsPattern(query.q) : null,
-    query.type ?? null,
-    query.geoKey ?? null,
-    query.grain ?? null,
-  ];
-}
-
-function toHit(row: HitRow): SearchHit {
+function toHit(row: HitRow): SearchHit | null {
+  if (!hasVisibleLabel(row.label)) return null;
   return {
     id: row.id,
-    label: row.label,
+    label: row.label.trim(),
     grain: row.grain,
     geoKey: row.geo_key ?? null,
     lon: toCoord(row.lon),
@@ -112,7 +110,10 @@ function toHit(row: HitRow): SearchHit {
 function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): SearchHit[] {
   const seen = new Set<string>();
   const merged: SearchHit[] = [];
+  const keepPlz = allowPlzHits(q);
   for (const hit of [...catalog, ...existing]) {
+    if (!hasVisibleLabel(hit.label)) continue;
+    if (!keepPlz && isPlzHit(hit)) continue;
     const key = catalogDedupKey(hit);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -148,33 +149,36 @@ function toCoord(value: number | string | null): number | null {
 const TEXT_MATCH = `
   name ILIKE $4 ESCAPE '\\'
   OR title ILIKE $4 ESCAPE '\\'
-  OR geo_key ILIKE $4 ESCAPE '\\'
 `;
 
-/** Equality on geo_key uses the Brain btree. Leading-wildcard ILIKE stays a sequential scan at this size. */
+const HAS_FEATURE_NAME = `
+  NULLIF(btrim(name), '') IS NOT NULL
+  OR NULLIF(btrim(title), '') IS NOT NULL
+`;
+
+/** Equality on geo_key uses the Brain btree. `$6` is exact reload, not free-text. */
 const FEATURE_SEARCH_SQL = `
   SELECT id::text AS id,
          COALESCE(
            NULLIF(btrim(name), ''),
-           NULLIF(btrim(title), ''),
-           NULLIF(btrim(geo_key), ''),
-           id::text
+           NULLIF(btrim(title), '')
          ) AS label,
          grain,
          geo_key,
          lon,
          lat
   FROM features.v_location_search
-  WHERE ($1::text IS NULL OR (grain = 'ags' AND geo_key = $1))
+  WHERE (${HAS_FEATURE_NAME})
+    AND ($1::text IS NULL OR (grain = 'ags' AND geo_key = $1))
     AND ($2::text IS NULL OR (grain IN ('plz5', 'plz8') AND geo_key = $2))
     AND (
       $3::text IS NULL
       OR name ILIKE $3 ESCAPE '\\'
       OR title ILIKE $3 ESCAPE '\\'
-      OR geo_key ILIKE $3 ESCAPE '\\'
     )
     AND ($6::text IS NULL OR geo_key = $6)
     AND ($7::text IS NULL OR grain = $7)
+    AND ($8::boolean OR grain NOT IN ('plz5', 'plz8'))
     AND (
       $4::text IS NULL
       OR (
@@ -213,7 +217,8 @@ const SEED_SEARCH_SQL = `
          lon,
          lat
   FROM app.search_places
-  WHERE ($1::text IS NULL OR ags = $1)
+  WHERE NULLIF(btrim(label), '') IS NOT NULL
+    AND ($1::text IS NULL OR ags = $1)
     AND ($2::text IS NULL OR plz = $2)
     AND (
       $3::text IS NULL
@@ -222,10 +227,18 @@ const SEED_SEARCH_SQL = `
     )
     AND ($6::text IS NULL OR id = $6 OR ags = $6 OR plz = $6)
     AND ($7::text IS NULL OR grain = $7)
+    AND ($8::boolean OR grain NOT IN ('plz5', 'plz8'))
     AND (
       $4::text IS NULL
-      OR ($5::text = 'ags' AND ags ILIKE $4 ESCAPE '\\')
-      OR ($5::text = 'plz' AND plz ILIKE $4 ESCAPE '\\')
+      OR ($5::text = 'ags' AND grain IN ('ags', 'ags5') AND label ILIKE $4 ESCAPE '\\')
+      OR (
+        $5::text = 'plz'
+        AND grain IN ('plz5', 'plz8')
+        AND (
+          label ILIKE $4 ESCAPE '\\'
+          OR COALESCE(plz, '') ILIKE $4 ESCAPE '\\'
+        )
+      )
       OR (
         $5::text = 'address'
         AND (
@@ -237,7 +250,6 @@ const SEED_SEARCH_SQL = `
         $5::text IS NULL
         AND (
           label ILIKE $4 ESCAPE '\\'
-          OR COALESCE(ags, '') ILIKE $4 ESCAPE '\\'
           OR COALESCE(plz, '') ILIKE $4 ESCAPE '\\'
           OR COALESCE(address, '') ILIKE $4 ESCAPE '\\'
         )

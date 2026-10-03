@@ -317,16 +317,25 @@ export interface paths {
          * Search places by name, grain, or geo key
          * @description Reads Brain `geo` (PLZ, Stadtbezirk, Stadtteil, Ortsteil) together with
          *     `features.v_location_search` when that view contains at least one row.
-         *     Filters apply to name, title, grain, and geo_key. `lon` and `lat` are
-         *     JSON null when the row has no coordinates.
+         *     Free-text `q` matches the place name and, for catalog rows, `parentLabel`.
+         *     It does not match internal catalog keys (`id`, `geo_key`, `geo_ags`) such
+         *     as `plz5:12247`, `ortsteil:osm:…`, `stadtteil:osm:…`,
+         *     `stadtbezirk:osm:…`, or `ags:…`. Typing one of those keys as `q` returns
+         *     no hit. `lon` and `lat` are JSON null when the row has no coordinates.
+         *     A row without a name is omitted; `label` is never empty.
          *
-         *     `q` is a substring. `type` limits `q` to grain `ags`, `plz5`/`plz8`, or
-         *     `address`. Without `type`, `q` matches name, title, and geo_key.
-         *     `type` has no effect when `q` is omitted.
+         *     `q` is a substring of visible text. `type` limits `q` to grain `ags`,
+         *     `plz5`/`plz8`, or `address`. Without `type`, `q` matches name and title
+         *     (and catalog `parentLabel`). `type` has no effect when `q` is omitted.
+         *     PLZ hits (`level=plz`, or grain `plz5`/`plz8`) appear only when the
+         *     whole `q` is digits, for example `12247` or `80331`. A name query such
+         *     as München, Hamburg, or Leipzig never returns PLZ rows. Ortsteil,
+         *     Stadtteil, Stadtbezirk, and Bezirk still match a name query.
          *
          *     `ags` and `plz` are exact geo_key matches on that grain. `geoKey` is an
-         *     exact geo_key match on any grain. `grain` is exact. `address` is a
-         *     substring of name, title, and geo_key. Filters combine with AND.
+         *     exact geo_key or catalog `id` match on any grain (reload of a stored
+         *     place). `grain` is exact. `address` is a substring of name and title.
+         *     Filters combine with AND.
          *     At most 50 hits, ordered by exact id/label match, then label.
          *
          *     If the view is missing or has no rows (local docker-compose), the same
@@ -1609,7 +1618,10 @@ export interface operations {
     searchPlaces: {
         parameters: {
             query?: {
-                /** @description Free-text substring. Interpretation depends on `type`. */
+                /**
+                 * @description Free-text substring of the place name and parent municipality.
+                 *     Does not match catalog keys. PLZ hits require `q` to be only digits.
+                 */
                 q?: string;
                 /** @description Field that `q` is matched against. Ignored when `q` is absent. */
                 type?: components["schemas"]["SearchType"];
@@ -1619,7 +1631,7 @@ export interface operations {
                 ags?: string;
                 /** @description Exact PLZ5 or PLZ8. */
                 plz?: string;
-                /** @description Exact geo_key on any grain. */
+                /** @description Exact geo_key or catalog id. Reloads a stored place; not free-text. */
                 geoKey?: string;
                 /** @description Exact spatial grain. */
                 grain?: components["schemas"]["Grain"];
