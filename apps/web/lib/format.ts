@@ -81,6 +81,52 @@ export function catalogParentName(source: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const CATALOG_KEY =
+  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil)(?::\S+)+$/i;
+
+/**
+ * Internal catalog id such as `plz5:12247` or `ortsteil:osm:5712247`.
+ * These keys are stored and sent on save; they are never visible copy.
+ */
+export function isCatalogKey(value: unknown): boolean {
+  return typeof value === "string" && CATALOG_KEY.test(value.trim());
+}
+
+/**
+ * Visible place name for a search or Zielregion hit.
+ * Uses `label` only when it is a non-empty string and not a catalog key.
+ */
+export function catalogPlaceName(source: unknown): string | null {
+  if (!source || typeof source !== "object") return null;
+  const label = (source as { label?: unknown }).label;
+  if (typeof label !== "string") return null;
+  const trimmed = label.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return null;
+  return trimmed;
+}
+
+/** Hits without a place name stay out of the Trefferliste. */
+export function visibleSearchHits<T>(hits: readonly T[]): T[] {
+  return hits.filter((hit) => catalogPlaceName(hit) !== null);
+}
+
+/**
+ * Visible Zielregion copy: place name, optional parentLabel, level badge.
+ * Catalog keys (`id`, `geoKey`) are omitted even when they are present.
+ */
+export function catalogHitVisibleText(source: unknown): string {
+  const name = catalogPlaceName(source);
+  if (!name) return "";
+  const parent = catalogParentName(source);
+  const badge = catalogBadge(asBadgeSource(source));
+  return [name, parent, badge].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
+}
+
+function asBadgeSource(source: unknown): CatalogBadgeSource {
+  if (!source || typeof source !== "object") return {};
+  return source as CatalogBadgeSource;
+}
+
 function isBerlinBezirkAgs(value: string | null | undefined): boolean {
   if (typeof value !== "string") return false;
   let code = value.trim();

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  catalogIdForSave,
   draftsForPoints,
   formatMonthName,
   formatMonthNumber,
@@ -120,4 +121,32 @@ test("store drafts and region hits map onto the contract", () => {
     toTargetRegionWrite({ id: "2", label: "80331", grain: "plz5", geoKey: "80331", lon: null, lat: null }).plz,
     "80331",
   );
+});
+
+test("saving a catalog hit still submits the id as geoKey", () => {
+  const plz = toTargetRegionWrite({
+    id: "plz5:12247",
+    label: "12247",
+    grain: "plz5",
+    geoKey: "12247",
+    lon: 13.41,
+    lat: 52.45,
+  });
+  assert.equal(plz.geoKey, "plz5:12247");
+  assert.equal(plz.plz, "12247");
+  assert.equal(plz.label, "12247");
+  assert.equal(catalogIdForSave({ id: "plz5:12247", geoKey: "12247" }), "plz5:12247");
+
+  const ortsteil = toTargetRegionWrite({
+    id: "ortsteil:osm:5712247",
+    label: "Lankwitz",
+    grain: "other",
+    geoKey: "ortsteil:osm:5712247",
+    lon: 13.35,
+    lat: 52.43,
+  });
+  assert.equal(ortsteil.geoKey, "ortsteil:osm:5712247");
+  assert.equal(ortsteil.label, "Lankwitz");
+  assert.equal(ortsteil.plz, null);
+  assert.equal(catalogIdForSave({ id: "ortsteil:osm:5712247", geoKey: "ortsteil:osm:5712247" }), "ortsteil:osm:5712247");
 });

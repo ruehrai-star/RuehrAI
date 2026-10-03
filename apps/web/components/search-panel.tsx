@@ -3,9 +3,9 @@
 import type { FormEvent } from "react";
 import type { SearchHit } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge } from "@/lib/format";
+import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
 
-const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
+const EXAMPLES = ["München", "80331", "Marienplatz", "Berlin"];
 
 interface SearchPanelProps {
   query: string;
@@ -32,21 +32,23 @@ export function SearchPanel({
   apiStatus,
   layerStatus,
 }: SearchPanelProps) {
+  const visibleResults = visibleSearchHits(results);
+
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const first = results[0];
+    const first = visibleResults[0];
     if (first) onSelect(first);
   }
 
   return (
     <section className="panel" aria-label="Suche">
       <form className="search-form" onSubmit={onSubmit}>
-        <label htmlFor="search-q">Adresse, AGS oder PLZ</label>
+        <label htmlFor="search-q">Adresse oder PLZ</label>
         <input
           id="search-q"
           type="search"
           value={query}
-          placeholder="z. B. München, 80331, 09162000"
+          placeholder="z. B. München, 80331"
           autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}
           aria-controls="search-results"
@@ -72,14 +74,14 @@ export function SearchPanel({
       <div className="results-head">
         <h2>Treffer</h2>
         <span aria-live="polite">
-          {searching ? "Suche …" : query.trim().length >= 2 ? `${results.length} Treffer` : "Bereit"}
+          {searching ? "Suche …" : query.trim().length >= 2 ? `${visibleResults.length} Treffer` : "Bereit"}
         </span>
       </div>
 
       {error ? <p className="message message-error">{error}</p> : null}
 
       <ul id="search-results" className="results">
-        {results.map((hit) => {
+        {visibleResults.map((hit) => {
           const active = selection?.id === hit.id;
           return (
             <li key={hit.id}>
@@ -90,12 +92,11 @@ export function SearchPanel({
                 onClick={() => onSelect(hit)}
               >
                 <span className="hit-label">
-                  {hit.label}
+                  {catalogPlaceName(hit)}
                   <CatalogParentName source={hit} />
                 </span>
                 <span className="hit-meta">
                   <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
-                  <span className="hit-id">{hit.id}</span>
                 </span>
               </button>
             </li>
@@ -103,8 +104,8 @@ export function SearchPanel({
         })}
       </ul>
 
-      {query.trim().length >= 2 && !searching && results.length === 0 && !error ? (
-        <p className="message">Keine Treffer. Adresse, PLZ oder AGS versuchen.</p>
+      {query.trim().length >= 2 && !searching && visibleResults.length === 0 && !error ? (
+        <p className="message">Keine Treffer. Adresse oder PLZ versuchen.</p>
       ) : null}
 
       <div className="panel-foot">

@@ -127,6 +127,38 @@ test("GET /search keeps level and parentLabel and does not invent a parent name"
   assert.equal("municipalityName" in (hit ?? {}), false);
 });
 
+test("GET /search keeps the catalog id on a named hit", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [
+          {
+            id: "plz5:12247",
+            label: "12247",
+            grain: "plz5",
+            geoKey: "12247",
+            level: "plz",
+            parentLabel: "Berlin",
+          },
+          {
+            id: "ortsteil:osm:5712247",
+            label: "Lankwitz",
+            grain: "other",
+            geoKey: "ortsteil:osm:5712247",
+            level: "ortsteil",
+            parentLabel: "Berlin",
+          },
+        ],
+      }),
+  });
+  const hits = (await api.search("12247")).hits;
+  assert.equal(hits[0]?.id, "plz5:12247");
+  assert.equal(hits[0]?.label, "12247");
+  assert.equal(hits[1]?.id, "ortsteil:osm:5712247");
+  assert.equal(hits[1]?.label, "Lankwitz");
+});
+
 test("GET /search drops a blank parentLabel", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
