@@ -1,4 +1,5 @@
 import type { Grain, MonthlyRevenuePoint, SearchHit, TargetRegionWrite } from "@ruehrai/api-contracts";
+import { catalogPlaceName, isCatalogKey } from "../format.ts";
 
 export interface StoreDraft {
   label: string;
@@ -26,15 +27,27 @@ const REVENUE_YEAR_SPAN = 3;
  * (Location-Guide). The API stores a Berlin Bezirk alias (`11006006`) as
  * `1100000N`. A hit with no catalog polygon and no `lon`/`lat` is rejected
  * unless the client adds `geometry` or `bounds`.
+ *
+ * Catalog id is kept on the hit and sent as `geoKey` so PUT can store the
+ * outline. A prefixed id such as `plz5:12247` or `ortsteil:osm:5712247`
+ * wins over a bare `geoKey`. The request still carries that id; it is only
+ * hidden in the UI.
  */
+export function catalogIdForSave(hit: Pick<SearchHit, "id" | "geoKey">): string | null {
+  if (typeof hit.id === "string" && isCatalogKey(hit.id)) return hit.id.trim();
+  if (typeof hit.geoKey === "string" && hit.geoKey.trim()) return hit.geoKey.trim();
+  if (typeof hit.id === "string" && hit.id.trim()) return hit.id.trim();
+  return null;
+}
+
 export function toTargetRegionWrite(hit: SearchHit): TargetRegionWrite {
-  const geoKey = typeof hit.geoKey === "string" ? hit.geoKey : null;
+  const geoKey = catalogIdForSave(hit);
   return {
-    label: hit.label,
+    label: catalogPlaceName(hit) ?? hit.label,
     grain: hit.grain,
     geoKey,
-    ags: agsFromHit(hit.grain, geoKey),
-    plz: plzFromHit(hit.grain, geoKey),
+    ags: agsFromHit(hit.grain, geoKey, hit.geoKey),
+    plz: plzFromHit(hit.grain, geoKey, hit.geoKey),
     lon: typeof hit.lon === "number" ? hit.lon : null,
     lat: typeof hit.lat === "number" ? hit.lat : null,
   };
@@ -137,12 +150,28 @@ export function rowsForYear(
   });
 }
 
-function agsFromHit(grain: Grain, geoKey: string | null): string | null {
-  if ((grain !== "ags" && grain !== "ags5") || !geoKey || !/^[0-9]{2,8}$/.test(geoKey)) return null;
-  return geoKey;
+function agsFromHit(grain: Grain, geoKey: string | null, fallback?: string | null): string | null {
+  if (grain !== "ags" && grain !== "ags5") return null;
+  for (const value of [geoKey, fallback]) {
+    const bare = bareCatalogKey(value);
+    if (bare && /^[0-9]{2,8}$/.test(bare)) return bare;
+  }
+  return null;
 }
 
-function plzFromHit(grain: Grain, geoKey: string | null): string | null {
-  if ((grain !== "plz5" && grain !== "plz8") || !geoKey || !/^[0-9]{5}([0-9]{3})?$/.test(geoKey)) return null;
-  return geoKey;
+function plzFromHit(grain: Grain, geoKey: string | null, fallback?: string | null): string | null {
+  if (grain !== "plz5" && grain !== "plz8") return null;
+  for (const value of [geoKey, fallback]) {
+    const bare = bareCatalogKey(value);
+    if (bare && /^[0-9]{5}([0-9]{3})?$/.test(bare)) return bare;
+  }
+  return null;
+}
+
+function bareCatalogKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const prefixed = /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil):(.+)$/i.exec(trimmed);
+  return prefixed?.[1] ?? trimmed;
 }

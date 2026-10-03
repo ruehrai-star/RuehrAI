@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, getApi, type SearchHit, type TargetRegion, type TargetRegionWrite } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge } from "@/lib/format";
+import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
 import { toTargetRegionWrite } from "@/lib/locations/model";
 import { errorText } from "@/lib/user-message";
 
@@ -53,11 +53,14 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
 
   const trimmed = query.trim();
   const searching = trimmed.length >= 2 && resultQuery !== trimmed;
-  const visibleHits = trimmed.length >= 2 && resultQuery === trimmed ? hits : [];
+  const visibleHits =
+    trimmed.length >= 2 && resultQuery === trimmed ? visibleSearchHits(hits) : [];
+  const savedName = saved ? catalogPlaceName(saved) : null;
+  const pickedName = picked ? catalogPlaceName(picked) : null;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!picked) return;
+    if (!picked || !catalogPlaceName(picked)) return;
     await onSave(toTargetRegionWrite(picked));
   }
 
@@ -76,9 +79,8 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
       {saved ? (
         <p className="status-line">
           <span>
-            Gespeichert: <strong>{saved.label}</strong>
+            Gespeichert:{savedName ? <> <strong>{savedName}</strong></> : null}
             <CatalogParentName source={saved} />
-            {saved.geoKey ? ` · ${saved.geoKey}` : ""}
           </span>
           {saved.grain || saved.level ? <span className="badge">{catalogBadge(saved)}</span> : null}
         </p>
@@ -121,12 +123,11 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
                   onClick={() => setPicked(hit)}
                 >
                   <span className="hit-label">
-                    {hit.label}
+                    {catalogPlaceName(hit)}
                     <CatalogParentName source={hit} />
                   </span>
                   <span className="hit-meta">
                     <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
-                    <span className="hit-id">{hit.geoKey ?? hit.id}</span>
                   </span>
                 </button>
               </li>
@@ -136,10 +137,12 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
         {trimmed.length >= 2 && !searching && visibleHits.length === 0 && !searchError ? (
           <p className="message">Keine Treffer. Gemeinde, PLZ oder AGS versuchen.</p>
         ) : null}
-        {picked ? (
+        {picked && pickedName ? (
           <p className="message">
-            Auswahl: <strong>{picked.label}</strong>
-            {saved?.label === picked.label && saved.geoKey === (picked.geoKey ?? null)
+            Auswahl: <strong>{pickedName}</strong>
+            <CatalogParentName source={picked} />
+            {picked.grain || picked.level ? <span className="badge">{catalogBadge(picked)}</span> : null}
+            {savedName === pickedName && saved?.geoKey === (picked.geoKey ?? null)
               ? " · entspricht der gespeicherten Zielregion"
               : " · noch nicht gespeichert"}
           </p>
@@ -154,7 +157,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
             {notice}
           </p>
         ) : null}
-        <button type="submit" className="button" disabled={!canSave || !picked || saving}>
+        <button type="submit" className="button" disabled={!canSave || !picked || !pickedName || saving}>
           {saving ? "Speichern …" : "Zielregion speichern"}
         </button>
       </form>

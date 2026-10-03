@@ -13,7 +13,7 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge } from "@/lib/format";
+import { catalogBadge, catalogPlaceName } from "@/lib/format";
 import {
   LEGEND_LABEL,
   NO_STORES_LABEL,
@@ -260,7 +260,7 @@ export function MapPage() {
         {selection ? (
           <div className="callout">
             <span className="badge">{catalogBadge({ ...selection, geoKey: selection.geoKey || selection.id })}</span>
-            <strong>{selection.label}</strong>
+            {catalogPlaceName(selection) ? <strong>{catalogPlaceName(selection)}</strong> : null}
             <CatalogParentName source={selection} />
             {selectionPoint ? (
               <span className="callout-coords">

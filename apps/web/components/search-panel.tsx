@@ -3,7 +3,7 @@
 import type { FormEvent } from "react";
 import type { SearchHit } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge } from "@/lib/format";
+import { catalogBadge, catalogPlaceName, visibleSearchHits } from "@/lib/format";
 
 const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
 
@@ -32,9 +32,11 @@ export function SearchPanel({
   apiStatus,
   layerStatus,
 }: SearchPanelProps) {
+  const visibleResults = visibleSearchHits(results);
+
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const first = results[0];
+    const first = visibleResults[0];
     if (first) onSelect(first);
   }
 
@@ -72,14 +74,14 @@ export function SearchPanel({
       <div className="results-head">
         <h2>Treffer</h2>
         <span aria-live="polite">
-          {searching ? "Suche …" : query.trim().length >= 2 ? `${results.length} Treffer` : "Bereit"}
+          {searching ? "Suche …" : query.trim().length >= 2 ? `${visibleResults.length} Treffer` : "Bereit"}
         </span>
       </div>
 
       {error ? <p className="message message-error">{error}</p> : null}
 
       <ul id="search-results" className="results">
-        {results.map((hit) => {
+        {visibleResults.map((hit) => {
           const active = selection?.id === hit.id;
           return (
             <li key={hit.id}>
@@ -90,12 +92,11 @@ export function SearchPanel({
                 onClick={() => onSelect(hit)}
               >
                 <span className="hit-label">
-                  {hit.label}
+                  {catalogPlaceName(hit)}
                   <CatalogParentName source={hit} />
                 </span>
                 <span className="hit-meta">
                   <span className="badge">{catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id })}</span>
-                  <span className="hit-id">{hit.id}</span>
                 </span>
               </button>
             </li>
@@ -103,7 +104,7 @@ export function SearchPanel({
         })}
       </ul>
 
-      {query.trim().length >= 2 && !searching && results.length === 0 && !error ? (
+      {query.trim().length >= 2 && !searching && visibleResults.length === 0 && !error ? (
         <p className="message">Keine Treffer. Adresse, PLZ oder AGS versuchen.</p>
       ) : null}
 

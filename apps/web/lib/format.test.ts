@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   catalogBadge,
+  catalogHitVisibleText,
   catalogParentName,
+  catalogPlaceName,
   grainLabel,
+  isCatalogKey,
   isSubAreaLevel,
+  visibleSearchHits,
 } from "./format.ts";
 
 test("grain badges stay German and other ags keys stay Gemeinde", () => {
@@ -67,6 +72,104 @@ test("municipality hits without level keep Gemeinde", () => {
   assert.equal(catalogBadge({ grain: "ags", geoKey: "09162000" }), "Gemeinde");
   assert.equal(catalogBadge({ grain: "ags", geoKey: "11000000" }), "Gemeinde");
   assert.equal(catalogBadge({ grain: "ags", ags: "14713000" }), "Gemeinde");
+});
+
+test("catalog keys are detected for every Zielregion level", () => {
+  assert.equal(isCatalogKey("plz5:12247"), true);
+  assert.equal(isCatalogKey("ortsteil:osm:5712247"), true);
+  assert.equal(isCatalogKey("ortsteil:osm:12247773"), true);
+  assert.equal(isCatalogKey("ortsteil:osm:12247949"), true);
+  assert.equal(isCatalogKey("stadtteil:osm:9"), true);
+  assert.equal(isCatalogKey("stadtbezirk:14713000"), true);
+  assert.equal(isCatalogKey("bezirk:11000001"), true);
+  assert.equal(isCatalogKey("ags:09162000"), true);
+  assert.equal(isCatalogKey("plz8:80331001"), true);
+  assert.equal(isCatalogKey("12247"), false);
+  assert.equal(isCatalogKey("Lankwitz"), false);
+  assert.equal(isCatalogKey("Berlin"), false);
+});
+
+test("a hit with id plz5:12247 or ortsteil:osm:5712247 does not render that id", () => {
+  const plz = {
+    id: "plz5:12247",
+    label: "12247",
+    grain: "plz5" as const,
+    geoKey: "12247",
+    level: "plz" as const,
+    parentLabel: "Berlin",
+  };
+  const namedOrtsteil = {
+    id: "ortsteil:osm:5712247",
+    label: "Lankwitz",
+    grain: "other" as const,
+    geoKey: "ortsteil:osm:5712247",
+    level: "ortsteil" as const,
+    parentLabel: "Berlin",
+  };
+  const plzText = catalogHitVisibleText(plz);
+  const ortsteilText = catalogHitVisibleText(namedOrtsteil);
+  assert.equal(plzText.includes("plz5:12247"), false);
+  assert.equal(ortsteilText.includes("ortsteil:osm:5712247"), false);
+  assert.equal(plzText, "12247 Berlin PLZ");
+  assert.equal(ortsteilText, "Lankwitz Berlin Ortsteil");
+  assert.equal(catalogPlaceName(plz), "12247");
+  assert.equal(catalogPlaceName(namedOrtsteil), "Lankwitz");
+});
+
+test("a hit without a place name is dropped even when badge or parentLabel exist", () => {
+  const keyOnly = {
+    id: "ortsteil:osm:5712247",
+    label: "ortsteil:osm:5712247",
+    grain: "other" as const,
+    geoKey: "ortsteil:osm:5712247",
+    level: "ortsteil" as const,
+    parentLabel: "Berlin",
+  };
+  const blank = {
+    id: "plz5:12247",
+    label: "  ",
+    grain: "plz5" as const,
+    geoKey: "plz5:12247",
+    level: "plz" as const,
+    parentLabel: "Berlin",
+  };
+  const named = {
+    id: "plz5:12247",
+    label: "12247",
+    grain: "plz5" as const,
+    geoKey: "12247",
+    level: "plz" as const,
+  };
+  assert.equal(catalogPlaceName(keyOnly), null);
+  assert.equal(catalogPlaceName(blank), null);
+  assert.equal(catalogHitVisibleText(keyOnly), "");
+  assert.deepEqual(
+    visibleSearchHits([keyOnly, blank, named]).map((hit) => hit.label),
+    ["12247"],
+  );
+});
+
+test("parentLabel stays empty when the field is missing; no parent name is guessed", () => {
+  const hit = {
+    id: "plz5:12247",
+    label: "12247",
+    grain: "plz5" as const,
+    parentName: "Berlin",
+    municipalityName: "Berlin",
+  };
+  assert.equal(catalogParentName(hit), null);
+  assert.equal(catalogHitVisibleText(hit), "12247 PLZ");
+});
+
+test("Zielregion and search markup never interpolate catalog id or geoKey as visible text", () => {
+  const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
+  const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
+  for (const source of [region, search]) {
+    assert.equal(source.includes("hit-id"), false);
+    assert.equal(source.includes("{hit.geoKey ?? hit.id}"), false);
+    assert.equal(source.includes("<span className=\"hit-id\">"), false);
+    assert.equal(source.includes("{saved.geoKey"), false);
+  }
 });
 
 test("parent name renders only from parentLabel when it is a non-empty string", () => {
