@@ -53,6 +53,7 @@ describe("API smoke", () => {
     await request(server).post("/auth/logout").expect(401);
     await request(server).get("/target-region").expect(401);
     await request(server).post("/target-region").send({ label: "München" }).expect(401);
+    await request(server).put("/target-region").send({ label: "München" }).expect(404);
     await request(server).delete("/target-region/09162000").expect(401);
     await request(server).get("/stores").expect(401);
     await request(server).post("/stores").send({ street: "A 1", postalCode: "80331", city: "München" }).expect(401);

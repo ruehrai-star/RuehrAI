@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
-import { toCoord, toIso, toRevenue } from "../customer/values";
+import { emptyToNull, toCoord, toIso, toRevenue } from "../customer/values";
+import { fillMissingCatalogDisplay } from "../geo/catalog-display";
+import { GeoCatalogService } from "../geo/geo-catalog.service";
+import { isCatalogLevel } from "../geo/geo-catalog";
 import { boundsFromRow, geometryFromUnknown } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 import { BrainSearchService } from "./brain-search.service";
@@ -73,6 +76,7 @@ export class AnalysisService {
     private readonly db: DatabaseService,
     private readonly brain: BrainSearchService,
     private readonly patterns: PatternService,
+    private readonly geoCatalog: GeoCatalogService,
   ) {}
 
   async getInput(userId: string): Promise<AnalysisInput> {
@@ -149,9 +153,13 @@ export class AnalysisService {
     );
     const regionRows = regionResult.rows;
     if (regionRows.length === 0) throw new NotFoundException(REGION_MISSING);
-    const regions = regionRows.map(toRegion);
-    const regionRow = regionRows[0];
-    if (!regionRow) throw new NotFoundException(REGION_MISSING);
+    const regions = await Promise.all(
+      regionRows.map((row) =>
+        fillMissingCatalogDisplay(toRegion(row), (query) => this.geoCatalog.search(query)),
+      ),
+    );
+    const region = regions[0];
+    if (!region) throw new NotFoundException(REGION_MISSING);
 
     const storeResult = await this.db.query<StoreRevenueRow>(
       `SELECT s.id::text AS id,
@@ -181,7 +189,7 @@ export class AnalysisService {
       return { ...store, points, changes };
     });
     return {
-      region: toRegion(regionRow),
+      region,
       regions,
       stores: withChanges,
       revenueDirection: revenueDirection(withChanges.flatMap((store) => store.changes)),
@@ -223,8 +231,8 @@ function toRegion(row: RegionRow): AnalysisRegion {
     label: row.label,
     grain: row.grain,
     geoKey: row.geo_key,
-    level: row.level ?? null,
-    parentLabel: row.parent_label ?? null,
+    level: isCatalogLevel(row.level) ? row.level : null,
+    parentLabel: emptyToNull(row.parent_label),
     ags: row.ags,
     plz: row.plz,
     lon: toCoord(row.lon),

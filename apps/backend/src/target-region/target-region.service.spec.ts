@@ -272,6 +272,51 @@ describe("TargetRegionService", () => {
     });
     expect(saved.created).toBe(false);
     expect(saved.item.geoKey).toBe("09162000");
+    expect(saved.item.level).toBeNull();
+    expect(saved.item.parentLabel).toBeNull();
+    expect(search).toHaveBeenCalledWith({ geoKey: "09162000" });
+    expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT"))).toBe(false);
+  });
+
+  it("fills catalog display when a second add hits an old stored row", async () => {
+    lookupRegion.mockResolvedValue({
+      geometry: muenchenPolygon,
+      point: { lon: 11.58, lat: 48.14 },
+    });
+    search.mockResolvedValue([{ label: "80331", level: "plz", parentLabel: "München" }]);
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "80331",
+          grain: "plz5",
+          geo_key: "80331",
+          level: null,
+          parent_label: null,
+          ags: null,
+          plz: "80331",
+          lon: 11.58,
+          lat: 48.14,
+          bounds_west: 11.57,
+          bounds_south: 48.13,
+          bounds_east: 11.59,
+          bounds_north: 48.15,
+          geometry: muenchenPolygon,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const saved = await service.add("4", {
+      label: "80331",
+      grain: "plz5",
+      geoKey: "80331",
+      plz: "80331",
+    });
+    expect(saved.created).toBe(false);
+    expect(saved.item).toMatchObject({
+      label: "80331",
+      level: "plz",
+      parentLabel: "München",
+    });
     expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT"))).toBe(false);
   });
 
@@ -328,6 +373,75 @@ describe("TargetRegionService", () => {
     expect(listed.items[0]?.level).toBe("bezirk");
     expect(listed.items[0]?.parentLabel).toBe("Berlin");
     expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("fills catalog display on a pre-011 München row without inventing a parent", async () => {
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "München",
+          grain: "ags",
+          geo_key: "09162000",
+          level: null,
+          parent_label: null,
+          ags: "09162000",
+          plz: null,
+          lon: 11.5755,
+          lat: 48.1374,
+          bounds_west: 11.36,
+          bounds_south: 48.06,
+          bounds_east: 11.72,
+          bounds_north: 48.25,
+          geometry: muenchenPolygon,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const listed = await service.list("4");
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({
+      label: "München",
+      grain: "ags",
+      geoKey: "09162000",
+      level: null,
+      parentLabel: null,
+    });
+    expect(search).toHaveBeenCalledWith({ geoKey: "09162000" });
+    expect(listed.items[0]?.geometry).toEqual(muenchenPolygon);
+  });
+
+  it("fills level and parentLabel on an old PLZ row from the catalog", async () => {
+    query.mockResolvedValue({
+      rows: [
+        {
+          label: "80331",
+          grain: "plz5",
+          geo_key: "80331",
+          level: null,
+          parent_label: null,
+          ags: null,
+          plz: "80331",
+          lon: 11.58,
+          lat: 48.14,
+          bounds_west: 11.57,
+          bounds_south: 48.13,
+          bounds_east: 11.59,
+          bounds_north: 48.15,
+          geometry: muenchenPolygon,
+          updated_at: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    search.mockResolvedValue([{ label: "80331", level: "plz", parentLabel: "München" }]);
+    const listed = await service.list("4");
+    expect(listed.items[0]).toMatchObject({
+      label: "80331",
+      grain: "plz5",
+      geoKey: "80331",
+      level: "plz",
+      parentLabel: "München",
+    });
+    expect(search).toHaveBeenCalledWith({ geoKey: "80331" });
   });
 
   it("derives a missing outline on read from the catalog", async () => {
