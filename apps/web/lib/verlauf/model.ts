@@ -18,7 +18,7 @@ import { formatAddress, RECOMMENDATION_COPY } from "../recommendations/model.ts"
 export const MISSING_CONTRACT_FIELD = "AnalysisPattern.yearlySeries";
 
 /** After Standorte the product opens Verlauf. Vorschlag 1 (Karte zuerst) does not apply. */
-export const POST_STANDORTE_HREF = "/verlauf" as const;
+export const POST_STANDORTE_HREF: string = "/verlauf";
 
 export const SELECTABLE_AREA_LEVELS = ["Stadtbezirk", "Stadtteil", "Ortsteil", "PLZ"] as const;
 
