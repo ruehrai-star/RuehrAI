@@ -6,11 +6,22 @@ import {
   formatMonthNumber,
   formatRevenueInput,
   parseRevenueInput,
+  REGION_SEARCH_PLACEHOLDER,
+  SEARCH_EXAMPLE_CHIPS,
   revenueYears,
   rowsForYear,
   toTargetRegionWrite,
   validateStoreDraft,
 } from "./model.ts";
+
+test("the region search hint names no city demo and no AGS 09162000", () => {
+  assert.equal(REGION_SEARCH_PLACEHOLDER, "z. B. Stadtteil oder PLZ");
+  assert.doesNotMatch(REGION_SEARCH_PLACEHOLDER, /München|09162000|demo-gemeinden|Berlin/i);
+  assert.deepEqual(SEARCH_EXAMPLE_CHIPS, ["Stadtteil", "Ortsteil", "PLZ"]);
+  for (const chip of SEARCH_EXAMPLE_CHIPS) {
+    assert.doesNotMatch(chip, /München|09162000|demo-gemeinden|Berlin/i);
+  }
+});
 
 test("revenue years cover the last three calendar years", () => {
   assert.deepEqual(revenueYears(new Date("2026-09-15T12:00:00Z")), [2024, 2025, 2026]);

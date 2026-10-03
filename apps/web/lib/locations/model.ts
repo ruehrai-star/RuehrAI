@@ -19,6 +19,11 @@ export interface MonthRow {
 
 const REVENUE_YEAR_SPAN = 3;
 
+/** Neutral search hint. No city demo, no AGS 09162000, no demo-gemeinden. */
+export const REGION_SEARCH_PLACEHOLDER = "z. B. Stadtteil oder PLZ";
+
+export const SEARCH_EXAMPLE_CHIPS = ["Stadtteil", "Ortsteil", "PLZ"] as const;
+
 /**
  * Search hits are place ids, not polygons. PUT copies a Polygon or
  * MultiPolygon from Brain `app.map_features`, then Data-Scout

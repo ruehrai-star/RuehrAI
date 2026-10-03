@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, getApi, type SearchHit, type TargetRegion, type TargetRegionWrite } from "@/lib/api";
 import { grainLabel } from "@/lib/format";
-import { toTargetRegionWrite } from "@/lib/locations/model";
+import { REGION_SEARCH_PLACEHOLDER, toTargetRegionWrite } from "@/lib/locations/model";
 import { errorText } from "@/lib/user-message";
 
 interface RegionSectionProps {
@@ -90,7 +90,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
           id="region-q"
           type="search"
           value={query}
-          placeholder="z. B. Berlin, 10115, 11000001"
+          placeholder={REGION_SEARCH_PLACEHOLDER}
           autoComplete="off"
           onChange={(event) => setQuery(event.target.value)}
           aria-controls="region-hits"

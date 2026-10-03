@@ -3,8 +3,7 @@
 import type { FormEvent } from "react";
 import type { SearchHit } from "@/lib/api";
 import { grainLabel } from "@/lib/format";
-
-const EXAMPLES = ["Berlin", "10115", "11000001", "Alexanderplatz"];
+import { REGION_SEARCH_PLACEHOLDER, SEARCH_EXAMPLE_CHIPS } from "@/lib/locations/model";
 
 interface SearchPanelProps {
   query: string;
@@ -45,7 +44,7 @@ export function SearchPanel({
           id="search-q"
           type="search"
           value={query}
-          placeholder="z. B. Berlin, 10115, 11000001"
+          placeholder={REGION_SEARCH_PLACEHOLDER}
           autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}
           aria-controls="search-results"
@@ -55,7 +54,7 @@ export function SearchPanel({
           dorthin. Suche und Layer brauchen die Anmeldung.
         </p>
         <div className="examples" aria-label="Beispielsuchen">
-          {EXAMPLES.map((example) => (
+          {SEARCH_EXAMPLE_CHIPS.map((example) => (
             <button
               key={example}
               type="button"
