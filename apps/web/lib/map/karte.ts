@@ -39,6 +39,10 @@ export const REGION_FILL = "#3d6fbf";
 export const REGION_LINE = "#1d3f73";
 export const REGION_FILL_OPACITY = 0.32;
 
+/** Verlauf zuerst: Bestand is a filled square. Empfehlungen are a numbered disk. */
+export const BESTAND_MARKER_SHAPE = "square" as const;
+export const EMPFEHLUNG_MARKER_SHAPE = "numbered-disk" as const;
+
 export interface Bounds {
   west: number;
   south: number;
@@ -62,6 +66,7 @@ export interface EmpfehlungPin {
   lon: number;
   lat: number;
   title: string;
+  rank: number;
   ariaLabel: string;
 }
 
@@ -142,7 +147,8 @@ export function empfehlungPins(items: Recommendation[]): EmpfehlungPin[] {
       lon: point.lon,
       lat: point.lat,
       title,
-      ariaLabel: `${title}, Empfehlung`,
+      rank: item.rank,
+      ariaLabel: `${title}, Empfehlung ${item.rank}`,
     });
   }
   return pins;

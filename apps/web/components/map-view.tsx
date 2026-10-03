@@ -35,10 +35,10 @@ const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 interface MapViewProps {
-  layer: FeatureCollection;
-  selection: SearchHit | null;
-  onSelect: (hit: SearchHit) => void;
-  fitNonce: number;
+  layer?: FeatureCollection;
+  selection?: SearchHit | null;
+  onSelect?: (hit: SearchHit) => void;
+  fitNonce?: number;
   pins: StorePin[];
   empfehlungen: EmpfehlungPin[];
   region: FeatureCollection;
@@ -149,21 +149,19 @@ function storeButton(pin: StorePin): HTMLButtonElement {
   button.className = "steckadel";
   button.setAttribute("aria-label", pin.ariaLabel);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 36");
-  svg.setAttribute("width", "24");
-  svg.setAttribute("height", "36");
+  svg.setAttribute("viewBox", "0 0 18 18");
+  svg.setAttribute("width", "18");
+  svg.setAttribute("height", "18");
   svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", "M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 12 18.6 0 12 0z");
-  path.setAttribute("fill", PIN_COLOR);
-  path.setAttribute("stroke", "#fffaf3");
-  path.setAttribute("stroke-width", "1.5");
-  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  circle.setAttribute("cx", "12");
-  circle.setAttribute("cy", "12");
-  circle.setAttribute("r", "4.5");
-  circle.setAttribute("fill", "#fffaf3");
-  svg.append(path, circle);
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("x", "1.5");
+  rect.setAttribute("y", "1.5");
+  rect.setAttribute("width", "15");
+  rect.setAttribute("height", "15");
+  rect.setAttribute("fill", PIN_COLOR);
+  rect.setAttribute("stroke", "#fffaf3");
+  rect.setAttribute("stroke-width", "1.5");
+  svg.append(rect);
   button.append(svg);
   return button;
 }
@@ -175,23 +173,32 @@ function empfehlungButton(pin: EmpfehlungPin): HTMLButtonElement {
   button.setAttribute("aria-label", pin.ariaLabel);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "22");
-  svg.setAttribute("height", "22");
+  svg.setAttribute("width", "24");
+  svg.setAttribute("height", "24");
   svg.setAttribute("aria-hidden", "true");
   const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   circle.setAttribute("cx", "12");
   circle.setAttribute("cy", "12");
-  circle.setAttribute("r", "9");
+  circle.setAttribute("r", "10");
   circle.setAttribute("fill", EMPFEHLUNG_COLOR);
   circle.setAttribute("stroke", "#fffaf3");
   circle.setAttribute("stroke-width", "2");
-  svg.append(circle);
+  const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  label.setAttribute("x", "12");
+  label.setAttribute("y", "12");
+  label.setAttribute("text-anchor", "middle");
+  label.setAttribute("dominant-baseline", "central");
+  label.setAttribute("fill", "#fffaf3");
+  label.setAttribute("font-size", "11");
+  label.setAttribute("font-weight", "700");
+  label.textContent = String(pin.rank);
+  svg.append(circle, label);
   button.append(svg);
   return button;
 }
 
 function addStorePin(map: Map, pin: StorePin): Marker {
-  return new Marker({ element: storeButton(pin), anchor: "bottom" })
+  return new Marker({ element: storeButton(pin), anchor: "center" })
     .setLngLat([pin.lon, pin.lat])
     .setPopup(germanPopup(pin.street, pin.place))
     .addTo(map);
@@ -226,10 +233,10 @@ function applyCamera(map: Map, camera: MapCamera, animate: boolean): void {
 }
 
 export function MapView({
-  layer,
-  selection,
+  layer = EMPTY,
+  selection = null,
   onSelect,
-  fitNonce,
+  fitNonce = 0,
   pins,
   empfehlungen,
   region,
@@ -369,7 +376,7 @@ export function MapView({
         const feature = event.features?.[0];
         if (!feature) return;
         const hit = hitFromProperties(feature.properties, feature.id);
-        if (hit) onSelectRef.current(hit);
+        if (hit) onSelectRef.current?.(hit);
       };
       for (const layerId of ["layer-fill", "layer-circle"]) {
         map.on("click", layerId, selectFeature);

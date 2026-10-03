@@ -5,7 +5,7 @@ import type { SearchHit } from "@/lib/api";
 import { CatalogParentName } from "@/components/catalog-parent-name";
 import { catalogBadge } from "@/lib/format";
 
-const EXAMPLES = ["München", "80331", "09162000", "Marienplatz", "Berlin"];
+const EXAMPLES = ["Berlin", "10115", "11000001", "Alexanderplatz"];
 
 interface SearchPanelProps {
   query: string;
@@ -46,7 +46,7 @@ export function SearchPanel({
           id="search-q"
           type="search"
           value={query}
-          placeholder="z. B. München, 80331, 09162000"
+          placeholder="z. B. Berlin, 10115, 11000001"
           autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}
           aria-controls="search-results"

@@ -6,7 +6,7 @@ Map, search, and Standort-Eingaben for Standortberatung. The UI calls the Backen
 
 Search, layers, and Standort-Eingaben send `Authorization: Bearer`. Anmelden and Registrieren store the JWT from `TokenResponse` in `sessionStorage` under `ruehrai.session`. **Abmelden** calls `POST /auth/logout` (revokes the token id) and then removes that record, returning to `/login`. If the revoke call fails, the browser token is still cleared.
 
-Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Musteranalyse**, **Zielregion**, **Noch keine Filialadressen**.
+Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Verlauf**, **Musteranalyse**, **Zielregion**, **Noch keine Filialadressen**.
 
 ## Run against the Backend
 
@@ -26,6 +26,7 @@ Open http://localhost:3001.
 | Registrieren | `/register` | `POST /auth/register` (201, JWT). The map opens signed in. |
 | Anmelden | `/login` | `POST /auth/login`. Invalid credentials stay on the form with an error. |
 | Abmelden | header | Clears `sessionStorage` and opens `/login`. |
+| Verlauf | `/verlauf` | After Standorte. `GET /analysis/pattern`, `GET /recommendations`, `GET /stores`, `GET /target-region`. The hero is the Kleinraum change (`summary`, `criteria`) and the next step (`rationale`, `title`). OpenAPI has no `AnalysisPattern.yearlySeries`; the screen does not invent 2023–2025 means or a dataset name. Months from `window` are a thin row. Top 3 sit under the comparison, with the API street address when present. Store revenue is optional and secondary. The map is smaller proof only: Polygon/MultiPolygon, legend **Zielregion** only when that geometry exists, Bestand as a filled square, recommendations as a numbered disk. No `demo-gemeinden` layer. |
 | Karte + Suche | `/` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. OpenAPI 0.5.0: Filialadressen use `lon`/`lat` (PLZ centroid when the write omits both) as Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion `geometry` (Polygon or MultiPolygon) is a translucent fill plus outline and the legend **Zielregion**. `bounds` (`west`, `south`, `east`, `north`) is unioned with the pins for fit (48px padding) on first open and when that data changes. An empty pair stays on a Germany overview. |
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. The picker sends the place id (`geoKey`, `ags` or `plz`) and coordinates, not a polygon. The outline comes from Brain `app.map_features`, then Data-Scout `geo_ref_bezirk` / `geo_ref_admin` (Location-Guide). A Berlin Bezirk alias such as `11006006` is stored as `11000006`. `GET` returns 404 until one is saved. `PUT` returns 400 when no catalog area exists and the hit has no coordinates. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
