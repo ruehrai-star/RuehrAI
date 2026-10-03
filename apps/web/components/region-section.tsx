@@ -135,7 +135,7 @@ export function RegionSection({ saved, canSave, saving, error, notice, onSave }:
           })}
         </ul>
         {trimmed.length >= 2 && !searching && visibleHits.length === 0 && !searchError ? (
-          <p className="message">Keine Treffer. Gemeinde oder PLZ versuchen.</p>
+          <p className="message">Keine Treffer. Stadtteil oder PLZ versuchen.</p>
         ) : null}
         {picked && pickedName ? (
           <p className="message">

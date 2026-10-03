@@ -167,13 +167,15 @@ test("Zielregion search copy has no AGS, no München, and no AGS example", () =>
   assert.equal(region.includes("09162000"), false);
   assert.equal(region.includes("München"), false);
   assert.match(region, /placeholder="z\. B\. Stadtteil oder PLZ"/);
-  assert.match(region, /Keine Treffer\. Gemeinde oder PLZ versuchen\./);
+  assert.match(region, /Keine Treffer\. Stadtteil oder PLZ versuchen\./);
+  assert.equal(region.includes("Gemeinde"), false);
 });
 
 test("search-panel user-visible copy has no AGS and no 09162000", () => {
   const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
   assert.equal(search.includes("AGS"), false);
   assert.equal(search.includes("09162000"), false);
+  assert.equal(search.includes("Gemeinde"), false);
   assert.match(search, /Keine Treffer\. Adresse oder PLZ versuchen\./);
   assert.match(search, /const EXAMPLES = \["München", "80331", "Marienplatz", "Berlin"\]/);
 });
