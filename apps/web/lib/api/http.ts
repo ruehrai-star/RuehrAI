@@ -22,7 +22,7 @@ import type {
   TargetRegionWrite,
   TokenResponse,
 } from "@ruehrai/api-contracts";
-import { catalogLevelOf } from "../format.ts";
+import { catalogLevelOf, catalogParentName } from "../format.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import type { RuehrApi } from "./client";
@@ -273,12 +273,13 @@ function parseTargetRegion(body: TargetRegion): TargetRegion {
   if (body.grain != null && !isGrain(body.grain)) {
     throw new ApiError("Antwort von /target-region ist ungültig.", 502);
   }
-  const raw = body as TargetRegion & { level?: unknown };
+  const raw = body as TargetRegion & { level?: unknown; parentLabel?: unknown };
   return {
     ...body,
     bounds: readContractBounds(body.bounds),
     geometry: readRegionGeometry(body.geometry),
     level: catalogLevelOf(raw.level),
+    parentLabel: catalogParentName(raw),
   };
 }
 
@@ -375,7 +376,7 @@ function parseHits(body: SearchResponse): SearchHit[] {
       throw new ApiError("Antwort von GET /search ist ungültig.", 502);
     }
     const coords = coordinatesOf(hit);
-    const raw = hit as SearchHit & { level?: unknown };
+    const raw = hit as SearchHit & { level?: unknown; parentLabel?: unknown };
     return {
       id: hit.id,
       label: hit.label,
@@ -384,6 +385,7 @@ function parseHits(body: SearchResponse): SearchHit[] {
       lon: coords?.lon ?? null,
       lat: coords?.lat ?? null,
       level: catalogLevelOf(raw.level),
+      parentLabel: catalogParentName(raw),
     };
   });
 }
@@ -540,12 +542,13 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
-  const rawLocation = body.location as Recommendation["location"] & { level?: unknown };
+  const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   return {
     ...body,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),
+      parentLabel: catalogParentName(rawLocation),
     },
   };
 }

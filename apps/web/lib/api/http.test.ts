@@ -96,7 +96,7 @@ test("GET /search sends q and the bearer token", async () => {
   assert.equal(result.hits[0]?.lon, 11.5);
 });
 
-test("GET /search keeps a contract level and does not invent a parent name", async () => {
+test("GET /search keeps level and parentLabel and does not invent a parent name", async () => {
   const api = createHttpApi({
     baseUrl: "http://backend.test",
     getAccessToken: () => "jwt-1",
@@ -111,7 +111,8 @@ test("GET /search keeps a contract level and does not invent a parent name", asy
             lon: 12.33,
             lat: 51.33,
             level: "ortsteil",
-            parentName: "Leipzig",
+            parentLabel: "Leipzig",
+            parentName: "ignored",
             municipalityName: "Leipzig",
           },
         ],
@@ -121,8 +122,20 @@ test("GET /search keeps a contract level and does not invent a parent name", asy
   const hit = (await api.search("Plagwitz")).hits[0];
   assert.equal(hit?.label, "Plagwitz");
   assert.equal(hit?.level, "ortsteil");
+  assert.equal(hit?.parentLabel, "Leipzig");
   assert.equal("parentName" in (hit ?? {}), false);
   assert.equal("municipalityName" in (hit ?? {}), false);
+});
+
+test("GET /search drops a blank parentLabel", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [{ id: "ags:09162000", label: "München", grain: "ags", geoKey: "09162000", parentLabel: "  " }],
+      }),
+  });
+  assert.equal((await api.search("München")).hits[0]?.parentLabel, null);
 });
 
 test("GET /search ignores an unknown level", async () => {
@@ -293,11 +306,13 @@ test("GET /target-region keeps a contract level", async () => {
         bounds: null,
         geometry: null,
         level: "ortsteil",
+        parentLabel: "Leipzig",
       }),
   });
   const region = await api.getTargetRegion();
   assert.equal(region?.label, "Plagwitz");
   assert.equal(region?.level, "ortsteil");
+  assert.equal(region?.parentLabel, "Leipzig");
 });
 
 test("GET /target-region maps 404 to an empty region", async () => {

@@ -70,15 +70,15 @@ export function isSubAreaLevel(value: unknown): boolean {
 
 /**
  * Parent municipality name next to a catalog hit.
- *
- * OpenAPI `SearchHit`, `TargetRegion`, and `RecommendationLocation` on main
- * do not name this field (checked 2026-10-03; no open backend contract PR).
- * Do not read a guessed JSON key (`parentName`, `municipalityName`, …).
- * When the contract adds the field, return its trimmed non-empty string here.
+ * The contract field is exactly `parentLabel`. Show it only when it is a
+ * non-empty string. Do not read any other key.
  */
 export function catalogParentName(source: unknown): string | null {
-  void source;
-  return null;
+  if (!source || typeof source !== "object") return null;
+  const value = (source as { parentLabel?: unknown }).parentLabel;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function isBerlinBezirkAgs(value: string | null | undefined): boolean {

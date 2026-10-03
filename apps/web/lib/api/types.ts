@@ -44,10 +44,19 @@ export type {
  * Catalog `level` is named by the Product-Owner. OpenAPI on main does not
  * list it yet. The web client accepts it when the backend sends it.
  */
-export type SearchHit = ContractSearchHit & { level?: CatalogLevel | null };
+export type SearchHit = ContractSearchHit & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
 export type SearchResponse = Omit<ContractSearchResponse, "hits"> & { hits: SearchHit[] };
-export type TargetRegion = ContractTargetRegion & { level?: CatalogLevel | null };
-export type RecommendationLocation = ContractRecommendationLocation & { level?: CatalogLevel | null };
+export type TargetRegion = ContractTargetRegion & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
+export type RecommendationLocation = ContractRecommendationLocation & {
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+};
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
 };

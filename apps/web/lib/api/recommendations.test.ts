@@ -30,7 +30,15 @@ const set = {
       id: "plz5:80801",
       rank: 1,
       title: "Schwabing",
-      location: { geoKey: "80801", grain: "plz5", lon: 11.58, lat: 48.16, name: "Schwabing", level: "plz" },
+      location: {
+        geoKey: "80801",
+        grain: "plz5",
+        lon: 11.58,
+        lat: 48.16,
+        name: "Schwabing",
+        level: "plz",
+        parentLabel: "München",
+      },
       score: 1,
       rationale: "Am Standort Schwabing passt das Muster in den letzten sechs Monaten.",
       criteriaEvidence: [
@@ -69,6 +77,7 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
   const latest = await api.getRecommendations();
   assert.equal(latest?.items[0]?.rationale.startsWith("Am Standort Schwabing"), true);
   assert.equal(latest?.items[0]?.location.level, "plz");
+  assert.equal(latest?.items[0]?.location.parentLabel, "München");
   const created = await api.createRecommendations();
   assert.equal(created.count, 1);
   assert.equal(created.items[0]?.rank, 1);

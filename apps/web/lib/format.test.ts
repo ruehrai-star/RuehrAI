@@ -69,7 +69,13 @@ test("municipality hits without level keep Gemeinde", () => {
   assert.equal(catalogBadge({ grain: "ags", ags: "14713000" }), "Gemeinde");
 });
 
-test("parent name renders only from a named contract field", () => {
+test("parent name renders only from parentLabel when it is a non-empty string", () => {
+  assert.equal(catalogParentName({ parentLabel: "Leipzig" }), "Leipzig");
+  assert.equal(catalogParentName({ parentLabel: "  Leipzig  " }), "Leipzig");
+  assert.equal(catalogParentName({ parentLabel: "Leipzig", parentName: "ignored" }), "Leipzig");
+  assert.equal(catalogParentName({ parentLabel: "" }), null);
+  assert.equal(catalogParentName({ parentLabel: "   " }), null);
+  assert.equal(catalogParentName({ parentLabel: null }), null);
   assert.equal(catalogParentName({ label: "Plagwitz", parentName: "Leipzig" }), null);
   assert.equal(catalogParentName({ municipalityName: "Leipzig", gemeinde: "Leipzig" }), null);
   assert.equal(catalogParentName({ parentMunicipality: "Leipzig", gemeindeName: "Leipzig" }), null);

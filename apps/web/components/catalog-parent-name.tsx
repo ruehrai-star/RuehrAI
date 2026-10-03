@@ -2,7 +2,7 @@ import { catalogParentName } from "@/lib/format";
 
 /**
  * Parent municipality next to a catalog hit.
- * Renders only when `catalogParentName` reads a named contract field.
+ * Renders only the contract field `parentLabel` when it is a non-empty string.
  */
 export function CatalogParentName({ source }: { source: unknown }) {
   const parent = catalogParentName(source);
