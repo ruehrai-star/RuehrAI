@@ -26,20 +26,23 @@ describe("TargetRegionService", () => {
   const query = jest.fn();
   const lookupRegion = jest.fn();
   const search = jest.fn();
+  const lookupAdminNames = jest.fn();
   let service: TargetRegionService;
 
   beforeEach(async () => {
     query.mockReset();
     lookupRegion.mockReset();
     search.mockReset();
+    lookupAdminNames.mockReset();
     lookupRegion.mockResolvedValue({ geometry: null, point: null });
     search.mockResolvedValue([]);
+    lookupAdminNames.mockResolvedValue(new Map());
     const moduleRef = await Test.createTestingModule({
       providers: [
         TargetRegionService,
         { provide: DatabaseService, useValue: { query } },
         { provide: PlaceCatalogService, useValue: { lookupRegion } },
-        { provide: GeoCatalogService, useValue: { search } },
+        { provide: GeoCatalogService, useValue: { search, lookupAdminNames } },
       ],
     }).compile();
     service = moduleRef.get(TargetRegionService);

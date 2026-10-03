@@ -8,10 +8,13 @@ import {
   catalogDedupKey,
   catalogLevelForBezirk,
   catalogLevelForOrtsteilKind,
+  applyAdminCatalogDisplay,
   catalogLevelForPlace,
   catalogLookupPlan,
   catalogNameDedupKey,
+  isAgsDistrictPlace,
   isMunicipalityPlace,
+  parentMunicipalityAgs,
   persistedCatalogLevel,
   toCatalogHit,
 } from "./geo-catalog";
@@ -23,8 +26,15 @@ describe("geo catalog contract", () => {
     expect(persistedCatalogLevel("gemeinde")).toBeNull();
     expect(catalogLevelForPlace({ grain: "ags", geoKey: "09162000", ags: "09162000" })).toBe("gemeinde");
     expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000000" })).toBe("gemeinde");
-    expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001" })).toBeNull();
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001" })).toBe("bezirk");
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "09162004" })).toBe("stadtbezirk");
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "09162001" })).toBe("stadtbezirk");
     expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001", level: "bezirk" })).toBe("bezirk");
+    expect(parentMunicipalityAgs("09162004")).toBe("09162000");
+    expect(parentMunicipalityAgs("09162000")).toBeNull();
+    expect(isAgsDistrictPlace({ grain: "ags", geoKey: "09162004" })).toBe(true);
+    expect(isAgsDistrictPlace({ grain: "ags", geoKey: "09162000" })).toBe(false);
+    expect(isMunicipalityPlace({ grain: "ags", geoKey: "09162004" })).toBe(false);
     expect(catalogLevelForPlace({ grain: "plz5", geoKey: "80331", level: "plz" })).toBe("plz");
     expect(catalogLevelForPlace({ grain: "other", geoKey: "stadtbezirk:02000002", level: "stadtbezirk" })).toBe(
       "stadtbezirk",
@@ -32,6 +42,17 @@ describe("geo catalog contract", () => {
     expect(catalogLevelForPlace({ grain: "other", geoKey: "ortsteil:osm:1" })).toBeNull();
     expect(isMunicipalityPlace({ grain: "ags", geoKey: "09162000" })).toBe(true);
     expect(isMunicipalityPlace({ grain: "ags", geoKey: "11000012" })).toBe(false);
+    expect(applyAdminCatalogDisplay({ grain: "ags", geoKey: "09162004" }, new Map([["09162000", "München"]]))).toEqual(
+      { level: "stadtbezirk", parentLabel: "München" },
+    );
+    expect(applyAdminCatalogDisplay({ grain: "ags", geoKey: "09184123" }, new Map([["09184123", "Haar"]]))).toEqual({
+      level: "gemeinde",
+      parentLabel: null,
+    });
+    expect(applyAdminCatalogDisplay({ grain: "ags", geoKey: "09162000" }, new Map([["09162000", "München"]]))).toEqual({
+      level: "gemeinde",
+      parentLabel: null,
+    });
     expect(isMunicipalityPlace({ grain: "plz5", geoKey: "80331" })).toBe(false);
     expect(catalogLevelForBezirk("11000001")).toBe("bezirk");
     expect(catalogLevelForBezirk("11000012")).toBe("bezirk");
@@ -181,6 +202,9 @@ describe("geo catalog contract", () => {
     expect(GEO_CATALOG_SEARCH_SQL).not.toContain("src.geo_ags, '') ILIKE $4");
     expect(GEO_CATALOG_SEARCH_SQL).toContain("$8::boolean OR src.level <> 'plz'");
     expect(GEO_CATALOG_SEARCH_SQL).toContain("src.label IS NOT NULL");
-    expect(GEO_CATALOG_SEARCH_SQL).toContain("$6::text IS NULL OR src.geo_key = $6 OR src.id = $6");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("$6::text IS NULL");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("src.geo_key = $6");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("src.id = ('stadtbezirk:' || $6)");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("src.id = ('ags:' || $6)");
   });
 });

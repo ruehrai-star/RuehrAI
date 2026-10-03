@@ -1,7 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { isMissingFeaturesRelation } from "../database/pg-error";
-import { CatalogLevel, catalogDedupKey, catalogLevelForPlace, catalogNameDedupKey } from "../geo/geo-catalog";
+import {
+  CatalogLevel,
+  applyAdminCatalogDisplay,
+  catalogDedupKey,
+  catalogLevelForPlace,
+  catalogNameDedupKey,
+  officialAgsKey,
+  parentMunicipalityAgs,
+} from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { SearchQueryDto } from "./search.dto";
 import {
@@ -51,7 +59,42 @@ export class SearchService {
       this.geoCatalog.search(query),
       this.searchExisting(query),
     ]);
-    return { hits: mergeHits(catalog, fallback, query.q) };
+    const resolved = await this.resolveAgsDisplay(fallback, catalog);
+    return { hits: mergeHits(catalog, resolved, query.q) };
+  }
+
+  /**
+   * Official AGS Stadtbezirke (09162004) are grain `ags` in the feature view.
+   * Admin tells a Gemeinde from a district; catalog parentLabel is copied when
+   * present. Names are never invented.
+   */
+  private async resolveAgsDisplay(fallback: SearchHit[], catalog: SearchHit[]): Promise<SearchHit[]> {
+    const parentByAgs = new Map<string, string>();
+    for (const hit of catalog) {
+      const parent = hit.parentLabel?.trim();
+      const ags = hit.geoAgs?.trim();
+      if (parent && ags && !parentByAgs.has(ags)) parentByAgs.set(ags, parent);
+    }
+    const adminKeys = new Set<string>();
+    for (const hit of fallback) {
+      const key = officialAgsKey(hit.geoKey);
+      if (key) adminKeys.add(key);
+      const parentKey = parentMunicipalityAgs(key);
+      if (parentKey) adminKeys.add(parentKey);
+    }
+    const admin = await this.geoCatalog.lookupAdminNames([...adminKeys]);
+    return fallback.map((hit) => {
+      const applied = applyAdminCatalogDisplay(
+        { ...hit, parentLabel: hit.parentLabel ?? parentByAgs.get(parentMunicipalityAgs(hit.geoKey) ?? "") ?? null },
+        admin,
+      );
+      const parentLabel = applied.parentLabel ?? parentByAgs.get(parentMunicipalityAgs(hit.geoKey) ?? "") ?? null;
+      return {
+        ...hit,
+        level: applied.level ?? hit.level ?? null,
+        ...(parentLabel ? { parentLabel } : {}),
+      };
+    });
   }
 
   private async searchExisting(query: SearchQueryDto): Promise<SearchHit[]> {

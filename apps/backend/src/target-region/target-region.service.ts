@@ -197,7 +197,11 @@ export class TargetRegionService {
 
   /** Outline from the stored row or catalog, then missing level / parentLabel. */
   private async hydrate(region: TargetRegion): Promise<TargetRegion> {
-    return fillMissingCatalogDisplay(await this.withMap(region), (query) => this.geoCatalog.search(query));
+    return fillMissingCatalogDisplay(
+      await this.withMap(region),
+      (query) => this.geoCatalog.search(query),
+      (keys) => this.geoCatalog.lookupAdminNames(keys),
+    );
   }
 
   /** Fill bounds, geometry, and a missing point from the stored row or the local catalog. */
