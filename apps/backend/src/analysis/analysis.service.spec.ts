@@ -77,6 +77,9 @@ describe("AnalysisService", () => {
     expect(run.id).toBe("15");
     expect(run.status).toBe("completed");
     expect(run.input.revenueDirection).toBe("up");
+    expect(run.input.regions).toEqual([
+      expect.objectContaining({ label: "München", geoKey: "09162000" }),
+    ]);
     expect(run.input.stores[0]?.changes).toEqual([
       expect.objectContaining({ changeEur: 30.5 }),
     ]);

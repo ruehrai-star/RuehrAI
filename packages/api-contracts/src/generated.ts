@@ -119,57 +119,85 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the signed-in user's target region
-         * @description One region per user, the area where they want to open a new store.
-         *     `404` when nothing has been saved yet.
+         * List the signed-in user's target regions
+         * @description The saved set used for the location search. Newest add first.
+         *     An empty list is `200` with `items: []`, not `404`.
+         *
+         *     Each item keeps the fields clients already show for a catalog hit:
+         *     place name (`label`), `level`, and `parentLabel`. `geoKey` stays in
+         *     the JSON so a later add or remove can name the place. Nothing in this
+         *     API requires a client to display that key.
+         *
+         *     `level` is the catalog token: `plz`; `bezirk` only for Berlin
+         *     `11000001`–`11000012`; `stadtbezirk` for every other Bezirk;
+         *     `stadtteil` or `ortsteil` from the catalog kind. Never `gemeinde` for
+         *     a sub-area. Municipality rows may keep grain `ags` and omit `level`.
+         *     `parentLabel` is the parent municipality name, not a second name for
+         *     the area.
          */
-        get: operations["getTargetRegion"];
+        get: operations["listTargetRegions"];
+        put?: never;
         /**
-         * Create or replace the target region
-         * @description Upserts the single region for the token's user. Omitted scalar geo
-         *     fields (`grain`, `geoKey`, `ags`, `plz`, and a missing `lon`/`lat`
-         *     pair) are stored as null, including fields set by a previous save.
+         * Add a catalog place to the target-region list
+         * @description Appends one place. Existing items stay. The new item is first on the
+         *     next `GET`. This is not an overwrite of the whole list. There is no
+         *     `PUT /target-region` that replaces the only row.
          *
-         *     A successful write always persists non-null `geometry` and `bounds`.
-         *     A GeoJSON Polygon or MultiPolygon on the request is stored, and
-         *     `bounds` (west, south, east, north) are derived from its coordinates.
-         *     `bounds` without a polygon are ignored and do not become a rectangle.
-         *     Otherwise the API copies a MultiPolygon from Brain `geo`
-         *     (`geo.geo_ref_plz`, `geo.geo_ref_bezirk`, `geo.geo_ref_ortsteil`)
-         *     under `SET ROLE backend_ro_features`. When that misses, a non-stub
-         *     Polygon or MultiPolygon in `app.map_features` is used, then Data-Scout
-         *     `geo_ref_bezirk` (Berlin `11000001` … `11000012`) or `geo_ref_admin`
-         *     (Gemeinde, Kreis, Land). `GET /search` returns a place id, not an
-         *     outline. Official boundaries are Location-Guide data; this operation
-         *     does not add stub seeds and does not rewrite `app.target_regions` in
-         *     bulk.
+         *     Name the place with `geoKey`, `ags`, or `plz` from `GET /search`.
+         *     Exact `geoKey` / `ags` / `plz` lookup still reloads a stored place
+         *     on search; this write uses that same id. A historical Berlin Bezirk
+         *     alias `11` + nnn + nnn is stored as official `1100000N`.
          *
-         *     A historical Berlin Bezirk alias `11` + nnn + nnn (`11001001` …
-         *     `11012012`, for example `11006006` and `11007007`) is stored as the
-         *     official AGS `1100000N` in `ags` and `geoKey` (`ags:` prefix kept).
-         *     Lookup uses that official id. `11000000` is Berlin as a whole and is
-         *     not rewritten.
+         *     A successful add always persists non-null `geometry` and `bounds`
+         *     copied from the catalog MultiPolygon (Brain `geo`, then a non-stub
+         *     `app.map_features` row, then Data-Scout). A GeoJSON Polygon or
+         *     MultiPolygon on the request is stored instead. `bounds` without a
+         *     polygon are ignored and do not become a rectangle. Never persist
+         *     null geometry. If the catalog has no outline, the add is `400` and
+         *     the list is unchanged. A municipality that simply has no sub-area
+         *     is not an error; it can be added when it has an outline.
          *
-         *     A catalog point is not an area. If the client omits geometry and the
-         *     catalog has no polygon, the write is rejected with `400`. The previous
-         *     row is left unchanged, so a missing catalog polygon cannot replace a
-         *     stored outline with null.
+         *     The same catalog key appears at most once. A second add of that key
+         *     returns the stored item and does not insert another row.
          *
-         *     `lon` and `lat` stay as sent when both are set. A polygon sent by the
-         *     client uses its centroid when the pair is omitted. A catalog outline
-         *     uses the catalog point when one exists, otherwise the geometry centroid.
-         *     Web fits the map to store pins union `bounds`, and draws `geometry` as
-         *     a semi-transparent fill with an outline. Labels are client-side.
-         *     `GET` may still fill a previously stored null outline from the catalog
-         *     at read time and does not require a polygon to return `200`.
+         *     `label`, `level`, and `parentLabel` are stored from the catalog hit
+         *     when present. Municipality rows may omit `level`.
          */
-        put: operations["putTargetRegion"];
+        post: operations["addTargetRegion"];
+        /**
+         * Clear the target-region list
+         * @description Idempotent. Responds `204` even when the list was empty.
+         */
+        delete: operations["clearTargetRegions"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/target-region/{geoKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Catalog place id stored on the list item (`geoKey`). Same value
+                 *     `GET /search` returns. A Berlin Bezirk alias is matched as the
+                 *     official AGS.
+                 */
+                geoKey: components["parameters"]["TargetRegionGeoKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         post?: never;
         /**
-         * Clear the target region
-         * @description Idempotent. Responds `204` even when no region was stored.
+         * Remove one place from the target-region list
+         * @description Deletes the item whose stored catalog key matches `geoKey` after the
+         *     same Berlin-alias rewrite as add. Idempotent: `204` when the key is
+         *     not in the list. Other items stay.
          */
-        delete: operations["deleteTargetRegion"];
+        delete: operations["removeTargetRegion"];
         options?: never;
         head?: never;
         patch?: never;
@@ -346,14 +374,15 @@ export interface paths {
          *
          *     A hit is a place id (`id`, `geoKey`, `grain`), not a polygon. Catalog
          *     hits also send `level` and `parentLabel` (and `geoAgs` when `geo_ags`
-         *     is set). The Zielregion picker sends that id to `PUT /target-region`
+         *     is set). The Zielregion picker sends that id to `POST /target-region`
          *     without `geometry`. The write looks up a MultiPolygon in Brain `geo`,
          *     then a non-stub `app.map_features` row, then Data-Scout
          *     `geo_ref_bezirk` or `geo_ref_admin`. Search rows and Point features
          *     are not outlines. A Berlin Bezirk alias (`11006006`, `11007007`, and
          *     the same `11` + nnn + nnn pattern) is stored as official `1100000N`.
          *     A hit with no catalog polygon is rejected. Bounds or a point are not
-         *     turned into a rectangle.
+         *     turned into a rectangle. One hit per geo key. The same display name
+         *     may appear twice only when `parentLabel` differs.
          */
         get: operations["searchPlaces"];
         put?: never;
@@ -568,9 +597,10 @@ export interface components {
             /**
              * @description Spatial key from the feature view or the geo catalog (AGS, PLZ,
              *     Stadtteil/Ortsteil id). Null when unknown. This is the place id
-             *     `PUT /target-region` looks up. It is not itself a polygon.
-             *     Brain `geo` holds PLZ, Bezirk, Stadtteil, and Ortsteil outlines.
-             *     A Berlin Bezirk alias is stored as `1100000N`.
+             *     `POST /target-region` and `DELETE /target-region/{geoKey}` use.
+             *     It is not itself a polygon. Brain `geo` holds PLZ, Bezirk,
+             *     Stadtteil, and Ortsteil outlines. A Berlin Bezirk alias is stored
+             *     as `1100000N`. Free-text `q` does not match this key.
              */
             geoKey?: string | null;
             /**
@@ -667,7 +697,13 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * @description One saved place in the user's target-region list. Display fields
+         *     match a search hit: `label`, `level`, `parentLabel`. `geoKey` names
+         *     the place for add and remove.
+         */
         TargetRegion: {
+            /** @description Place name. Same field as `SearchHit.label`. */
             label: string;
             /**
              * @description Same values as Grain. Null when the region is a free-text label.
@@ -675,12 +711,27 @@ export interface components {
              */
             grain?: "address" | "grid100" | "plz8" | "plz5" | "ags" | "ags5" | "other" | null;
             /**
-             * @description Stored place id. A Berlin Bezirk alias sent on `PUT` is returned as
-             *     the official AGS `1100000N`.
+             * @description Stored catalog key. A Berlin Bezirk alias sent on add is returned
+             *     as the official AGS `1100000N`. Clients use this to remove the
+             *     item. It is not a display field.
              */
             geoKey?: string | null;
             /**
-             * @description Stored official AGS. `PUT` rewrites `11006006` to `11000006` and
+             * @description Same tokens as `SearchHit.level`. `plz`; `bezirk` only for Berlin
+             *     `11000001`–`11000012`; `stadtbezirk` for every other Bezirk;
+             *     `stadtteil` or `ortsteil` from the catalog kind. Never `gemeinde`
+             *     for a sub-area. Municipality rows may omit this and keep `grain`
+             *     `ags`.
+             */
+            level?: components["schemas"]["CatalogLevel"] | null;
+            /**
+             * @description Parent municipality name, same as `SearchHit.parentLabel`. Not a
+             *     second name for the area. Null when unknown or the item is the
+             *     municipality.
+             */
+            parentLabel?: string | null;
+            /**
+             * @description Stored official AGS. Add rewrites `11006006` to `11000006` and
              *     `11007007` to `11000007`.
              */
             ags?: string | null;
@@ -698,17 +749,21 @@ export interface components {
             /**
              * @description Extent of `geometry` for map fitBounds. Null on `GET` only when a
              *     previously stored region still has no outline and the catalog has
-             *     no point. A successful `PUT` always returns bounds.
+             *     no point. A successful add always returns bounds.
              */
             bounds: components["schemas"]["LonLatBounds"] | null;
             /**
-             * @description Overlay polygon. Null on `GET` only when a previously stored region
-             *     still has no outline and the catalog has none. A successful `PUT`
-             *     always returns a Polygon or MultiPolygon.
+             * @description Overlay polygon. Null on `GET` only when a previously stored
+             *     region still has no outline and the catalog has none. A successful
+             *     add always returns a Polygon or MultiPolygon.
              */
             geometry: components["schemas"]["RegionGeometry"] | null;
             /** Format: date-time */
             updatedAt: string;
+        };
+        TargetRegionList: {
+            /** @description Saved places, newest add first. Empty when none are stored. */
+            items: components["schemas"]["TargetRegion"][];
         };
         TargetRegionWrite: {
             label: string;
@@ -730,20 +785,17 @@ export interface components {
             /** Format: double */
             lat?: number | null;
             /**
-             * @description Optional extent. Stored as a rectangular Polygon when `geometry` is omitted.
-             *     Ignored when `geometry` is set, because bounds are then derived from it.
-             *     Required for a successful write when `geometry` is omitted and the
-             *     catalog has no polygon or point for this place. A successful `PUT`
-             *     always returns non-null `bounds`.
+             * @description Optional extent. Ignored. Bounds on a successful add are derived
+             *     from the stored polygon. Bounds without a polygon do not become
+             *     a rectangle. A successful add always returns non-null `bounds`.
              */
             bounds?: components["schemas"]["LonLatBounds"] | null;
             /**
-             * @description Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it is
-             *     the overlay and replaces any catalog outline. Omit it only when
-             *     `bounds` is set or `app.map_features` has a polygon for this place
-             *     (or a point, which becomes the interim stub rectangle). A place id
-             *     from `GET /search` is not an outline. A successful `PUT` never
-             *     persists null geometry.
+             * @description Optional GeoJSON Polygon or MultiPolygon (EPSG:4326). When set, it
+             *     is the overlay and replaces any catalog outline. A place id from
+             *     `GET /search` is not an outline. A successful add never persists
+             *     null geometry. If this is omitted and the catalog has no polygon,
+             *     the add is `400`.
              */
             geometry?: components["schemas"]["RegionGeometry"] | null;
         };
@@ -828,12 +880,19 @@ export interface components {
             points: components["schemas"]["MonthlyRevenuePointWrite"][];
         };
         /**
-         * @description Snapshot of customer inputs used for Musteranalyse. `stores[].points`
-         *     holds up to 36 months. `changes` links only successive calendar months
-         *     that both have a revenue.
+         * @description Snapshot of customer inputs used for Musteranalyse. `regions` is the
+         *     saved target-region list (the set for the location search). `region`
+         *     is the newest item and stays for older snapshots that only stored one
+         *     place. `stores[].points` holds up to 36 months. `changes` links only
+         *     successive calendar months that both have a revenue.
          */
         AnalysisInput: {
             region: components["schemas"]["TargetRegion"];
+            /**
+             * @description Full target-region list at snapshot time, newest first. Location
+             *     search uses this set. Omitted on runs created before the list.
+             */
+            regions?: components["schemas"]["TargetRegion"][];
             stores: components["schemas"]["AnalysisStore"][];
             revenueDirection: components["schemas"]["RevenueDirection"];
             /** Format: date-time */
@@ -1094,6 +1153,12 @@ export interface components {
     parameters: {
         /** @description Store id as a decimal string. */
         StoreId: string;
+        /**
+         * @description Catalog place id stored on the list item (`geoKey`). Same value
+         *     `GET /search` returns. A Berlin Bezirk alias is matched as the
+         *     official AGS.
+         */
+        TargetRegionGeoKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -1249,7 +1314,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    getTargetRegion: {
+    listTargetRegions: {
         parameters: {
             query?: never;
             header?: never;
@@ -1258,28 +1323,35 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Saved target region. */
+            /** @description Saved target regions, possibly none. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TargetRegion"];
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "label": "Lankwitz",
+                     *           "grain": "other",
+                     *           "geoKey": "ortsteil:osm:5712247",
+                     *           "level": "ortsteil",
+                     *           "parentLabel": "Berlin",
+                     *           "lon": 13.34,
+                     *           "lat": 52.43,
+                     *           "updatedAt": "2026-10-03T12:00:00.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["TargetRegionList"];
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description This user has not saved a target region. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
         };
     };
-    putTargetRegion: {
+    addTargetRegion: {
         parameters: {
             query?: never;
             header?: never;
@@ -1302,8 +1374,17 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Saved target region. */
+            /** @description Place was already in the list. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetRegion"];
+                };
+            };
+            /** @description Place added to the list. */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1315,7 +1396,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    deleteTargetRegion: {
+    clearTargetRegions: {
         parameters: {
             query?: never;
             header?: never;
@@ -1324,13 +1405,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Target region cleared. The body is empty. */
+            /** @description List cleared. The body is empty. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    removeTargetRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Catalog place id stored on the list item (`geoKey`). Same value
+                 *     `GET /search` returns. A Berlin Bezirk alias is matched as the
+                 *     official AGS.
+                 */
+                geoKey: components["parameters"]["TargetRegionGeoKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Place removed, or it was not in the list. The body is empty. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };

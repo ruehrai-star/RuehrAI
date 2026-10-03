@@ -31,6 +31,8 @@ interface RegionRow {
   label: string;
   grain: Grain | null;
   geo_key: string | null;
+  level?: string | null;
+  parent_label?: string | null;
   ags: string | null;
   plz: string | null;
   lon: number | string | null;
@@ -138,13 +140,17 @@ export class AnalysisService {
 
   private async loadInput(userId: string): Promise<AnalysisInput> {
     const regionResult = await this.db.query<RegionRow>(
-      `SELECT label, grain, geo_key, ags, plz, lon, lat,
+      `SELECT label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
               bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at
        FROM app.target_regions
-       WHERE user_id = $1::bigint`,
+       WHERE user_id = $1::bigint
+       ORDER BY created_at DESC, id DESC`,
       [userId],
     );
-    const regionRow = regionResult.rows[0];
+    const regionRows = regionResult.rows;
+    if (regionRows.length === 0) throw new NotFoundException(REGION_MISSING);
+    const regions = regionRows.map(toRegion);
+    const regionRow = regionRows[0];
     if (!regionRow) throw new NotFoundException(REGION_MISSING);
 
     const storeResult = await this.db.query<StoreRevenueRow>(
@@ -176,6 +182,7 @@ export class AnalysisService {
     });
     return {
       region: toRegion(regionRow),
+      regions,
       stores: withChanges,
       revenueDirection: revenueDirection(withChanges.flatMap((store) => store.changes)),
       capturedAt: new Date().toISOString(),
@@ -216,6 +223,8 @@ function toRegion(row: RegionRow): AnalysisRegion {
     label: row.label,
     grain: row.grain,
     geoKey: row.geo_key,
+    level: row.level ?? null,
+    parentLabel: row.parent_label ?? null,
     ags: row.ags,
     plz: row.plz,
     lon: toCoord(row.lon),

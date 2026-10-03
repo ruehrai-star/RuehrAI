@@ -20,6 +20,7 @@ export type ErrorResponse = Schemas["ErrorResponse"];
 export type LonLatBounds = Schemas["LonLatBounds"];
 export type RegionGeometry = Schemas["RegionGeometry"];
 export type TargetRegion = Schemas["TargetRegion"];
+export type TargetRegionList = Schemas["TargetRegionList"];
 export type TargetRegionWrite = Schemas["TargetRegionWrite"];
 export type StoreLocation = Schemas["StoreLocation"];
 export type StoreLocationWrite = Schemas["StoreLocationWrite"];

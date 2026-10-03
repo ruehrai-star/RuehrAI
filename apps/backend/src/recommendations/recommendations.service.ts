@@ -1,11 +1,11 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
-import { AnalysisInput, AnalysisPattern, PatternCriterion } from "../analysis/types";
+import { AnalysisInput, AnalysisPattern, PatternCriterion, analysisRegions } from "../analysis/types";
 import { DatabaseService } from "../database/database.service";
 import { toIso } from "../customer/values";
 import { CandidateSearchService } from "./candidate-search.service";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
-import { rankCandidates, withoutRegionAnchor } from "./rank";
+import { rankCandidates, withoutRegionAnchors } from "./rank";
 import { RationaleService } from "./rationale.service";
 import { RecommendationPayload, RecommendationSet } from "./types";
 import { lastSixMonths } from "./window";
@@ -39,12 +39,13 @@ export class RecommendationsService {
     const months = lastSixMonths(asOf);
     const criteria = criteriaOf(run.pattern);
     const hasDirection = criteria.some((criterion) => criterion.direction !== "unknown");
+    const regions = analysisRegions(run.input);
     const loaded = hasDirection
-      ? await this.candidates.load(run.input.region, months)
+      ? await this.candidates.loadMany(regions, months)
       : { rows: [], truncated: false };
-    const ranked = withoutRegionAnchor(
+    const ranked = withoutRegionAnchors(
       rankCandidates(loaded.rows, criteria, new Set(months)),
-      run.input.region,
+      regions,
     );
     const top = ranked.slice(0, 3);
     const window = { from: months[0] ?? "", to: months[months.length - 1] ?? "" };

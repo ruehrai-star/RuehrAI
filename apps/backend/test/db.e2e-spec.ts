@@ -420,47 +420,47 @@ async function dropFeaturesFixture(): Promise<void> {
       const user = await register(`geo-catalog-${Date.now()}@ruehrai.local`);
       const owner = { authorization: `Bearer ${user}` };
       const savedPlz = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "80331", grain: "plz5", geoKey: "80331", plz: "80331" })
-        .expect(200);
+        .expect(201);
       expect(savedPlz.body.geometry).toMatchObject({ type: "MultiPolygon" });
       expect(savedPlz.body.geometry.coordinates[0][0].length).toBeGreaterThan(4);
 
       const savedBezirk = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "Mitte", grain: "ags", geoKey: "11000001", ags: "11000001" })
-        .expect(200);
+        .expect(201);
       expect(savedBezirk.body.geometry).toEqual(mitteGeom);
       expect(savedBezirk.body.ags).toBe("11000001");
 
       const savedStadtbezirk = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "Altona", grain: "other", geoKey: "stadtbezirk:02000002" })
-        .expect(200);
+        .expect(201);
       expect(savedStadtbezirk.body.geometry).toEqual(altonaGeom);
 
       const savedStadtteil = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "Schwabing", grain: "other", geoKey: "stadtteil:s-schwabing" })
-        .expect(200);
+        .expect(201);
       expect(savedStadtteil.body.geometry).toEqual(schwabingGeom);
 
       const savedOrtsteil = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "Neustadt", grain: "other", geoKey: "ortsteil:o-neustadt-dd" })
-        .expect(200);
+        .expect(201);
       expect(savedOrtsteil.body.geometry).toEqual(neustadtDdGeom);
 
       const savedOsm = await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(owner)
         .send({ label: "Lankwitz", grain: "other", geoKey: "ortsteil:osm:5712247" })
-        .expect(200);
+        .expect(201);
       expect(savedOsm.body.geometry).toEqual(lankwitzGeom);
       expect(savedOsm.body.geometry.type).toBe("MultiPolygon");
     } finally {
@@ -560,9 +560,9 @@ async function dropFeaturesFixture(): Promise<void> {
     const other = { authorization: `Bearer ${otherToken}` };
     const server = app.getHttpServer();
 
-    await request(server).get("/target-region").set(owner).expect(404);
+    await request(server).get("/target-region").set(owner).expect(200).expect({ items: [] });
     const region = await request(server)
-      .put("/target-region")
+      .post("/target-region")
       .set(owner)
       .send({
         label: "München",
@@ -573,7 +573,7 @@ async function dropFeaturesFixture(): Promise<void> {
         lat: 48.1374,
         geometry: muenchenOutline,
       })
-      .expect(200);
+      .expect(201);
     expect(region.body).toMatchObject({
       label: "München",
       grain: "ags",
@@ -584,7 +584,10 @@ async function dropFeaturesFixture(): Promise<void> {
     expect(region.body.geometry).toEqual(muenchenOutline);
     expect(region.body.lon).toBeCloseTo(11.5755);
     expect(region.body.lat).toBeCloseTo(48.1374);
-    await request(server).get("/target-region").set(other).expect(404);
+    const ownerList = await request(server).get("/target-region").set(owner).expect(200);
+    expect(ownerList.body.items).toHaveLength(1);
+    expect(ownerList.body.items[0]).toMatchObject({ label: "München", geoKey: "09162000" });
+    await request(server).get("/target-region").set(other).expect(200).expect({ items: [] });
 
     const created = await request(server)
       .post("/stores")
@@ -670,7 +673,73 @@ async function dropFeaturesFixture(): Promise<void> {
     await request(server).delete(`/stores/${storeId}`).set(owner).expect(204);
     await request(server).get(`/stores/${storeId}`).set(owner).expect(404);
     await request(server).delete("/target-region").set(owner).expect(204);
-    await request(server).get("/target-region").set(owner).expect(404);
+    await request(server).get("/target-region").set(owner).expect(200).expect({ items: [] });
+  });
+
+  it("keeps several target regions and removes one catalog key", async () => {
+    const token = await register(`regions-${Date.now()}@ruehrai.local`);
+    const auth = { authorization: `Bearer ${token}` };
+    const server = app.getHttpServer();
+
+    await request(server)
+      .post("/target-region")
+      .set(auth)
+      .send({
+        label: "München",
+        grain: "ags",
+        geoKey: "09162000",
+        ags: "09162000",
+        geometry: muenchenOutline,
+      })
+      .expect(201);
+    const berlinOutline = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [13.0, 52.3],
+          [13.6, 52.3],
+          [13.6, 52.7],
+          [13.0, 52.7],
+          [13.0, 52.3],
+        ],
+      ],
+    };
+    await request(server)
+      .post("/target-region")
+      .set(auth)
+      .send({
+        label: "Berlin",
+        grain: "ags",
+        geoKey: "11000000",
+        ags: "11000000",
+        geometry: berlinOutline,
+      })
+      .expect(201);
+    const again = await request(server)
+      .post("/target-region")
+      .set(auth)
+      .send({
+        label: "München",
+        grain: "ags",
+        geoKey: "09162000",
+        ags: "09162000",
+        geometry: muenchenOutline,
+      })
+      .expect(200);
+    expect(again.body.geoKey).toBe("09162000");
+
+    const listed = await request(server).get("/target-region").set(auth).expect(200);
+    expect(listed.body.items.map((item: { geoKey: string }) => item.geoKey)).toEqual([
+      "11000000",
+      "09162000",
+    ]);
+
+    await request(server).delete("/target-region/09162000").set(auth).expect(204);
+    const afterRemove = await request(server).get("/target-region").set(auth).expect(200);
+    expect(afterRemove.body.items.map((item: { geoKey: string }) => item.geoKey)).toEqual(["11000000"]);
+
+    await request(server).delete("/target-region/11000000").set(auth).expect(204);
+    await request(server).get("/target-region").set(auth).expect(200).expect({ items: [] });
   });
 
   it("reads features.v_location_search, including via SET ROLE, and ignores the seed", async () => {
@@ -860,7 +929,7 @@ async function dropFeaturesFixture(): Promise<void> {
       expect(missing.body.message).toContain("Zielregion");
 
       await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(auth)
         .send({
           label: "München",
@@ -869,7 +938,7 @@ async function dropFeaturesFixture(): Promise<void> {
           ags: "09162000",
           geometry: muenchenOutline,
         })
-        .expect(200);
+        .expect(201);
       const created = await request(server)
         .post("/stores")
         .set(auth)
@@ -1011,7 +1080,7 @@ async function dropFeaturesFixture(): Promise<void> {
       expect(missingList.body.message).toContain("Empfehlungen");
 
       await request(server)
-        .put("/target-region")
+        .post("/target-region")
         .set(auth)
         .send({
           label: "München",
@@ -1020,7 +1089,7 @@ async function dropFeaturesFixture(): Promise<void> {
           ags: "09162000",
           geometry: muenchenOutline,
         })
-        .expect(200);
+        .expect(201);
       const created = await request(server)
         .post("/stores")
         .set(auth)

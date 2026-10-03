@@ -18,10 +18,12 @@ import { OmlxClient } from "./omlx.client";
 import {
   AnalysisBrain,
   AnalysisInput,
+  AnalysisRegion,
   BrainFact,
   BrainMatch,
   BrainSignal,
   VectorUnavailableReason,
+  analysisRegions,
 } from "./types";
 
 const SIGNAL_SKIP = new Set([
@@ -123,19 +125,28 @@ export class BrainSearchService {
   ): Promise<BrainFact[]> {
     const useVector = vector !== null;
     const vectorLiteral = vector ? toVectorLiteral(vector) : null;
-    const regionParams = [
-      input.region.ags,
-      input.region.plz,
-      input.region.geoKey,
-      labelPattern(input),
-      vectorLiteral,
-    ];
-    const regionRows = await this.read(
-      buildRegionSql(relation, flags, useVector),
-      useVector ? regionParams : regionParams.slice(0, 4),
-    );
-    const regionMatch: BrainMatch = labelOnly(input) ? "label" : "region";
-    const regionFacts = regionRows.map((row) => toFact(row, regionMatch));
+    const regions = analysisRegions(input);
+    const seenFacts = new Set<string>();
+    const regionFacts: BrainFact[] = [];
+    for (const region of regions) {
+      const regionParams = [
+        region.ags,
+        region.plz,
+        region.geoKey,
+        labelPattern(region),
+        vectorLiteral,
+      ];
+      const regionRows = await this.read(
+        buildRegionSql(relation, flags, useVector),
+        useVector ? regionParams : regionParams.slice(0, 4),
+      );
+      const regionMatch: BrainMatch = labelOnly(region) ? "label" : "region";
+      for (const row of regionRows) {
+        if (seenFacts.has(row.id)) continue;
+        seenFacts.add(row.id);
+        regionFacts.push(toFact(row, regionMatch));
+      }
+    }
 
     const storePlz = [
       ...new Set(
@@ -189,12 +200,19 @@ export function buildEmbeddingQuery(input: AnalysisInput): string {
     .map((store) => `${store.postalCode} ${store.city}`.trim())
     .filter((value) => value.length > 0)
     .join(", ");
+  const regions = analysisRegions(input);
+  const labels = regions.map((region) => region.label).filter((label) => label.length > 0);
+  const ags = regions.map((region) => region.ags).filter((value): value is string => Boolean(value));
+  const plz = regions.map((region) => region.plz).filter((value): value is string => Boolean(value));
+  const keys = regions
+    .map((region) => region.geoKey)
+    .filter((value): value is string => Boolean(value));
   return [
     "Kleinräumige Standortkriterien",
-    input.region.label,
-    input.region.ags ? `AGS ${input.region.ags}` : "",
-    input.region.plz ? `PLZ ${input.region.plz}` : "",
-    input.region.geoKey ?? "",
+    labels.join(", "),
+    ags.length > 0 ? `AGS ${ags.join(" ")}` : "",
+    plz.length > 0 ? `PLZ ${plz.join(" ")}` : "",
+    keys.join(" "),
     places ? `Filialen ${places}` : "",
     "Bevölkerung Haushalte Wohnungen Miete Leerstand Erwerb Gebäude",
   ]
@@ -215,13 +233,13 @@ function brainResult(
   };
 }
 
-function labelOnly(input: AnalysisInput): boolean {
-  return !input.region.ags && !input.region.plz && !input.region.geoKey;
+function labelOnly(region: AnalysisRegion): boolean {
+  return !region.ags && !region.plz && !region.geoKey;
 }
 
-function labelPattern(input: AnalysisInput): string | null {
-  if (!labelOnly(input)) return null;
-  const label = input.region.label.trim();
+function labelPattern(region: AnalysisRegion): string | null {
+  if (!labelOnly(region)) return null;
+  const label = region.label.trim();
   return label ? toContainsPattern(label) : null;
 }
 

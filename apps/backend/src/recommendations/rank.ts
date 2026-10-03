@@ -116,8 +116,16 @@ export function withoutRegionAnchor(
   ranked: ScoredLocation[],
   region: Pick<AnalysisRegion, "geoKey" | "grain" | "ags" | "plz">,
 ): ScoredLocation[] {
-  if (ranked.length <= 1) return ranked;
-  const interior = ranked.filter((item) => !isAnchor(item, region));
+  return withoutRegionAnchors(ranked, [region]);
+}
+
+/** Drop every list-item anchor when a finer positive location exists. */
+export function withoutRegionAnchors(
+  ranked: ScoredLocation[],
+  regions: Array<Pick<AnalysisRegion, "geoKey" | "grain" | "ags" | "plz">>,
+): ScoredLocation[] {
+  if (ranked.length <= 1 || regions.length === 0) return ranked;
+  const interior = ranked.filter((item) => !regions.some((region) => isAnchor(item, region)));
   return interior.length > 0 ? interior : ranked;
 }
 

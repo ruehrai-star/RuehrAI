@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Res } from "@nestjs/common";
+import type { Response } from "express";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
-import { TargetRegionWriteDto } from "./dto";
+import { TargetRegionGeoKeyDto, TargetRegionWriteDto } from "./dto";
 import { TargetRegionService } from "./target-region.service";
 
 @Controller("target-region")
@@ -9,18 +10,30 @@ export class TargetRegionController {
   constructor(private readonly regions: TargetRegionService) {}
 
   @Get()
-  get(@CurrentUser() user: AuthUser) {
-    return this.regions.get(user.id);
+  list(@CurrentUser() user: AuthUser) {
+    return this.regions.list(user.id);
   }
 
-  @Put()
-  put(@CurrentUser() user: AuthUser, @Body() dto: TargetRegionWriteDto) {
-    return this.regions.put(user.id, dto);
+  @Post()
+  async add(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: TargetRegionWriteDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { item, created } = await this.regions.add(user.id, dto);
+    res.status(created ? 201 : 200);
+    return item;
   }
 
   @Delete()
   @HttpCode(204)
-  delete(@CurrentUser() user: AuthUser): Promise<void> {
-    return this.regions.delete(user.id);
+  clear(@CurrentUser() user: AuthUser): Promise<void> {
+    return this.regions.clear(user.id);
+  }
+
+  @Delete(":geoKey")
+  @HttpCode(204)
+  remove(@CurrentUser() user: AuthUser, @Param() params: TargetRegionGeoKeyDto): Promise<void> {
+    return this.regions.remove(user.id, params.geoKey);
   }
 }

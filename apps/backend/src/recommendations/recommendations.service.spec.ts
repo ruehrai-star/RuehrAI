@@ -70,7 +70,7 @@ describe("RecommendationsService", () => {
   const write = jest.fn();
   const service = new RecommendationsService(
     { query } as unknown as DatabaseService,
-    { load } as unknown as CandidateSearchService,
+    { load, loadMany: load } as unknown as CandidateSearchService,
     { write } as unknown as RationaleService,
   );
 

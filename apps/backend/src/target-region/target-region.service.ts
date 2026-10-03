@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, normalizeCoordPair, toCoord, toIso } from "../customer/values";
+import { CatalogLevel } from "../geo/geo-catalog";
+import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { canonicalRegionKeys } from "../geo/bezirk-ags";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
 import {
@@ -20,6 +22,8 @@ export interface TargetRegion {
   label: string;
   grain: Grain | null;
   geoKey: string | null;
+  level: CatalogLevel | null;
+  parentLabel: string | null;
   ags: string | null;
   plz: string | null;
   lon: number | null;
@@ -29,10 +33,16 @@ export interface TargetRegion {
   updatedAt: string;
 }
 
+export interface TargetRegionList {
+  items: TargetRegion[];
+}
+
 interface TargetRegionRow {
   label: string;
   grain: Grain | null;
   geo_key: string | null;
+  level?: string | null;
+  parent_label?: string | null;
   ags: string | null;
   plz: string | null;
   lon: number | string | null;
@@ -46,38 +56,44 @@ interface TargetRegionRow {
 }
 
 const SELECT_REGION = `
-  SELECT label, grain, geo_key, ags, plz, lon, lat,
+  SELECT label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
          bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at
   FROM app.target_regions
 `;
 
 /**
- * PUT refuses this case. A successful write always stores a polygon.
+ * Add refuses this case. A successful write always stores a polygon.
  * GET may still return a previously stored null outline.
  */
 export const TARGET_REGION_NO_MAP_AREA =
   "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.";
+
+export const TARGET_REGION_PLACE_REQUIRED =
+  "Name the catalog place with geoKey, ags, or plz. A free-text label is not enough to add or remove an item.";
 
 @Injectable()
 export class TargetRegionService {
   constructor(
     private readonly db: DatabaseService,
     private readonly catalog: PlaceCatalogService,
+    private readonly geoCatalog: GeoCatalogService,
   ) {}
 
-  async get(userId: string): Promise<TargetRegion> {
+  async list(userId: string): Promise<TargetRegionList> {
     const result = await this.db.query<TargetRegionRow>(
-      `${SELECT_REGION} WHERE user_id = $1::bigint`,
+      `${SELECT_REGION}
+       WHERE user_id = $1::bigint
+       ORDER BY created_at DESC, id DESC`,
       [userId],
     );
-    const row = result.rows[0];
-    if (!row) {
-      throw new NotFoundException("Target region is not set");
-    }
-    return this.withMap(toRegion(row));
+    const items = await Promise.all(result.rows.map((row) => this.withMap(toRegion(row))));
+    return { items };
   }
 
-  async put(userId: string, dto: TargetRegionWriteDto): Promise<TargetRegion> {
+  async add(
+    userId: string,
+    dto: TargetRegionWriteDto,
+  ): Promise<{ item: TargetRegion; created: boolean }> {
     const coords = normalizeCoordPair(dto.lon, dto.lat);
     const geometry = dto.geometry == null ? null : parseRegionGeometry(dto.geometry);
     const bounds = dto.bounds == null ? null : parseBounds(dto.bounds);
@@ -87,8 +103,11 @@ export class TargetRegionService {
       geoKey: emptyToNull(dto.geoKey),
       ags: emptyToNull(dto.ags),
     });
-    const geoKey = canonical.geoKey;
+    const geoKey = canonical.geoKey ?? plz;
     const ags = canonical.ags;
+    if (!geoKey && !ags && !plz) {
+      throw new BadRequestException(TARGET_REGION_PLACE_REQUIRED);
+    }
     const resolved = await this.resolveMap({
       grain,
       geoKey,
@@ -102,37 +121,38 @@ export class TargetRegionService {
     if (!resolved.geometry || !resolved.bounds) {
       throw new BadRequestException(TARGET_REGION_NO_MAP_AREA);
     }
+    const display = await this.catalogDisplay({
+      grain,
+      geoKey,
+      ags,
+      plz,
+      label: dto.label.trim(),
+    });
+    const storedKey = geoKey ?? ags ?? plz;
+    const existing = await this.findByKeys(userId, [storedKey, geoKey, ags, plz]);
+    if (existing) {
+      return { item: await this.withMap(existing), created: false };
+    }
 
     const result = await this.db.query<TargetRegionRow>(
       `INSERT INTO app.target_regions (
-         user_id, label, grain, geo_key, ags, plz, lon, lat,
+         user_id, label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
          bounds_west, bounds_south, bounds_east, bounds_north, geometry
        )
        VALUES (
-         $1::bigint, $2, $3, $4, $5, $6, $7, $8,
-         $9, $10, $11, $12, $13::jsonb
+         $1::bigint, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11, $12, $13, $14, $15::jsonb
        )
-       ON CONFLICT (user_id) DO UPDATE SET
-         label = EXCLUDED.label,
-         grain = EXCLUDED.grain,
-         geo_key = EXCLUDED.geo_key,
-         ags = EXCLUDED.ags,
-         plz = EXCLUDED.plz,
-         lon = EXCLUDED.lon,
-         lat = EXCLUDED.lat,
-         bounds_west = EXCLUDED.bounds_west,
-         bounds_south = EXCLUDED.bounds_south,
-         bounds_east = EXCLUDED.bounds_east,
-         bounds_north = EXCLUDED.bounds_north,
-         geometry = EXCLUDED.geometry,
-         updated_at = now()
-       RETURNING label, grain, geo_key, ags, plz, lon, lat,
+       ON CONFLICT (user_id, geo_key) WHERE geo_key IS NOT NULL DO NOTHING
+       RETURNING label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
                  bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at`,
       [
         userId,
-        dto.label.trim(),
+        display.label,
         grain,
-        geoKey,
+        storedKey,
+        display.level,
+        display.parentLabel,
         ags,
         plz,
         resolved.lon,
@@ -146,15 +166,32 @@ export class TargetRegionService {
     );
     const row = result.rows[0];
     if (!row) {
-      throw new NotFoundException("Target region is not set");
+      const again = await this.findByKeys(userId, [storedKey, geoKey, ags, plz]);
+      if (!again) {
+        throw new BadRequestException(TARGET_REGION_PLACE_REQUIRED);
+      }
+      return { item: await this.withMap(again), created: false };
     }
-    return toRegion(row);
+    return { item: toRegion(row), created: true };
   }
 
-  async delete(userId: string): Promise<void> {
-    await this.db.query(`DELETE FROM app.target_regions WHERE user_id = $1::bigint`, [
-      userId,
-    ]);
+  async remove(userId: string, geoKey: string): Promise<void> {
+    const keys = identityKeys(geoKey);
+    if (keys.length === 0) return;
+    await this.db.query(
+      `DELETE FROM app.target_regions
+       WHERE user_id = $1::bigint
+         AND (
+           geo_key = ANY($2::text[])
+           OR ags = ANY($2::text[])
+           OR plz = ANY($2::text[])
+         )`,
+      [userId, keys],
+    );
+  }
+
+  async clear(userId: string): Promise<void> {
+    await this.db.query(`DELETE FROM app.target_regions WHERE user_id = $1::bigint`, [userId]);
   }
 
   /** Fill bounds, geometry, and a missing point from the stored row or the local catalog. */
@@ -207,6 +244,51 @@ export class TargetRegionService {
       catalogPoint,
     });
   }
+
+  private async catalogDisplay(input: {
+    grain: string | null;
+    geoKey: string | null;
+    ags: string | null;
+    plz: string | null;
+    label: string;
+  }): Promise<{ label: string; level: CatalogLevel | null; parentLabel: string | null }> {
+    const query = input.geoKey
+      ? { geoKey: input.geoKey }
+      : input.ags
+        ? { ags: input.ags }
+        : input.plz
+          ? { plz: input.plz }
+          : null;
+    if (!query) {
+      return { label: input.label, level: null, parentLabel: null };
+    }
+    const hits = await this.geoCatalog.search(query);
+    const hit = hits[0];
+    return {
+      label: hit?.label?.trim() || input.label,
+      level: hit?.level ?? null,
+      parentLabel: hit?.parentLabel ?? null,
+    };
+  }
+
+  private async findByKeys(userId: string, rawKeys: Array<string | null>): Promise<TargetRegion | null> {
+    const keys = [...new Set(rawKeys.flatMap((key) => (key ? identityKeys(key) : [])))];
+    if (keys.length === 0) return null;
+    const result = await this.db.query<TargetRegionRow>(
+      `${SELECT_REGION}
+       WHERE user_id = $1::bigint
+         AND (
+           geo_key = ANY($2::text[])
+           OR ags = ANY($2::text[])
+           OR plz = ANY($2::text[])
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [userId, keys],
+    );
+    const row = result.rows[0];
+    return row ? toRegion(row) : null;
+  }
 }
 
 function toRegion(row: TargetRegionRow): TargetRegion {
@@ -214,6 +296,8 @@ function toRegion(row: TargetRegionRow): TargetRegion {
     label: row.label,
     grain: row.grain,
     geoKey: row.geo_key,
+    level: isLevel(row.level) ? row.level : null,
+    parentLabel: emptyToNull(row.parent_label ?? null),
     ags: row.ags,
     plz: row.plz,
     lon: toCoord(row.lon),
@@ -222,4 +306,31 @@ function toRegion(row: TargetRegionRow): TargetRegion {
     geometry: geometryFromUnknown(row.geometry),
     updatedAt: toIso(row.updated_at),
   };
+}
+
+function isLevel(value: string | null | undefined): value is CatalogLevel {
+  return (
+    value === "plz" ||
+    value === "bezirk" ||
+    value === "stadtbezirk" ||
+    value === "stadtteil" ||
+    value === "ortsteil"
+  );
+}
+
+function identityKeys(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const canonical = canonicalRegionKeys({ geoKey: trimmed, ags: null });
+  const keys = new Set<string>([trimmed]);
+  if (canonical.geoKey) keys.add(canonical.geoKey);
+  if (canonical.ags) keys.add(canonical.ags);
+  const prefixed = /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil):(.+)$/i.exec(trimmed);
+  if (prefixed?.[1]) {
+    keys.add(prefixed[1]);
+    const inner = canonicalRegionKeys({ geoKey: prefixed[1], ags: null });
+    if (inner.geoKey) keys.add(inner.geoKey);
+    if (inner.ags) keys.add(inner.ags);
+  }
+  return [...keys];
 }

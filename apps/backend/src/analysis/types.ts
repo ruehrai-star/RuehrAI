@@ -47,6 +47,8 @@ export interface AnalysisRegion {
   label: string;
   grain: Grain | null;
   geoKey: string | null;
+  level?: string | null;
+  parentLabel?: string | null;
   ags: string | null;
   plz: string | null;
   lon: number | null;
@@ -58,9 +60,17 @@ export interface AnalysisRegion {
 
 export interface AnalysisInput {
   region: AnalysisRegion;
+  /** Full target-region list. Location search uses this set when present. */
+  regions?: AnalysisRegion[];
   stores: AnalysisStoreInput[];
   revenueDirection: RevenueDirection;
   capturedAt: string;
+}
+
+/** The set used for location search. Older snapshots only stored `region`. */
+export function analysisRegions(input: AnalysisInput): AnalysisRegion[] {
+  if (input.regions && input.regions.length > 0) return input.regions;
+  return [input.region];
 }
 
 export interface BrainSignal {
