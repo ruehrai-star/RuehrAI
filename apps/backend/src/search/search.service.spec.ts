@@ -60,6 +60,7 @@ describe("SearchService", () => {
         label: "München",
         grain: "ags",
         geoKey: "09162000",
+        level: "gemeinde",
         lon: 11.5755,
         lat: 48.1374,
       },
@@ -101,6 +102,7 @@ describe("SearchService", () => {
         label: "Alpha Ort",
         grain: "ags",
         geoKey: "04011000",
+        level: "gemeinde",
         lon: null,
         lat: null,
       },
@@ -355,6 +357,7 @@ describe("SearchService", () => {
       label: "Berlin",
       grain: "ags",
       geoKey: "11000000",
+      level: "gemeinde",
     });
     expect(labels.filter((label) => label === "Berlin, kreisfreie Stadt")).toEqual(["Berlin, kreisfreie Stadt"]);
     expect(byKey["11000"]).toMatchObject({ label: "Berlin, kreisfreie Stadt", geoKey: "11000" });

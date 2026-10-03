@@ -87,7 +87,7 @@ describe("AnalysisService", () => {
         label: "München",
         geoKey: "09162000",
         grain: "ags",
-        level: null,
+        level: "gemeinde",
         parentLabel: null,
       }),
     ]);

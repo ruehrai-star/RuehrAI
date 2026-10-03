@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.6 covers health, auth, search, layers, customer inputs, analysis, recommendations, and the target-region list", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.6.0");
+  assert.equal(doc.info.version, "0.6.1");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -51,6 +51,7 @@ test("v0.6 covers health, auth, search, layers, customer inputs, analysis, recom
     "stadtbezirk",
     "stadtteil",
     "ortsteil",
+    "gemeinde",
   ]);
   assert.equal(doc.components.schemas.SearchHit.properties.parentLabel.nullable, true);
   assert.equal(doc.components.schemas.SearchHit.properties.parent, undefined);

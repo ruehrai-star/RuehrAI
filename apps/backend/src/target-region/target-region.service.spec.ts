@@ -182,10 +182,12 @@ describe("TargetRegionService", () => {
     });
     expect(saved.item.bounds).toEqual({ west: 11.36, south: 48.06, east: 11.72, north: 48.25 });
     expect(saved.item.geometry).toEqual(muenchenPolygon);
-    expect(saved.item.level).toBeNull();
+    expect(saved.item.level).toBe("gemeinde");
+    expect(saved.item.parentLabel).toBeNull();
     expect(saved.item.lon).toBeCloseTo(11.5755);
     expect(saved.item.lat).toBeCloseTo(48.1374);
     const params = query.mock.calls[1]?.[1] as unknown[];
+    expect(params[4]).toBeNull();
     expect(params[8]).toBeCloseTo(11.5755);
     expect(params[9]).toBeCloseTo(48.1374);
     expect(params.slice(10, 14)).toEqual([11.36, 48.06, 11.72, 48.25]);
@@ -272,7 +274,7 @@ describe("TargetRegionService", () => {
     });
     expect(saved.created).toBe(false);
     expect(saved.item.geoKey).toBe("09162000");
-    expect(saved.item.level).toBeNull();
+    expect(saved.item.level).toBe("gemeinde");
     expect(saved.item.parentLabel).toBeNull();
     expect(search).toHaveBeenCalledWith({ geoKey: "09162000" });
     expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT"))).toBe(false);
@@ -403,7 +405,7 @@ describe("TargetRegionService", () => {
       label: "München",
       grain: "ags",
       geoKey: "09162000",
-      level: null,
+      level: "gemeinde",
       parentLabel: null,
     });
     expect(search).toHaveBeenCalledWith({ geoKey: "09162000" });

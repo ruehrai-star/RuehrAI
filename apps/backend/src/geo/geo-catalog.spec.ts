@@ -1,20 +1,38 @@
 import {
   CATALOG_LEVELS,
   GEO_BEZIRK_OUTLINE_SQL,
+  GEO_CATALOG_LEVELS,
   GEO_CATALOG_SEARCH_SQL,
   GEO_ORTSTEIL_OUTLINE_SQL,
   GEO_PLZ_OUTLINE_SQL,
   catalogDedupKey,
   catalogLevelForBezirk,
   catalogLevelForOrtsteilKind,
+  catalogLevelForPlace,
   catalogLookupPlan,
   catalogNameDedupKey,
+  isMunicipalityPlace,
+  persistedCatalogLevel,
   toCatalogHit,
 } from "./geo-catalog";
 
 describe("geo catalog contract", () => {
   it("uses the locked level tokens", () => {
-    expect(CATALOG_LEVELS).toEqual(["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
+    expect(CATALOG_LEVELS).toEqual(["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil", "gemeinde"]);
+    expect(GEO_CATALOG_LEVELS).toEqual(["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
+    expect(persistedCatalogLevel("gemeinde")).toBeNull();
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "09162000", ags: "09162000" })).toBe("gemeinde");
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000000" })).toBe("gemeinde");
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001" })).toBeNull();
+    expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001", level: "bezirk" })).toBe("bezirk");
+    expect(catalogLevelForPlace({ grain: "plz5", geoKey: "80331", level: "plz" })).toBe("plz");
+    expect(catalogLevelForPlace({ grain: "other", geoKey: "stadtbezirk:02000002", level: "stadtbezirk" })).toBe(
+      "stadtbezirk",
+    );
+    expect(catalogLevelForPlace({ grain: "other", geoKey: "ortsteil:osm:1" })).toBeNull();
+    expect(isMunicipalityPlace({ grain: "ags", geoKey: "09162000" })).toBe(true);
+    expect(isMunicipalityPlace({ grain: "ags", geoKey: "11000012" })).toBe(false);
+    expect(isMunicipalityPlace({ grain: "plz5", geoKey: "80331" })).toBe(false);
     expect(catalogLevelForBezirk("11000001")).toBe("bezirk");
     expect(catalogLevelForBezirk("11000012")).toBe("bezirk");
     expect(catalogLevelForBezirk("02000002")).toBe("stadtbezirk");
@@ -25,7 +43,7 @@ describe("geo catalog contract", () => {
     expect(catalogLevelForOrtsteilKind("both")).toBeNull();
   });
 
-  it("drops a row whose level is not one of the five tokens", () => {
+  it("drops a Brain geo row that claims gemeinde", () => {
     expect(
       toCatalogHit({
         id: "ags:09162000",

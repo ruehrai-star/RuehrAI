@@ -1,5 +1,5 @@
 import { emptyToNull } from "../customer/values";
-import { CatalogLevel } from "./geo-catalog";
+import { CatalogLevel, catalogLevelForPlace, isGeoCatalogLevel } from "./geo-catalog";
 
 export interface CatalogDisplayQuery {
   geoKey?: string;
@@ -14,6 +14,7 @@ export interface CatalogDisplayHit {
 }
 
 export interface CatalogDisplayPlace {
+  grain?: string | null;
   geoKey: string | null;
   ags: string | null;
   plz: string | null;
@@ -39,18 +40,23 @@ export function catalogPlaceQuery(input: {
 /**
  * Fill missing `level` / `parentLabel` from the same catalog search POST uses.
  * Never invents a label. A municipality with no catalog parent stays empty.
+ * A municipality without a catalog level is `gemeinde`.
  */
 export async function fillMissingCatalogDisplay<T extends CatalogDisplayPlace>(
   region: T,
   search: (query: CatalogDisplayQuery) => Promise<CatalogDisplayHit[]>,
 ): Promise<T> {
-  if (region.level != null && region.parentLabel != null) return region;
+  if (isGeoCatalogLevel(region.level) && region.parentLabel != null) return region;
   const query = catalogPlaceQuery(region);
-  if (!query) return region;
-  const hit = (await search(query))[0];
+  const hit = query ? (await search(query))[0] : undefined;
+  const fromCatalog = isGeoCatalogLevel(region.level)
+    ? region.level
+    : isGeoCatalogLevel(hit?.level)
+      ? hit.level
+      : null;
   return {
     ...region,
-    level: region.level ?? hit?.level ?? null,
+    level: fromCatalog ?? catalogLevelForPlace(region),
     parentLabel: region.parentLabel ?? emptyToNull(hit?.parentLabel),
   };
 }

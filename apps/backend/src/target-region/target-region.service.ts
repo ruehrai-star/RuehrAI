@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, normalizeCoordPair, toCoord, toIso } from "../customer/values";
 import { fillMissingCatalogDisplay, catalogPlaceQuery } from "../geo/catalog-display";
-import { CatalogLevel, isCatalogLevel } from "../geo/geo-catalog";
+import { CatalogLevel, isCatalogLevel, persistedCatalogLevel } from "../geo/geo-catalog";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { canonicalRegionKeys } from "../geo/bezirk-ags";
 import { PlaceCatalogService } from "../geo/place-catalog.service";
@@ -171,9 +171,9 @@ export class TargetRegionService {
       if (!again) {
         throw new BadRequestException(TARGET_REGION_PLACE_REQUIRED);
       }
-      return { item: await this.withMap(again), created: false };
+      return { item: await this.hydrate(again), created: false };
     }
-    return { item: toRegion(row), created: true };
+    return { item: await this.hydrate(toRegion(row)), created: true };
   }
 
   async remove(userId: string, geoKey: string): Promise<void> {
@@ -266,7 +266,7 @@ export class TargetRegionService {
     const hit = hits[0];
     return {
       label: hit?.label?.trim() || input.label,
-      level: hit?.level ?? null,
+      level: persistedCatalogLevel(hit?.level),
       parentLabel: hit?.parentLabel ?? null,
     };
   }

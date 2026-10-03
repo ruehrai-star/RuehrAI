@@ -11,9 +11,12 @@ describe("fillMissingCatalogDisplay", () => {
     parentLabel: null,
   };
 
-  it("keeps a pre-011 municipality row empty when the catalog has no hit", async () => {
+  it("sets level gemeinde on a pre-011 municipality and leaves parentLabel empty", async () => {
     const search = jest.fn().mockResolvedValue([]);
-    await expect(fillMissingCatalogDisplay(muenchen, search)).resolves.toEqual(muenchen);
+    await expect(fillMissingCatalogDisplay(muenchen, search)).resolves.toEqual({
+      ...muenchen,
+      level: "gemeinde",
+    });
     expect(search).toHaveBeenCalledWith({ geoKey: "09162000" });
   });
 
@@ -23,8 +26,38 @@ describe("fillMissingCatalogDisplay", () => {
     ]);
     const filled = await fillMissingCatalogDisplay(muenchen, search);
     expect(filled.label).toBe("München");
-    expect(filled.level).toBeNull();
+    expect(filled.level).toBe("gemeinde");
     expect(filled.parentLabel).toBeNull();
+  });
+
+  it("never uses gemeinde for a PLZ, Bezirk, or Ortsteil", async () => {
+    const search = jest.fn().mockResolvedValue([]);
+    await expect(
+      fillMissingCatalogDisplay(
+        { label: "80331", grain: "plz5", geoKey: "80331", ags: null, plz: "80331", level: null, parentLabel: null },
+        search,
+      ),
+    ).resolves.toMatchObject({ level: null, parentLabel: null });
+    await expect(
+      fillMissingCatalogDisplay(
+        { label: "Mitte", grain: "ags", geoKey: "11000001", ags: "11000001", plz: null, level: null, parentLabel: null },
+        search,
+      ),
+    ).resolves.toMatchObject({ level: null });
+    await expect(
+      fillMissingCatalogDisplay(
+        {
+          label: "Lankwitz",
+          grain: "other",
+          geoKey: "ortsteil:osm:5712247",
+          ags: null,
+          plz: null,
+          level: null,
+          parentLabel: null,
+        },
+        search,
+      ),
+    ).resolves.toMatchObject({ level: null });
   });
 
   it("fills an old PLZ row from the catalog the way a fresh add would", async () => {

@@ -792,7 +792,7 @@ async function dropFeaturesFixture(): Promise<void> {
       grain: "ags",
       geoKey: "09162000",
       ags: "09162000",
-      level: null,
+      level: "gemeinde",
       parentLabel: null,
     });
     expect(listed.body.items[0].geometry).toMatchObject({ type: "MultiPolygon" });
