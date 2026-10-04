@@ -77,5 +77,12 @@ describe("API smoke", () => {
     await request(server).get("/analysis/pattern").expect(401);
     await request(server).post("/recommendations").expect(401);
     await request(server).get("/recommendations").expect(401);
+    await request(server)
+      .post("/address-pair")
+      .send({
+        left: { street: "Marienplatz 1", postalCode: "80331", city: "München" },
+        right: { street: "Alexanderplatz 1", postalCode: "10178", city: "Berlin" },
+      })
+      .expect(401);
   });
 });

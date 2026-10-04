@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { AddressPairModule } from "./address-pair/address-pair.module";
 import { AnalysisModule } from "./analysis/analysis.module";
 import { AuthModule } from "./auth/auth.module";
 import { DatabaseModule } from "./database/database.module";
@@ -22,6 +23,7 @@ import { TargetRegionModule } from "./target-region/target-region.module";
     StoresModule,
     AnalysisModule,
     RecommendationsModule,
+    AddressPairModule,
   ],
 })
 export class AppModule {}

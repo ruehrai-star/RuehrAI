@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.6.1",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
+    "version": "0.7.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
   },
   "servers": [
     {
@@ -35,6 +35,9 @@
     },
     {
       "name": "Recommendations"
+    },
+    {
+      "name": "AddressPair"
     }
   ],
   "security": [
@@ -1245,6 +1248,56 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/address-pair": {
+      "post": {
+        "tags": [
+          "AddressPair"
+        ],
+        "operationId": "evaluateAddressPair",
+        "summary": "Compare Brain topics for two addresses",
+        "description": "Street and city are labels only. The lookup key is the five-digit\npostal code. Two streets in the same PLZ return the same numbers.\n\nA side is `resolved` only when that PLZ maps to exactly one\nmunicipality and exactly one district in Brain `geo.geo_ref_plz` /\n`geo.geo_ref_admin`. Otherwise `resolution` is `unknown`, places are\nnull, and `topics` is empty. `land` may be null when no Land row\nexists. Place names are never invented.\n\nEach resolved side returns the fixed topic lists at Gemeinde, Kreis,\nand Land. `status: present` includes `value` as the stored Brain row.\n`status: absent` omits `value`. Missing rows are never replaced with\n0, null, or `{}`. Pendler, PKS, and Unfallatlas stay separate by\nlevel. Arbeitsmarkt is Kreis only.\n\n`shared` lists topics that are present on both sides at the same id\nand level. The handler reads local Brain Postgres only.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddressPairRequest"
+              },
+              "example": {
+                "left": {
+                  "street": "Marienplatz 1",
+                  "postalCode": "80331",
+                  "city": "München"
+                },
+                "right": {
+                  "street": "Alexanderplatz 1",
+                  "postalCode": "10178",
+                  "city": "Berlin"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Both sides, plus topics present on both.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressPairResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }
@@ -2675,6 +2728,200 @@
             "description": "German sentence with the months and figures used for the score."
           }
         }
+      },
+      "AddressPairRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left",
+          "right"
+        ],
+        "properties": {
+          "left": {
+            "$ref": "#/components/schemas/AddressInput"
+          },
+          "right": {
+            "$ref": "#/components/schemas/AddressInput"
+          }
+        }
+      },
+      "AddressInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "street",
+          "postalCode",
+          "city"
+        ],
+        "properties": {
+          "street": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "postalCode": {
+            "type": "string",
+            "pattern": "^[0-9]{5}$"
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      },
+      "AddressPairResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left",
+          "right",
+          "shared"
+        ],
+        "properties": {
+          "left": {
+            "$ref": "#/components/schemas/AddressSide"
+          },
+          "right": {
+            "$ref": "#/components/schemas/AddressSide"
+          },
+          "shared": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SharedTopic"
+            }
+          }
+        }
+      },
+      "AddressSide": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input",
+          "resolution",
+          "gemeinde",
+          "kreis",
+          "land",
+          "topics"
+        ],
+        "properties": {
+          "input": {
+            "$ref": "#/components/schemas/AddressInput"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/AddressResolution"
+          },
+          "gemeinde": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaceName"
+              }
+            ],
+            "nullable": true
+          },
+          "kreis": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaceName"
+              }
+            ],
+            "nullable": true
+          },
+          "land": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaceName"
+              }
+            ],
+            "nullable": true
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddressTopic"
+            }
+          }
+        }
+      },
+      "AddressResolution": {
+        "type": "string",
+        "enum": [
+          "resolved",
+          "unknown"
+        ]
+      },
+      "PlaceName": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "AddressTopic": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "level",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "level": {
+            "$ref": "#/components/schemas/TopicLevel"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TopicStatus"
+          },
+          "value": {
+            "description": "Stored Brain row. Present only when `status` is `present`.\nOmitted entirely when `status` is `absent`.\n"
+          }
+        }
+      },
+      "SharedTopic": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "level",
+          "left",
+          "right"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "level": {
+            "$ref": "#/components/schemas/TopicLevel"
+          },
+          "left": {},
+          "right": {}
+        }
+      },
+      "TopicLevel": {
+        "type": "string",
+        "enum": [
+          "gemeinde",
+          "kreis",
+          "land"
+        ]
+      },
+      "TopicStatus": {
+        "type": "string",
+        "enum": [
+          "present",
+          "absent"
+        ]
       },
       "ErrorResponse": {
         "type": "object",

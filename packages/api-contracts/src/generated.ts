@@ -549,6 +549,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/address-pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare Brain topics for two addresses
+         * @description Street and city are labels only. The lookup key is the five-digit
+         *     postal code. Two streets in the same PLZ return the same numbers.
+         *
+         *     A side is `resolved` only when that PLZ maps to exactly one
+         *     municipality and exactly one district in Brain `geo.geo_ref_plz` /
+         *     `geo.geo_ref_admin`. Otherwise `resolution` is `unknown`, places are
+         *     null, and `topics` is empty. `land` may be null when no Land row
+         *     exists. Place names are never invented.
+         *
+         *     Each resolved side returns the fixed topic lists at Gemeinde, Kreis,
+         *     and Land. `status: present` includes `value` as the stored Brain row.
+         *     `status: absent` omits `value`. Missing rows are never replaced with
+         *     0, null, or `{}`. Pendler, PKS, and Unfallatlas stay separate by
+         *     level. Arbeitsmarkt is Kreis only.
+         *
+         *     `shared` lists topics that are present on both sides at the same id
+         *     and level. The handler reads local Brain Postgres only.
+         */
+        post: operations["evaluateAddressPair"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1128,6 +1164,53 @@ export interface components {
             /** @description German sentence with the months and figures used for the score. */
             evidence: string;
         };
+        AddressPairRequest: {
+            left: components["schemas"]["AddressInput"];
+            right: components["schemas"]["AddressInput"];
+        };
+        AddressInput: {
+            street: string;
+            postalCode: string;
+            city: string;
+        };
+        AddressPairResult: {
+            left: components["schemas"]["AddressSide"];
+            right: components["schemas"]["AddressSide"];
+            shared: components["schemas"]["SharedTopic"][];
+        };
+        AddressSide: {
+            input: components["schemas"]["AddressInput"];
+            resolution: components["schemas"]["AddressResolution"];
+            gemeinde: components["schemas"]["PlaceName"] | null;
+            kreis: components["schemas"]["PlaceName"] | null;
+            land: components["schemas"]["PlaceName"] | null;
+            topics: components["schemas"]["AddressTopic"][];
+        };
+        /** @enum {string} */
+        AddressResolution: "resolved" | "unknown";
+        PlaceName: {
+            name: string;
+        };
+        AddressTopic: {
+            id: string;
+            level: components["schemas"]["TopicLevel"];
+            status: components["schemas"]["TopicStatus"];
+            /**
+             * @description Stored Brain row. Present only when `status` is `present`.
+             *     Omitted entirely when `status` is `absent`.
+             */
+            value?: unknown;
+        };
+        SharedTopic: {
+            id: string;
+            level: components["schemas"]["TopicLevel"];
+            left: unknown;
+            right: unknown;
+        };
+        /** @enum {string} */
+        TopicLevel: "gemeinde" | "kreis" | "land";
+        /** @enum {string} */
+        TopicStatus: "present" | "absent";
         ErrorResponse: {
             statusCode?: number;
             message?: string | string[];
@@ -2157,6 +2240,46 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+        };
+    };
+    evaluateAddressPair: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "left": {
+                 *         "street": "Marienplatz 1",
+                 *         "postalCode": "80331",
+                 *         "city": "München"
+                 *       },
+                 *       "right": {
+                 *         "street": "Alexanderplatz 1",
+                 *         "postalCode": "10178",
+                 *         "city": "Berlin"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["AddressPairRequest"];
+            };
+        };
+        responses: {
+            /** @description Both sides, plus topics present on both. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddressPairResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

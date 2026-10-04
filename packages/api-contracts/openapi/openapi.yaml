@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.6.1
+  version: 0.7.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -21,6 +21,8 @@ info:
     The signed-in user has a list of target regions. That list is the set used
     for the location search, not a single overwrite slot. `0.6.1` adds
     `gemeinde` to `CatalogLevel` for a municipality (grain `ags`).
+    `0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code
+    only, returning Gemeinde / Kreis / Land topics from Brain.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -51,6 +53,7 @@ tags:
   - name: Stores
   - name: Analysis
   - name: Recommendations
+  - name: AddressPair
 security:
   - bearerAuth: []
 paths:
@@ -982,6 +985,55 @@ paths:
                 statusCode: 404
                 message: Es liegen noch keine Empfehlungen vor. Bitte zuerst Empfehlungen berechnen.
                 error: Not Found
+  /address-pair:
+    post:
+      tags: [AddressPair]
+      operationId: evaluateAddressPair
+      summary: Compare Brain topics for two addresses
+      description: |
+        Street and city are labels only. The lookup key is the five-digit
+        postal code. Two streets in the same PLZ return the same numbers.
+
+        A side is `resolved` only when that PLZ maps to exactly one
+        municipality and exactly one district in Brain `geo.geo_ref_plz` /
+        `geo.geo_ref_admin`. Otherwise `resolution` is `unknown`, places are
+        null, and `topics` is empty. `land` may be null when no Land row
+        exists. Place names are never invented.
+
+        Each resolved side returns the fixed topic lists at Gemeinde, Kreis,
+        and Land. `status: present` includes `value` as the stored Brain row.
+        `status: absent` omits `value`. Missing rows are never replaced with
+        0, null, or `{}`. Pendler, PKS, and Unfallatlas stay separate by
+        level. Arbeitsmarkt is Kreis only.
+
+        `shared` lists topics that are present on both sides at the same id
+        and level. The handler reads local Brain Postgres only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressPairRequest"
+            example:
+              left:
+                street: Marienplatz 1
+                postalCode: "80331"
+                city: München
+              right:
+                street: Alexanderplatz 1
+                postalCode: "10178"
+                city: Berlin
+      responses:
+        "200":
+          description: Both sides, plus topics present on both.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressPairResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
   securitySchemes:
     bearerAuth:
@@ -1983,6 +2035,114 @@ components:
         evidence:
           type: string
           description: German sentence with the months and figures used for the score.
+    AddressPairRequest:
+      type: object
+      additionalProperties: false
+      required: [left, right]
+      properties:
+        left:
+          $ref: "#/components/schemas/AddressInput"
+        right:
+          $ref: "#/components/schemas/AddressInput"
+    AddressInput:
+      type: object
+      additionalProperties: false
+      required: [street, postalCode, city]
+      properties:
+        street:
+          type: string
+          minLength: 1
+          maxLength: 200
+        postalCode:
+          type: string
+          pattern: "^[0-9]{5}$"
+        city:
+          type: string
+          minLength: 1
+          maxLength: 120
+    AddressPairResult:
+      type: object
+      additionalProperties: false
+      required: [left, right, shared]
+      properties:
+        left:
+          $ref: "#/components/schemas/AddressSide"
+        right:
+          $ref: "#/components/schemas/AddressSide"
+        shared:
+          type: array
+          items:
+            $ref: "#/components/schemas/SharedTopic"
+    AddressSide:
+      type: object
+      additionalProperties: false
+      required: [input, resolution, gemeinde, kreis, land, topics]
+      properties:
+        input:
+          $ref: "#/components/schemas/AddressInput"
+        resolution:
+          $ref: "#/components/schemas/AddressResolution"
+        gemeinde:
+          allOf:
+            - $ref: "#/components/schemas/PlaceName"
+          nullable: true
+        kreis:
+          allOf:
+            - $ref: "#/components/schemas/PlaceName"
+          nullable: true
+        land:
+          allOf:
+            - $ref: "#/components/schemas/PlaceName"
+          nullable: true
+        topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AddressTopic"
+    AddressResolution:
+      type: string
+      enum: [resolved, unknown]
+    PlaceName:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    AddressTopic:
+      type: object
+      additionalProperties: false
+      required: [id, level, status]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        level:
+          $ref: "#/components/schemas/TopicLevel"
+        status:
+          $ref: "#/components/schemas/TopicStatus"
+        value:
+          description: |
+            Stored Brain row. Present only when `status` is `present`.
+            Omitted entirely when `status` is `absent`.
+    SharedTopic:
+      type: object
+      additionalProperties: false
+      required: [id, level, left, right]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        level:
+          $ref: "#/components/schemas/TopicLevel"
+        left: {}
+        right: {}
+    TopicLevel:
+      type: string
+      enum: [gemeinde, kreis, land]
+    TopicStatus:
+      type: string
+      enum: [present, absent]
     ErrorResponse:
       type: object
       properties:

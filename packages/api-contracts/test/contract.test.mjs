@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.6 covers health, auth, search, layers, customer inputs, analysis, recommendations, and the target-region list", () => {
+test("v0.7 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.6.1");
+  assert.equal(doc.info.version, "0.7.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -121,6 +121,26 @@ test("v0.6 covers health, auth, search, layers, customer inputs, analysis, recom
     "#/components/schemas/TargetRegion",
   );
   assert.equal(doc.components.schemas.AnalysisInput.required.includes("regions"), false);
+
+  assert.equal(doc.paths["/address-pair"].post.operationId, "evaluateAddressPair");
+  assert.equal(doc.paths["/address-pair"].post.security, undefined);
+  assert.deepEqual(doc.paths["/address-pair"].post.requestBody.required, true);
+  assert.deepEqual(doc.components.schemas.AddressPairRequest.required, ["left", "right"]);
+  assert.deepEqual(doc.components.schemas.AddressPairResult.required, ["left", "right", "shared"]);
+  assert.deepEqual(doc.components.schemas.AddressSide.required, [
+    "input",
+    "resolution",
+    "gemeinde",
+    "kreis",
+    "land",
+    "topics",
+  ]);
+  assert.deepEqual(doc.components.schemas.AddressResolution.enum, ["resolved", "unknown"]);
+  assert.deepEqual(doc.components.schemas.TopicLevel.enum, ["gemeinde", "kreis", "land"]);
+  assert.deepEqual(doc.components.schemas.TopicStatus.enum, ["present", "absent"]);
+  assert.equal(doc.components.schemas.AddressTopic.required.includes("value"), false);
+  assert.equal(doc.components.schemas.AddressSide.properties.land.nullable, true);
+  assert.equal(doc.components.schemas.AddressInput.properties.postalCode.pattern, "^[0-9]{5}$");
 });
 
 test("the contract does not mention Supabase", () => {
