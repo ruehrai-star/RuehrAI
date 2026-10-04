@@ -59,6 +59,10 @@ test("Auswerten stays inactive until all six fields are valid", () => {
   assert.equal(canEvaluate({ ...valid, postalCode: "8033" }, berlin), false);
   assert.equal(canEvaluate({ ...valid, postalCode: "8033a" }, berlin), false);
   assert.equal(canEvaluate({ ...valid, postalCode: "803311" }, berlin), false);
+  assert.equal(canEvaluate({ ...valid, street: "A".repeat(200) }, berlin), true);
+  assert.equal(canEvaluate({ ...valid, street: "A".repeat(201) }, berlin), false);
+  assert.equal(canEvaluate({ ...valid, city: "B".repeat(120) }, berlin), true);
+  assert.equal(canEvaluate({ ...valid, city: "B".repeat(121) }, berlin), false);
   assert.equal(canEvaluate(valid, { ...berlin, street: "" }), false);
   assert.equal(canEvaluate(valid, { ...berlin, city: " " }), false);
   assert.equal(canEvaluate(valid, { ...berlin, postalCode: "1017" }), false);
@@ -155,6 +159,8 @@ test("a present zensus2022 row shows Gebäude and Wohnungen and omits a missing 
     onlyDwellings.some((cell) => cell.label === "Gebäude"),
     false,
   );
+  assert.deepEqual(zensus2022Cells({ buildings: 1840, dwellings: 2210 }), []);
+  assert.deepEqual(zensus2022Cells({ Gebäude: 1840, Wohnungen: 2210 }), []);
 
   const result = pairResult({
     left: resolvedSide(valid, [present("zensus2022", "gemeinde", { gebaeude: 1840 })]),
@@ -193,11 +199,24 @@ test("Gemeinsam lists only topics present on both sides", () => {
     presentSharedFromSides(left, right).map((row) => `${row.level}:${row.id}`),
     ["gemeinde:pendler"],
   );
-  const view = addressPageView({
+  const invented = addressPageView({
     ...emptyAddressPageState(),
     left: valid,
     right: berlin,
     result: pairResult({ left, right, shared: [{ id: "breitband", level: "gemeinde", left: null, right: { rate: 0.9 } }] }),
+  });
+  assert.deepEqual(invented.sharedRows, []);
+  assert.equal(invented.sharedEmptyText, "Keine gemeinsamen Parameter.");
+
+  const view = addressPageView({
+    ...emptyAddressPageState(),
+    left: valid,
+    right: berlin,
+    result: pairResult({
+      left,
+      right,
+      shared: [{ id: "pendler", level: "gemeinde", left: { count: 10 }, right: { count: 4 } }],
+    }),
   });
   assert.deepEqual(
     view.sharedRows.map((row) => row.label),

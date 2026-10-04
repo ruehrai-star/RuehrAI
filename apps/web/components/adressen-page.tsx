@@ -13,7 +13,7 @@ import {
   type TopicRowView,
   type ValueCell,
 } from "@/lib/addresses/model";
-import type { AddressInput } from "@/lib/addresses/types";
+import { ADDRESS_CITY_MAX, ADDRESS_STREET_MAX, type AddressInput } from "@/lib/addresses/types";
 import { useSession } from "./session-provider";
 
 export function AdressenPage() {
@@ -120,6 +120,7 @@ function AddressFields({
         name={streetId}
         autoComplete={prefix === "left" ? "street-address" : "off"}
         required
+        maxLength={ADDRESS_STREET_MAX}
         value={draft.street}
         onChange={(event) => onChange("street", event.target.value)}
       />
@@ -145,6 +146,7 @@ function AddressFields({
             name={cityId}
             autoComplete={prefix === "left" ? "address-level2" : "off"}
             required
+            maxLength={ADDRESS_CITY_MAX}
             value={draft.city}
             onChange={(event) => onChange("city", event.target.value)}
           />

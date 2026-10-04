@@ -1,4 +1,4 @@
-/** Address-pair contract used by the Adressen page. Backend is not in this repo. */
+/** OpenAPI 0.7.0 `POST /address-pair` (`evaluateAddressPair`). */
 
 export const TOPIC_LEVELS = ["gemeinde", "kreis", "land"] as const;
 export type TopicLevel = (typeof TOPIC_LEVELS)[number];
@@ -7,6 +7,9 @@ export const TOPIC_STATUSES = ["present", "absent"] as const;
 export type TopicStatus = (typeof TOPIC_STATUSES)[number];
 
 export type AddressResolution = "resolved" | "unknown";
+
+export const ADDRESS_STREET_MAX = 200;
+export const ADDRESS_CITY_MAX = 120;
 
 export interface AddressInput {
   street: string;

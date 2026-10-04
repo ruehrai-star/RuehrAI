@@ -10,6 +10,7 @@ const other = { street: "Alexanderplatz 1", postalCode: "10178", city: "Berlin" 
 const pairBody = {
   left: {
     input,
+    resolution: "resolved" as const,
     gemeinde: { name: "München" },
     kreis: { name: "München" },
     land: { name: "Bayern" },
@@ -22,6 +23,7 @@ const pairBody = {
   },
   right: {
     input: other,
+    resolution: "resolved" as const,
     gemeinde: { name: "Berlin" },
     kreis: { name: "Berlin" },
     land: { name: "Berlin" },
@@ -52,6 +54,7 @@ test("POST /address-pair sends the bearer token and the two addresses", async ()
   assert.equal(seen.method, "POST");
   assert.equal(seen.authorization, "Bearer jwt-1");
   assert.deepEqual(JSON.parse(String(seen.body)), { left: input, right: other });
+  assert.equal(result.left.resolution, "resolved");
   assert.equal(result.left.gemeinde?.name, "München");
   assert.equal(result.left.topics.find((topic) => topic.id === "breitband")?.status, "absent");
   assert.equal(result.left.topics.find((topic) => topic.id === "breitband")?.value, undefined);
@@ -70,13 +73,14 @@ test("POST /address-pair requires a session token", async () => {
   });
 });
 
-test("an unknown side drops topics and invented place names", () => {
+test("an unknown side drops topics and place names", () => {
   const parsed = parseAddressPair({
     left: {
       input,
       resolution: "unknown",
       gemeinde: { name: "should-not-show" },
       kreis: { name: "should-not-show" },
+      land: null,
       topics: [{ id: "pendler", level: "gemeinde", status: "present", value: { count: 1 } }],
     },
     right: pairBody.right,
@@ -85,34 +89,72 @@ test("an unknown side drops topics and invented place names", () => {
   assert.equal(parsed.left.resolution, "unknown");
   assert.equal(parsed.left.gemeinde, null);
   assert.equal(parsed.left.kreis, null);
+  assert.equal(parsed.left.land, null);
   assert.deepEqual(parsed.left.topics, []);
   assert.equal(parsed.right.resolution, "resolved");
 });
 
-test("a side without exactly one Gemeinde and Kreis is unknown", () => {
+test("OpenAPI 0.7.0 requires resolution, places, topics and shared", () => {
+  assert.throws(() => parseAddressPair({ left: pairBody.left, right: pairBody.right }), ApiError);
+  assert.throws(
+    () =>
+      parseAddressPair({
+        left: { input, gemeinde: { name: "München" }, kreis: { name: "München" }, land: null, topics: [] },
+        right: pairBody.right,
+        shared: [],
+      }),
+    ApiError,
+  );
+  assert.throws(
+    () =>
+      parseAddressPair({
+        left: { ...pairBody.left, gemeinde: "München" },
+        right: pairBody.right,
+        shared: [],
+      }),
+    ApiError,
+  );
+  assert.throws(
+    () =>
+      parseAddressPair({
+        left: { ...pairBody.left, gemeinde: { label: "München" } },
+        right: pairBody.right,
+        shared: [],
+      }),
+    ApiError,
+  );
+});
+
+test("a resolved side may have a null Land and keeps topics", () => {
   const parsed = parseAddressPair({
-    left: { input, gemeinde: { name: "München" }, topics: [] },
-    right: { input: other, kreis: { name: "Berlin" }, topics: [] },
+    left: { ...pairBody.left, land: null },
+    right: pairBody.right,
+    shared: pairBody.shared,
   });
-  assert.equal(parsed.left.resolution, "unknown");
-  assert.equal(parsed.right.resolution, "unknown");
-  assert.deepEqual(parsed.left.topics, []);
+  assert.equal(parsed.left.resolution, "resolved");
+  assert.equal(parsed.left.land, null);
+  assert.equal(parsed.left.topics.length > 0, true);
 });
 
 test("an absent topic never keeps a value of 0", () => {
   const parsed = parseAddressPair({
     left: {
       input,
+      resolution: "resolved",
       gemeinde: { name: "München" },
       kreis: { name: "München" },
+      land: null,
       topics: [{ id: "breitband", level: "gemeinde", status: "absent", value: 0 }],
     },
     right: {
       input: other,
+      resolution: "resolved",
       gemeinde: { name: "Berlin" },
       kreis: { name: "Berlin" },
+      land: null,
       topics: [],
     },
+    shared: [],
   });
   assert.deepEqual(parsed.left.topics[0], { id: "breitband", level: "gemeinde", status: "absent" });
 });

@@ -7,6 +7,7 @@ import type {
   SharedTopic,
   TopicLevel,
 } from "./types.ts";
+import { ADDRESS_CITY_MAX, ADDRESS_STREET_MAX } from "./types.ts";
 
 /** UX: Zwei Adressen, 4 Oct 2026. These strings are the product labels. */
 export const ADDRESS_COPY = {
@@ -99,9 +100,8 @@ const LEVEL_LABELS: Record<TopicLevel, string> = {
   land: ADDRESS_COPY.land,
 };
 
-const GEBAEUDE_KEYS = ["gebaeude", "gebäude", "Gebäude", "buildings"] as const;
-const WOHNUNGEN_KEYS = ["wohnungen", "Wohnungen", "dwellings"] as const;
-const ZENSUS_ALIAS_KEYS = new Set<string>([...GEBAEUDE_KEYS, ...WOHNUNGEN_KEYS]);
+const ZENSUS_GEBAEUDE = "gebaeude";
+const ZENSUS_WOHNUNGEN = "wohnungen";
 
 export interface ValueCell {
   label: string;
@@ -184,7 +184,15 @@ export function isValidPostalCode(value: string): boolean {
 }
 
 export function isValidAddress(draft: AddressInput): boolean {
-  return draft.street.trim().length > 0 && isValidPostalCode(draft.postalCode) && draft.city.trim().length > 0;
+  const street = draft.street.trim();
+  const city = draft.city.trim();
+  return (
+    street.length >= 1 &&
+    street.length <= ADDRESS_STREET_MAX &&
+    isValidPostalCode(draft.postalCode) &&
+    city.length >= 1 &&
+    city.length <= ADDRESS_CITY_MAX
+  );
 }
 
 export function canEvaluate(left: AddressInput, right: AddressInput): boolean {
@@ -256,16 +264,10 @@ export function topicCells(id: string, value: unknown): ValueCell[] {
 
 export function zensus2022Cells(value: unknown): ValueCell[] {
   const cells: ValueCell[] = [];
-  const gebaeude = pickPresentCell(value, GEBAEUDE_KEYS);
-  const wohnungen = pickPresentCell(value, WOHNUNGEN_KEYS);
+  const gebaeude = pickPresentCell(value, [ZENSUS_GEBAEUDE]);
+  const wohnungen = pickPresentCell(value, [ZENSUS_WOHNUNGEN]);
   if (gebaeude !== undefined) cells.push({ label: "Gebäude", text: formatValue(gebaeude) });
   if (wohnungen !== undefined) cells.push({ label: "Wohnungen", text: formatValue(wohnungen) });
-  if (isRecord(value)) {
-    for (const [key, cell] of Object.entries(value)) {
-      if (ZENSUS_ALIAS_KEYS.has(key) || !isPresentCell(cell)) continue;
-      cells.push({ label: key, text: formatValue(cell) });
-    }
-  }
   return cells;
 }
 
@@ -393,7 +395,6 @@ function sharedRowViews(result: AddressPairResult): SharedRowView[] {
   }
 
   for (const topic of result.shared) add(topic.id, topic.level);
-  for (const topic of leftPresent.values()) add(topic.id, topic.level);
   return rows;
 }
 
