@@ -76,6 +76,7 @@ Bleibt nach einem späteren Deploy dauerhaft `503`, liegt das außerhalb dieses 
 | `GET` | `/analysis/pattern` | Bearer JWT, zuletzt persistiertes Muster |
 | `POST` | `/recommendations` | Bearer JWT, Top 3 aus dem Muster (KAN-38/39/42) |
 | `GET` | `/recommendations` | Bearer JWT, zuletzt gespeicherte Empfehlungen des Nutzers |
+| `POST` | `/address-pair` | Bearer JWT, zwei Adressen über die PLZ (Gemeinde / Kreis / Land) |
 
 Geschützte Routen ohne gültiges Bearer-Token antworten mit `401`.
 
