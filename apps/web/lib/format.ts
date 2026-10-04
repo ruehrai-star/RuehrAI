@@ -19,6 +19,7 @@ const CATALOG_LEVEL_LABELS: Record<CatalogLevel, string> = {
   stadtbezirk: "Stadtbezirk",
   stadtteil: "Stadtteil",
   ortsteil: "Ortsteil",
+  gemeinde: "Gemeinde",
 };
 
 const SUB_AREA_LEVELS = new Set<CatalogLevel>(["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);

@@ -46,6 +46,7 @@ test("catalog level maps exactly to one German badge", () => {
   assert.equal(catalogBadge({ level: "stadtbezirk", grain: "ags", geoKey: "14713000" }), "Stadtbezirk");
   assert.equal(catalogBadge({ level: "stadtteil", grain: "ags", geoKey: "14713000" }), "Stadtteil");
   assert.equal(catalogBadge({ level: "ortsteil", grain: "ags", geoKey: "14713000" }), "Ortsteil");
+  assert.equal(catalogBadge({ level: "gemeinde", grain: "ags", geoKey: "09162000" }), "Gemeinde");
 });
 
 test("a sub-area is never Gemeinde and never shows Stadtteil plus Ortsteil", () => {
@@ -73,6 +74,21 @@ test("municipality hits without level keep Gemeinde", () => {
   assert.equal(catalogBadge({ grain: "ags", geoKey: "09162000" }), "Gemeinde");
   assert.equal(catalogBadge({ grain: "ags", geoKey: "11000000" }), "Gemeinde");
   assert.equal(catalogBadge({ grain: "ags", ags: "14713000" }), "Gemeinde");
+});
+
+test("API level gemeinde keeps Gemeinde and does not invent parentLabel", () => {
+  const muenchen = {
+    id: "ags:09162000",
+    label: "München",
+    grain: "ags" as const,
+    geoKey: "09162000",
+    level: "gemeinde" as const,
+    parentLabel: "",
+  };
+  assert.equal(catalogBadge(muenchen), "Gemeinde");
+  assert.equal(isSubAreaLevel("gemeinde"), false);
+  assert.equal(catalogParentName(muenchen), null);
+  assert.equal(catalogHitVisibleText(muenchen), "München Gemeinde");
 });
 
 test("catalog keys are detected for every Zielregion level", () => {

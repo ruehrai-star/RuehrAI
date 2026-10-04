@@ -91,6 +91,19 @@ test("a card address, score, window, and short criteria stay in German", () => {
   assert.equal(
     formatLocationMeta({
       ...item,
+      location: {
+        ...item.location,
+        grain: "ags",
+        geoKey: "09162000",
+        level: "gemeinde",
+        parentLabel: "",
+      },
+    }),
+    "Gemeinde",
+  );
+  assert.equal(
+    formatLocationMeta({
+      ...item,
       location: { ...item.location, grain: "ags", geoKey: "14713000", level: "ortsteil" },
     }),
     "Ortsteil",

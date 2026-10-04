@@ -9,7 +9,7 @@ import type {
 } from "@ruehrai/api-contracts";
 
 /** Catalog `level` on a search / Zielregion hit. Named by the Product-Owner. */
-export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil"] as const;
+export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil", "gemeinde"] as const;
 export type CatalogLevel = (typeof CATALOG_LEVELS)[number];
 
 export type {

@@ -181,6 +181,28 @@ test("GET /search ignores an unknown level", async () => {
   assert.equal((await api.search("München")).hits[0]?.level, null);
 });
 
+test("GET /search keeps level gemeinde and leaves an empty parentLabel empty", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse({
+        hits: [
+          {
+            id: "ags:09162000",
+            label: "München",
+            grain: "ags",
+            geoKey: "09162000",
+            level: "gemeinde",
+            parentLabel: "",
+          },
+        ],
+      }),
+  });
+  const hit = (await api.search("München")).hits[0];
+  assert.equal(hit?.level, "gemeinde");
+  assert.equal(hit?.parentLabel, null);
+});
+
 test("protected calls fail before fetch when no token is stored", async () => {
   let called = false;
   const api = createHttpApi({
