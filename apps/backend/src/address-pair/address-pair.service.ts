@@ -230,7 +230,7 @@ export class AddressPairService {
     }
   }
 
-  private async readCatalog<T extends Record<string, unknown>>(sql: string, params: unknown[]): Promise<T[]> {
+  private async readCatalog<T extends object>(sql: string, params: unknown[]): Promise<T[]> {
     try {
       const result = await this.db.queryReadingFeatures<T>(sql, params);
       return result.rows;

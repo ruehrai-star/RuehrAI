@@ -1,36 +1,28 @@
-import { CanActivate, ExecutionContext, INestApplication } from "@nestjs/common";
+import { INestApplication } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { AppModule } from "../app.module";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { configureApp } from "../configure-app";
 import { DatabaseService } from "../database/database.service";
 import { GEMEINDE_TOPIC_IDS, KREIS_TOPIC_IDS, LAND_TOPIC_IDS } from "./topics";
 
-class SignedInGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<{ user?: { id: string; email: string } }>();
-    request.user = { id: "1", email: "dev@ruehrai.local" };
-    return true;
-  }
-}
-
 describe("POST /address-pair", () => {
   const queryReadingFeatures = jest.fn();
   let app: INestApplication;
+  let token: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideGuard(JwtAuthGuard)
-      .useClass(SignedInGuard)
       .overrideProvider(DatabaseService)
       .useValue({ queryReadingFeatures, query: jest.fn(), onModuleDestroy: async () => undefined })
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
+    token = app.get(JwtService).sign({ sub: "1", email: "dev@ruehrai.local" });
   });
 
   afterAll(async () => {
@@ -67,29 +59,24 @@ describe("POST /address-pair", () => {
     });
   });
 
+  function post(body: object) {
+    return request(app.getHttpServer()).post("/address-pair").set("authorization", `Bearer ${token}`).send(body);
+  }
+
   it("rejects a body the web client would not send", async () => {
-    const server = app.getHttpServer();
-    await request(server).post("/address-pair").send({}).expect(400);
-    await request(server)
-      .post("/address-pair")
-      .send({
-        left: { street: " ", postalCode: "80331", city: "München" },
-        right: { street: "A 1", postalCode: "80331", city: "München" },
-      })
-      .expect(400);
-    await request(server)
-      .post("/address-pair")
-      .send({
-        left: { street: "A 1", postalCode: "8033", city: "München" },
-        right: { street: "B 1", postalCode: "80331", city: "München" },
-      })
-      .expect(400);
+    await post({}).expect(400);
+    await post({
+      left: { street: " ", postalCode: "80331", city: "München" },
+      right: { street: "A 1", postalCode: "80331", city: "München" },
+    }).expect(400);
+    await post({
+      left: { street: "A 1", postalCode: "8033", city: "München" },
+      right: { street: "B 1", postalCode: "80331", city: "München" },
+    }).expect(400);
   });
 
   it("returns the contract the web parser accepts", async () => {
-    const response = await request(app.getHttpServer())
-      .post("/address-pair")
-      .send({
+    const response = await post({
         left: { street: " Marienplatz 1 ", postalCode: "80331", city: " München " },
         right: { street: "Kaufingerstraße 4", postalCode: "80331", city: "München" },
       })

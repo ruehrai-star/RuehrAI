@@ -1,5 +1,5 @@
 import { Transform, Type } from "class-transformer";
-import { IsString, Matches, MaxLength, MinLength, ValidateNested } from "class-validator";
+import { IsObject, IsString, Matches, MaxLength, MinLength, ValidateNested } from "class-validator";
 
 function trimString({ value }: { value: unknown }): unknown {
   return typeof value === "string" ? value.trim() : value;
@@ -24,10 +24,12 @@ export class AddressInputDto {
 }
 
 export class AddressPairRequestDto {
+  @IsObject()
   @ValidateNested()
   @Type(() => AddressInputDto)
   left!: AddressInputDto;
 
+  @IsObject()
   @ValidateNested()
   @Type(() => AddressInputDto)
   right!: AddressInputDto;

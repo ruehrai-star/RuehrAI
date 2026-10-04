@@ -185,11 +185,11 @@ describe("AddressPairService", () => {
 
   it("does not mark a Gemeinde Arbeitsmarkt row as present", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
-      if (sql.includes("geo_ref_plz")) return { rows: [plzRow("80331", "09161000", "09161", "09")] };
+      if (sql.includes("geo_ref_plz")) return { rows: [plzRow("80331", "09161123", "09161", "09")] };
       if (sql.includes("geo_ref_admin")) {
         return {
           rows: [
-            { geo_ags: "09161000", name: "Dachau" },
+            { geo_ags: "09161123", name: "Beispieldorf" },
             { geo_ags: "09161", name: "Dachau" },
             { geo_ags: "09", name: "Bayern" },
           ],
@@ -197,7 +197,7 @@ describe("AddressPairService", () => {
       }
       if (sql.includes("location_feature_docs")) {
         return {
-          rows: [feature({ theme: "ba_alo", grain: "ags", key: "09161000", metadata: { arbeitslose: 1 } })],
+          rows: [feature({ theme: "ba_alo", grain: "ags", key: "09161123", metadata: { arbeitslose: 1 } })],
         };
       }
       throw new Error(`unexpected sql: ${sql}`);
@@ -241,10 +241,11 @@ describe("address-pair helpers", () => {
     ]);
   });
 
-  it("does not use the Gemeinde AGS as the Kreis Arbeitsmarkt key", () => {
-    const keys = placeKeys("09161000", "09161", "09");
+  it("does not use a Gemeinde AGS as the Kreis Arbeitsmarkt key", () => {
+    const keys = placeKeys("09161123", "09161", "09");
     expect(keys.kreis).toEqual(expect.arrayContaining(["09161", "ags:09161", "ags5:09161", "09161000"]));
-    expect(keys.gemeinde).toEqual(expect.arrayContaining(["09161000", "ags:09161000"]));
+    expect(keys.kreis).not.toContain("09161123");
+    expect(keys.gemeinde).toEqual(expect.arrayContaining(["09161123", "ags:09161123"]));
     expect(keys.gemeinde).not.toContain("09161");
   });
 });
