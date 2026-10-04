@@ -705,6 +705,44 @@ input {
   gap: 8px;
 }
 
+.address-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.address-block {
+  min-width: 0;
+  min-inline-size: 0;
+}
+
+.address-legend {
+  padding: 0 6px;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 22px;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+}
+
+.address-results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.topic-cells {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shared-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 .region-list,
 .store-list {
   display: flex;
@@ -842,6 +880,11 @@ input {
   }
 
   .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .address-grid,
+  .shared-values {
     grid-template-columns: 1fr;
   }
 }

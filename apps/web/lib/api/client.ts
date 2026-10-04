@@ -12,6 +12,7 @@ import type {
   StoreLocationWrite,
   TargetRegionWrite,
 } from "@ruehrai/api-contracts";
+import type { AddressPairRequest, AddressPairResult } from "../addresses/types.ts";
 import type { RecommendationSet, SearchResponse, Session, TargetRegion } from "./types";
 
 /**
@@ -20,7 +21,7 @@ import type { RecommendationSet, SearchResponse, Session, TargetRegion } from ".
  * `listTargetRegions`, `addTargetRegion`, `removeTargetRegion`, `clearTargetRegions`, `listStores`, `createStore`,
  * `updateStore`, `deleteStore`, `listStoreRevenue`, `putStoreRevenue`,
  * `getAnalysisInput`, `createAnalysisRun`, `getAnalysisRun`, `getAnalysisPattern`,
- * `getRecommendations`, `createRecommendations`.
+ * `getRecommendations`, `createRecommendations`, `evaluateAddressPair`.
  */
 export interface RuehrApi {
   health(): Promise<HealthResponse>;
@@ -45,4 +46,5 @@ export interface RuehrApi {
   getAnalysisPattern(): Promise<AnalysisPatternResponse | null>;
   getRecommendations(): Promise<RecommendationSet | null>;
   createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet>;
+  evaluateAddressPair(body: AddressPairRequest): Promise<AddressPairResult>;
 }
