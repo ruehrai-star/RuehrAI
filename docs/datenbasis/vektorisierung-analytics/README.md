@@ -1,106 +1,143 @@
 # Vektorisierung & Analytics
 
-Aus Supabase-Facts und `geo_ref_*` werden Standort-Feature-Dokumente und später Embeddings. Supabase bleibt die relationale Quelle. Die Vektorablage ist die lokale Datenbank **Brain** (Postgres + pgvector), nicht ein zweites Supabase-Projekt.
+Standort-Feature-Dokumente und Embeddings liegen auf **Brain STAGE** (Eule, Postgres.app, Datenbank `Brain`). Die dauerhafte Rohablage ist **Data-Scout** (Eule, Datenbank `Data-Scout`). Brain-Pipelines lesen dort nur. Supabase `tyfwdjzkfvuhasnebhvo` ist ein transienter Pull, nicht die Quelle, aus der Brain dauerhaft liest.
 
 **Owner:** Data-Engineer
 
 **Confluence:** [Vektorisierung & Analytics](https://ruehrai.atlassian.net/wiki/spaces/~71202025d18744898f43209641d6b31d2aa674/pages/21856257)
 
+Vertrag für Backend: [supabase-to-brain-sync.md](supabase-to-brain-sync.md). Lebender DDL-Stand: [schema.sql](schema.sql). Refresh: [pipeline.md](pipeline.md).
+
+Dieser Stand beschreibt Brain STAGE, abgefragt 2026-10-04 gegen 10:25 Europe/Berlin. Brain PROD (Fuchs) und ein Promote nach Modell B sind nicht Teil dieses Stands.
+
 ## Status
 
-**ANGELEGT.** Stand 2026-09-28: `location_feature_docs` und `embedding_jobs` sind in Brain angelegt und der erste Feature-Doc-Batch ist geladen. Embeddings sind noch leer.
+**STAGE, 2026-10-04.** `features.location_feature_docs` hat **4.088.102** Zeilen. Davon tragen **937.816** ein Embedding. **3.150.286** Embeddings sind NULL, und zwar nur auf Gitter-Docs. Alle **139.096** Docs außerhalb der Gitter sind eingebettet (`null_emb=0`).
 
 | Feld | Wert |
 | --- | --- |
-| Maschine | RuehrAI Mac, Postgres.app |
-| Host / Port | `127.0.0.1` (localhost) / `5432` |
-| Datenbank | `Brain` |
-| Rolle | `ruehrai` |
-| Credentials | nur Secret-Store |
-| Extension | `pgvector` **0.8.6** (enabled) |
-| Vektorindex | keiner (kein HNSW, kein IVFFlat) |
+| Host | Eule, Postgres.app |
+| Datenbank | `Brain` (STAGE) |
+| Connect | `DATABASE_URL`, User `ruehrai`. Passwort nur im Secret-Store. |
+| Lese-Rolle | `backend_ro_features` **NOLOGIN**, read-only. Nach dem Connect: `SET ROLE backend_ro_features`. |
+| `embedding` | `vector(1024)`, nullable |
+| Embed-API (STAGE) | Eule oMLX `http://localhost:8000/v1`, Modell `jina-embeddings-v5-text-small-retrieval-mlx-oQ8`. Kein Key in diesem Doc. |
+| Vektorindex | HNSW `location_feature_docs_embedding_hnsw` (cosine), genutzt von `features.v_location_search` |
+| Extensions | pgvector **0.8.6**, PostGIS **3.6.3** |
 
-Erster Batch in `location_feature_docs`:
+### Rollen der Systeme
 
-| Feld | Wert |
+| System | Rolle |
 | --- | --- |
-| Zeilen | 10.786 |
-| `grain` | `ags` |
-| `geo_key` | `geo_ags` (achtstelliger AGS) |
-| `ref_period` | `2022-05` |
-| `embedding` | `vector(1536)`, alle NULL |
+| Supabase `tyfwdjzkfvuhasnebhvo` | Transienter Pull. Nicht die dauerhafte Brain-Quelle. |
+| Data-Scout (Eule, DB `Data-Scout`) | Dauerhafte Roh-Tabellen. Brain liest nur. |
+| Brain STAGE (Eule, DB `Brain`) | Feature-Docs, Vektoren, Katalogspiegel `geo`, Schema `app` (Backend). |
+| Brain PROD (Fuchs) | Promote Modell B nur nach ausdrücklichem Go. Nicht Gegenstand dieses Docs. |
 
-`embedding_jobs`, eine Zeile:
+### Schema-Split
 
-| `id` | `status` | `row_count` |
+| Schema | Owner | Zweck |
 | --- | --- | --- |
-| 1 | `pending` | 10786 |
+| `features` | Data-Engineer | Feature-Docs, Embedding-Jobs, Search-View, HNSW |
+| `app` | Backend | Backend-eigen. Lebende Tabellen sind vorhanden. DDL steht nicht in diesem Ordner. |
+| `geo` | Katalogspiegel | `geo_ref_*` auf Brain, nicht die Feature-Docs. DDL steht nicht in diesem Ordner. |
+| `public` | — | Hält die Feature-Docs nicht mehr (verschoben 2026-09-28). |
 
-DDL: [schema.sql](schema.sql). Refresh-Schritte: [pipeline.md](pipeline.md). Sync-Pfad: [supabase-to-brain-sync.md](supabase-to-brain-sync.md).
-
-## STAGE / PROD
-
-| Umgebung | Host | Rolle |
-| --- | --- | --- |
-| **STAGE** | Eule | Aktiver Sync und Feature-Builds. Standardziel aller Data-Engineer-Pipelines. |
-| **PROD** | Fuchs | App-Produktion Brain. |
-
-**Promote** (Modell B): nur freigegebene Snapshots Eule → Fuchs. Sync-Jobs schreiben nie direkt nach PROD.
-
-Netz: Tailscale. Narrative Infra: Confluence „Infrastruktur Eule / Fuchs / Ubuntu“.
-
-## Tabellen / Artefakte
-
-Pipeline:
-
-1. Supabase `scout_*` → Fact-Tabellen → `geo_ref_*` (Projekt `tyfwdjzkfvuhasnebhvo`, Schema `public`)
-2. Feature-Docs in Brain-Tabelle `location_feature_docs`
-3. Jobs in `embedding_jobs`
-4. Similarity, sobald `embedding` gefüllt ist
-
-| Tabelle | Ort | Zweck |
-| --- | --- | --- |
-| `location_feature_docs` | Brain (nicht Supabase) | eine Zeile pro Ort und Zeitraum: Text, Metadata, Quellen-Refs |
-| `embedding_jobs` | Brain (nicht Supabase) | Status, Zeiten, Row-Count, Notes |
-
-Kernfelder von `location_feature_docs`: `geo_key`, `grain` (`address`, `grid100`, `plz8`, `plz5`, `ags`, `ags5`, `other`), `ref_period`, `title`, `content`, `metadata` (jsonb), `embedding` (`vector(1536)`, nullable), `source_tables`, `supabase_synced_at`.
-
-Eindeutigkeit: `(geo_key, grain, coalesce(ref_period, ''))` über den Index `location_feature_docs_geo_uniq`. Weitere B-Tree-Indizes auf `grain`, `geo_key` und `ref_period`.
-
-Erster Batch, Quellen in Supabase (Join über `geo_ags` und `ref_period`, Basis `zensus2022_demografie_gemeinden`):
-
-- `zensus2022_demografie_gemeinden`
-- `zensus2022_bevoelkerung_gemeinden`
-- `zensus2022_haushalte_gemeinden`
-- `zensus2022_wohnungen_gemeinden`
-- `zensus2022_erwerbsstatus_gemeinden`
-- `zensus2022_gebaeude_gemeinden`
-
-Siehe [Quelle 02](../quellen-und-abrufe/quelle-02-zensus-2022.md). Anon-REST ist durch RLS blockiert; der Export lief über privilegiertes SQL (MCP `execute_sql`, Chunks), ohne Keys im Repo.
-
-Dokumentform dieses Batches:
-
-| Feld | Inhalt |
+| Objekt | Zweck |
 | --- | --- |
-| `title` | `Gemeinde {name} ({ags}) — Zensus 2022` |
-| `content` | deutscher Fließtext (Bevölkerung, Alter, Haushalte, Wohnungen/Miete/Leerstand, Erwerb, Gebäude) |
-| `metadata` | jsonb mit Kennzahlen plus `gemeinde_name`, `geo_ags5`, `geo_land`, `geo_land_name` |
-| `embedding` | NULL, Job später |
+| `features.location_feature_docs` | Eine Zeile pro Ort, Grain und `ref_period`. `embedding vector(1024)` nullable. |
+| `features.embedding_jobs` | Job-Ledger |
+| `features.v_location_search` | Projektion für Backend `/search`. Spaltenliste unverändert. |
 
-Loader, Chunks und CSV liegen außerhalb des Repos: Box `/workspace/data-engineer/`, Mac `/Users/ruehrai/data-engineer/`.
+Spalten der View: `id`, `geo_key`, `grain`, `ref_period`, `name`, `title`, `lon`, `lat`, `source_theme`, `source_tables`, `metadata`, `supabase_synced_at`, `embedding`.
+
+Eindeutigkeit: `(geo_key, grain, COALESCE(ref_period, ''))` über `location_feature_docs_geo_uniq`. Kollidierende Zeiträume tragen ein Themen-Suffix in `ref_period` (Beispiel `2025-12|bka`). Erlaubte Grains: `address`, `grid100`, `plz8`, `plz5`, `ags`, `ags5`, `other`. Weitere B-Tree-Indizes auf `grain`, `geo_key` und `ref_period`.
+
+`backend_ro_features` ist **NOLOGIN** und bekommt kein Passwort. `USAGE` auf Schema `features`, `SELECT` auf Tabellen, Views und Sequences dort, inklusive künftiger Objekte über `ALTER DEFAULT PRIVILEGES` für `ruehrai`. Dieselbe Rolle hat `SELECT` auf den vier `geo`-Tabellen unten. `GRANT backend_ro_features TO ruehrai` erlaubt `SET ROLE` nach dem Connect über `DATABASE_URL`.
+
+## Themen (live)
+
+Alle Nicht-Gitter-Themen haben `null_emb=0`. Zeilenzahlen sind der Live-Stand, keine Schätzung.
+
+### Kern / frühere Batches
+
+| Thema | Grain | `ref_period` | Zeilen |
+| --- | --- | --- | --- |
+| zensus2022 | ags | 2022-05 | 10786 |
+| destatis | ags5 | 2025-12 | 477 |
+| wwk | ags | 2023 | 3103 |
+| regionalstatistik_bevoelkerung | ags | 2025-12 | 13567 |
+| regionalstatistik_wanderungen | ags | 2024 | 13567 |
+
+### Quellen vom 2026-10-03, Vormittag
+
+| Thema | Grain | `ref_period` | Zeilen |
+| --- | --- | --- | --- |
+| ba_pendler | ags / ags5 / other | 2025-06 | 10752 + 294 + 36 |
+| ba_alo | ags | 2026-09 | 401 |
+| bka_pks | ags / ags5 | 2025-12\|bka | 80 + 400 |
+| boris_brw | ags | 2026-01 | 809 (Gemeinde-Aggregat, nicht die Zonen) |
+| gerda | ags | 2025-02 | 10753 |
+| bundeswahlleiter | ags | 2024-11 | 10956 |
+| destatis_baugenehmigung | other | 2025\|bau | 16 |
+| kmk | other | 2024\|kmk | 16 |
+| kba_besitz | other | 2026-08\|kba | 17 |
+| daten_bw | ags5 | 2024-06 | 44 |
+| open_nrw | — | — | klein (Kleve/Neuss); keine Einzelzählung in diesem Stand |
+| dehoga | other | 2026-Q1\|dehoga | 17 |
+| bbsr_nuts | other | 2024\|bbsr | 456 |
+| statistikportal_gv | ags | 2025-12\|gv | 10953 |
+
+### Acht Tabellen vom 2026-10-03, Abend
+
+Alle eingebettet.
+
+| Thema | Grain | `ref_period` | Zeilen |
+| --- | --- | --- | --- |
+| zensus_gw_gebaeude | ags | 2022-05\|gw_gebaeude | 10786 |
+| zensus_gw_wohnungen | ags | 2022-05\|gw_wohnungen | 10786 |
+| unfallatlas | ags / ags5 | 2025\|unfallatlas | 9375 + 104 (nur Jahr 2025, nicht die Punktmenge) |
+| breitband | ags | 2025-12\|breitband | 11002 (nur Gemeinde-Excel) |
+| vgrdl_einkommen | ags5 | 2024\|vgrdl | 398 |
+| krankenhaeuser | other | 2026-09\|kh | 1571 (BKA) |
+| krankenhaeuser | other | 2024-12\|kh | 3027 (Destatis, lon 0) |
+| uba_luft | other | 2025\|uba_luft | 615 |
+| rwi_redx | ags | 2025-11\|rwi | 3906 |
+
+### Gitter
+
+Geladen. Embeddings liefen am Morgen des 2026-10-04 noch. Screen `embed_grids_b` auf Eule war detached und lief weiter.
+
+| Thema | Grain | `ref_period` | Zeilen | embedded | NULL |
+| --- | --- | --- | --- | --- | --- |
+| breitband_gitter | grid100 | 2025-12\|gitter | 3.590.703 | 798.752 (22,2 %) | 2.791.951 |
+| dwd_temp_1km | other | 2025\|dwd | 358.303 | 0 | 358.303 |
+
+`breitband_gitter`: Schlüssel ist `raster_rowid`. Eine Spalte `raster_id` gibt es nicht. `geo_grid100_id` steht im Text, nicht im Schlüssel. Ein Reload des 100-m-ZIP ist nicht gelaufen.
+
+`dwd_temp_1km`: Jahr 2025. Grad Celsius ist `value_tenth/10`. Schlüssel `dwd1km:{col}:{row}`.
+
+## Schema `geo`
+
+Katalogspiegel auf Brain STAGE, getrennt von den Feature-Docs. `backend_ro_features` darf diese Tabellen lesen. Das DDL der Tabellen steht nicht in diesem Ordner.
+
+| Tabelle | Zeilen | Notiz |
+| --- | --- | --- |
+| `geo.geo_ref_plz` | 8175 | geom 4326 (aus 3035). Katalogschlüssel `geo_plz5`. PK `geo_plz8`. |
+| `geo.geo_ref_bezirk` | 429 | geom 4326. Berlin `11000001`–`11000012`. |
+| `geo.geo_ref_ortsteil` | 19781 | geom 4326 |
+| `geo.geo_ref_admin` | 11356 | Namen. geom oft NULL. |
 
 ## How to refresh
 
-1. Fact-Tabellen in Supabase sind aktuell (RLS blockiert Anon-REST; Export über einen berechtigten SQL-Pfad, nicht über eingecheckte Keys).
-2. Feature-Docs bauen und idempotent nach `location_feature_docs` upserten.
-3. Jobzeile in `embedding_jobs` setzen. Der geladene Batch ist `id=1`, `status=pending`, `row_count=10786`.
-4. CSV-Zwischendateien nicht committen. Schritte und lokale Pfade: [pipeline.md](pipeline.md).
+1. Rohdaten aus Data-Scout lesen (read-only). Supabase nicht als dauerhafte Brain-Quelle behandeln.
+2. Docs idempotent nach `features.location_feature_docs` upserten. Zeitraum-Kollisionen über das Suffix in `ref_period`.
+3. Embeddings auf Eule über oMLX `http://localhost:8000/v1` nach `vector(1024)`. Der cosine-HNSW existiert bereits.
+4. Backend liest `features.v_location_search` nach `SET ROLE backend_ro_features`.
+5. Keine CSV und keine Credentials ins Repo. Schritte: [pipeline.md](pipeline.md).
 
 ## Open issues
 
-- Embedding-Modell ist nicht festgelegt; `embedding` ist auf allen 10.786 Zeilen NULL. `embedding_jobs.id=1` bleibt `pending`.
-- HNSW oder IVFFlat erst nach den ersten Embeddings.
-- Zweiter Batch Destatis Kreis (`grain=ags5`) ist offen. Vorhanden, nicht in diesem Batch: `destatis_bevoelkerung_kreise`, `destatis_bevoelkerung_alter`, `destatis_auslaender_kreise` ([Quelle 01](../quellen-und-abrufe/quelle-01-destatis-genesis.md)).
-- Feinere Grains warten auf `geo_ref_*`.
-- Refresh-Cadence ist noch nicht an die Quell-Cadence gekoppelt.
-- Ausführbare Loader liegen noch nicht im Repo.
+- Gitter-Embeddings sind nicht fertig. `breitband_gitter`: 798.752 von 3.590.703 embedded, 2.791.951 NULL. `dwd_temp_1km`: 358.303 Zeilen, noch ohne Embedding. Screen `embed_grids_b` lief am 2026-10-04 weiter.
+- Bewusst nicht geladen: `dwd_cdc_raster_catalog` (70 Dateien, keine Zellenwerte, kein Area-Key), anonymes `rwi_grid` (etwa 242.000, kein Area-Key), Reload des 100-m-Breitband-ZIP, ÖPNV-GTFS-Stops und Kataloge ohne Geo, ältere Historienperioden jenseits der gewählten `ref_period`.
+- Promote nach Brain PROD (Fuchs, Modell B) wartet auf ein ausdrückliches Go und ist hier nicht beschrieben.
