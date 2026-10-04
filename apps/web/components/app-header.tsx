@@ -9,6 +9,7 @@ const LINKS: { href: string; label: string; signedIn?: boolean }[] = [
   { href: "/", label: "Karte" },
   { href: "/standorte", label: "Standorte", signedIn: true },
   { href: "/empfehlungen", label: "Empfehlungen", signedIn: true },
+  { href: "/adressen", label: "Adressen", signedIn: true },
   { href: "/musteranalyse", label: "Musteranalyse", signedIn: true },
   { href: "/dashboard", label: "Übersicht" },
   { href: "/onboarding", label: "Einstieg" },

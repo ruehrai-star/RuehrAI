@@ -56,6 +56,14 @@ export type {
   TargetRegionList,
   TargetRegionWrite,
 } from "./types";
+export type {
+  AddressInput,
+  AddressPairRequest,
+  AddressPairResult,
+  AddressSide,
+  AddressTopic,
+  SharedTopic,
+} from "../addresses/types";
 export { ApiError, CATALOG_LEVELS, isCatalogLevel, isGrain } from "./types";
 export { coordinatesOf } from "./geo";
 export { toMapFeatureCollection } from "./http";

@@ -26,6 +26,8 @@ import type {
 import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
+import { parseAddressPair } from "../addresses/parse.ts";
+import type { AddressPairRequest, AddressPairResult } from "../addresses/types.ts";
 import type { RuehrApi } from "./client";
 import {
   ApiError,
@@ -256,6 +258,15 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
         body: body?.runId ? JSON.stringify({ runId: body.runId }) : undefined,
       });
       return parseRecommendationSet(created);
+    },
+
+    async evaluateAddressPair(body: AddressPairRequest): Promise<AddressPairResult> {
+      const response = await request<unknown>("/address-pair", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify(body),
+      });
+      return parseAddressPair(response);
     },
   };
 }
