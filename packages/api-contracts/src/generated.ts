@@ -1233,6 +1233,18 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /**
+             * @description The database connection failed after a short retry. The credentials
+             *     were not rejected.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     register: {
@@ -1260,6 +1272,18 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description Email is already registered. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description The database connection failed after a short retry. The body was
+             *     not rejected and the email was not reported as a duplicate.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

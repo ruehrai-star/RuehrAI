@@ -6,6 +6,61 @@ function pgErrorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+const TRANSIENT_NODE_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
+
+/** Postgres shutdown / cannot-connect-now. Not a bad request. */
+const TRANSIENT_PG_CODES = new Set(["57P01", "57P02", "57P03"]);
+
+function causeOf(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || !("cause" in error)) return undefined;
+  return (error as { cause: unknown }).cause;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error !== "object" || error === null || !("message" in error)) return "";
+  const message = (error as { message: unknown }).message;
+  return typeof message === "string" ? message : "";
+}
+
+/**
+ * Pool connect timeout, a dropped socket, or Postgres refusing the session.
+ * Unique violations and validation failures are not transient.
+ */
+export function isTransientConnectionError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; current != null && depth < 4 && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const code = pgErrorCode(current);
+    if (
+      code &&
+      (TRANSIENT_NODE_CODES.has(code) || TRANSIENT_PG_CODES.has(code) || code.startsWith("08"))
+    ) {
+      return true;
+    }
+    const message = errorMessage(current).toLowerCase();
+    if (
+      message.includes("connection terminated") ||
+      message.includes("connection timeout") ||
+      message.includes("timeout exceeded when trying to connect") ||
+      message.includes("timeout expired")
+    ) {
+      return true;
+    }
+    current = causeOf(current);
+  }
+  return false;
+}
+
 export function isUniqueViolation(error: unknown): boolean {
   return pgErrorCode(error) === "23505";
 }

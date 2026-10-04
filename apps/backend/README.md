@@ -43,6 +43,16 @@ Die Migration legt einen Dev-Account an:
 
 Alternativ legt `POST /auth/register` weitere Nutzer in derselben Datenbank an. Passwörter hasht Postgres (`pgcrypto`, bcrypt).
 
+### Pool und 503 bei Login und Registrierung
+
+Auf STAGE (Eule) hat Postgres.app dem Nest-LaunchAgent das Trust verweigert. Das setzt Release-Manager in den App-Permissions von Postgres.app. Dafür ist kein neues Nest-Deploy nötig. Dieses Service ändert `DATABASE_URL`, Trust und `pg_hba` nicht.
+
+Der Pool ist nur die Absicherung, wenn die Verbindung danach abbricht. Ohne gesetzte Variablen gelten die Defaults aus `.env.example`: `max` 10, `idleTimeoutMillis` 20000, `connectionTimeoutMillis` 10000, TCP-`keepAlive` an, erster Keepalive nach 10000 ms.
+
+`POST /auth/login` und `POST /auth/register` wiederholen einen abgebrochenen Verbindungsaufbau zweimal (100 ms, dann 200 ms). Danach ist die Antwort **503** mit dem bestehenden `ErrorResponse` (`statusCode`, `message`: `Database temporarily unavailable`, `error`: `Service Unavailable`). Das ist kein Fehler der Angaben (`400`), kein unbekanntes Passwort (`401`) und keine schon vergebene E-Mail (`409`).
+
+Bleibt nach einem späteren Deploy dauerhaft `503`, liegt das außerhalb dieses Prozesses (Brain-Postgres auf Eule). Nicht PROD.
+
 ## Endpunkte
 
 | Methode | Pfad | Auth |

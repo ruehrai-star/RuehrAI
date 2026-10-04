@@ -48,6 +48,19 @@ describe("API smoke", () => {
     await request(app.getHttpServer()).post("/auth/login").send({}).expect(400);
   });
 
+  it("POST /auth/register rejects an invalid body", async () => {
+    const server = app.getHttpServer();
+    await request(server)
+      .post("/auth/register")
+      .send({ email: "not-an-email", password: "short" })
+      .expect(400);
+    await request(server)
+      .post("/auth/register")
+      .send({ email: "new@ruehrai.local", password: "x".repeat(73) })
+      .expect(400);
+    await request(server).post("/auth/register").send({}).expect(400);
+  });
+
   it("customer routes without a bearer token are 401", async () => {
     const server = app.getHttpServer();
     await request(server).post("/auth/logout").expect(401);
