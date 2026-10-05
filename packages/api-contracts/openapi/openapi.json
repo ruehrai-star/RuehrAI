@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.7.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
+    "version": "0.8.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n`0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the\nlast three calendar years (or last 36 months) on the user's Zielregionen.\n`coverage` is `single` when only one period is present — that is not a\ntrend. Missing periods are `absent` (liegt nicht vor).\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
   },
   "servers": [
     {
@@ -2439,6 +2439,117 @@
           }
         }
       },
+      "SeriesLevel": {
+        "type": "string",
+        "description": "Level the stored Brain row actually belongs to. Separate from the\nrequested Zielregion level. Gemeinde or Kreis numbers are never\nlabeled as Stadtteil, Ortsteil, PLZ, or Stadtbezirk.\n",
+        "enum": [
+          "plz",
+          "bezirk",
+          "stadtbezirk",
+          "stadtteil",
+          "ortsteil",
+          "gemeinde",
+          "kreis",
+          "land"
+        ]
+      },
+      "SeriesGranularity": {
+        "type": "string",
+        "enum": [
+          "month",
+          "year"
+        ]
+      },
+      "SeriesCoverage": {
+        "type": "string",
+        "description": "How many stored Brain periods exist in the three-year window.\n`none` — every period liegt nicht vor.\n`single` — exactly one present point; do not draw a trend line.\n`multi` — two or more present points (a change can be shown).\n",
+        "enum": [
+          "none",
+          "single",
+          "multi"
+        ]
+      },
+      "SeriesPointStatus": {
+        "type": "string",
+        "description": "`absent` means the period liegt nicht vor. `value` is omitted.\nNever 0, null, or {} as a stand-in. A stored 0 is `present`.\n",
+        "enum": [
+          "present",
+          "absent"
+        ]
+      },
+      "SeriesPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "period",
+          "status"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "description": "Calendar stamp. `YYYY` when granularity is year, `YYYY-MM` when\nmonth. Theme suffixes on Brain `ref_period` (`2025-12|bka`) are\nstripped. A quarter such as `2026-Q1` is the year `2026`, not a\nfabricated month.\n",
+            "pattern": "^[0-9]{4}(-[0-9]{2})?$"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SeriesPointStatus"
+          },
+          "value": {
+            "type": "number",
+            "description": "Stored Brain cell for this period. Omitted when absent."
+          }
+        }
+      },
+      "YearlySeries": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metricId",
+          "requestedLevel",
+          "requestedGeoKey",
+          "sourceLevel",
+          "sourceGeoKey",
+          "granularity",
+          "coverage",
+          "points"
+        ],
+        "description": "One topic on one Zielregion over the last three UTC calendar years\n(`year`) or the last 36 UTC months (`month`). `coverage` tells the\nclient whether a trend exists. `sourceLevel` / `sourceGeoKey` are\nthe Brain row, not the picker grain. Brain STAGE (2026-10-05) has\nno Ortsteil / Stadtteil / Stadtbezirk / PLZ feature-docs, so those\nrequests resolve to Gemeinde or Kreis and say so here.\n",
+        "properties": {
+          "metricId": {
+            "type": "string",
+            "description": "Existing topic id (`bevoelkerung`, `pendler`, …), not a new name."
+          },
+          "requestedLevel": {
+            "$ref": "#/components/schemas/CatalogLevel"
+          },
+          "requestedGeoKey": {
+            "type": "string"
+          },
+          "sourceLevel": {
+            "$ref": "#/components/schemas/SeriesLevel"
+          },
+          "sourceGeoKey": {
+            "type": "string",
+            "description": "Geo key of the Brain row, or the Gemeinde/Kreis/Land key that was looked up."
+          },
+          "granularity": {
+            "$ref": "#/components/schemas/SeriesGranularity"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/SeriesCoverage"
+          },
+          "valueKey": {
+            "type": "string",
+            "description": "Metadata field the `value` numbers were taken from, when the row is an object."
+          },
+          "points": {
+            "type": "array",
+            "description": "Every expected period in the window. Missing Brain rows are\n`absent` without `value`. Present points are stored cells only.\n",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            }
+          }
+        }
+      },
       "AnalysisPattern": {
         "type": "object",
         "additionalProperties": false,
@@ -2448,7 +2559,7 @@
           "revenueDirection",
           "criteria"
         ],
-        "description": "Persisted pattern for a later Top-3 step. `source` is `llm` when the\ncriteria were taken from the language model and checked against the\nretrieved facts, otherwise `heuristic`.\n",
+        "description": "Persisted pattern for a later Top-3 step. `source` is `llm` when the\ncriteria were taken from the language model and checked against the\nretrieved facts, otherwise `heuristic`. `yearlySeries` is the\nthree-year small-area Brain history for the user's Zielregionen.\nIt is not store revenue. A `coverage` of `single` is not a trend.\n",
         "properties": {
           "source": {
             "type": "string",
@@ -2468,6 +2579,12 @@
             "maxItems": 5,
             "items": {
               "$ref": "#/components/schemas/PatternCriterion"
+            }
+          },
+          "yearlySeries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/YearlySeries"
             }
           }
         }

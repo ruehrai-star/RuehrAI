@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -23,6 +23,10 @@ info:
     `gemeinde` to `CatalogLevel` for a municipality (grain `ags`).
     `0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code
     only, returning Gemeinde / Kreis / Land topics from Brain.
+    `0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the
+    last three calendar years (or last 36 months) on the user's Zielregionen.
+    `coverage` is `single` when only one period is present — that is not a
+    trend. Missing periods are `absent` (liegt nicht vor).
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1836,6 +1840,94 @@ components:
           type: string
         value:
           type: string
+    SeriesLevel:
+      type: string
+      description: |
+        Level the stored Brain row actually belongs to. Separate from the
+        requested Zielregion level. Gemeinde or Kreis numbers are never
+        labeled as Stadtteil, Ortsteil, PLZ, or Stadtbezirk.
+      enum: [plz, bezirk, stadtbezirk, stadtteil, ortsteil, gemeinde, kreis, land]
+    SeriesGranularity:
+      type: string
+      enum: [month, year]
+    SeriesCoverage:
+      type: string
+      description: |
+        How many stored Brain periods exist in the three-year window.
+        `none` — every period liegt nicht vor.
+        `single` — exactly one present point; do not draw a trend line.
+        `multi` — two or more present points (a change can be shown).
+      enum: [none, single, multi]
+    SeriesPointStatus:
+      type: string
+      description: |
+        `absent` means the period liegt nicht vor. `value` is omitted.
+        Never 0, null, or {} as a stand-in. A stored 0 is `present`.
+      enum: [present, absent]
+    SeriesPoint:
+      type: object
+      additionalProperties: false
+      required: [period, status]
+      properties:
+        period:
+          type: string
+          description: |
+            Calendar stamp. `YYYY` when granularity is year, `YYYY-MM` when
+            month. Theme suffixes on Brain `ref_period` (`2025-12|bka`) are
+            stripped. A quarter such as `2026-Q1` is the year `2026`, not a
+            fabricated month.
+          pattern: "^[0-9]{4}(-[0-9]{2})?$"
+        status:
+          $ref: "#/components/schemas/SeriesPointStatus"
+        value:
+          type: number
+          description: Stored Brain cell for this period. Omitted when absent.
+    YearlySeries:
+      type: object
+      additionalProperties: false
+      required:
+        - metricId
+        - requestedLevel
+        - requestedGeoKey
+        - sourceLevel
+        - sourceGeoKey
+        - granularity
+        - coverage
+        - points
+      description: |
+        One topic on one Zielregion over the last three UTC calendar years
+        (`year`) or the last 36 UTC months (`month`). `coverage` tells the
+        client whether a trend exists. `sourceLevel` / `sourceGeoKey` are
+        the Brain row, not the picker grain. Brain STAGE (2026-10-05) has
+        no Ortsteil / Stadtteil / Stadtbezirk / PLZ feature-docs, so those
+        requests resolve to Gemeinde or Kreis and say so here.
+      properties:
+        metricId:
+          type: string
+          description: Existing topic id (`bevoelkerung`, `pendler`, …), not a new name.
+        requestedLevel:
+          $ref: "#/components/schemas/CatalogLevel"
+        requestedGeoKey:
+          type: string
+        sourceLevel:
+          $ref: "#/components/schemas/SeriesLevel"
+        sourceGeoKey:
+          type: string
+          description: Geo key of the Brain row, or the Gemeinde/Kreis/Land key that was looked up.
+        granularity:
+          $ref: "#/components/schemas/SeriesGranularity"
+        coverage:
+          $ref: "#/components/schemas/SeriesCoverage"
+        valueKey:
+          type: string
+          description: Metadata field the `value` numbers were taken from, when the row is an object.
+        points:
+          type: array
+          description: |
+            Every expected period in the window. Missing Brain rows are
+            `absent` without `value`. Present points are stored cells only.
+          items:
+            $ref: "#/components/schemas/SeriesPoint"
     AnalysisPattern:
       type: object
       additionalProperties: false
@@ -1843,7 +1935,9 @@ components:
       description: |
         Persisted pattern for a later Top-3 step. `source` is `llm` when the
         criteria were taken from the language model and checked against the
-        retrieved facts, otherwise `heuristic`.
+        retrieved facts, otherwise `heuristic`. `yearlySeries` is the
+        three-year small-area Brain history for the user's Zielregionen.
+        It is not store revenue. A `coverage` of `single` is not a trend.
       properties:
         source:
           type: string
@@ -1857,6 +1951,10 @@ components:
           maxItems: 5
           items:
             $ref: "#/components/schemas/PatternCriterion"
+        yearlySeries:
+          type: array
+          items:
+            $ref: "#/components/schemas/YearlySeries"
     PatternCriterion:
       type: object
       additionalProperties: false

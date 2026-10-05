@@ -1040,9 +1040,72 @@ export interface components {
             value: string;
         };
         /**
+         * @description Level the stored Brain row actually belongs to. Separate from the
+         *     requested Zielregion level. Gemeinde or Kreis numbers are never
+         *     labeled as Stadtteil, Ortsteil, PLZ, or Stadtbezirk.
+         * @enum {string}
+         */
+        SeriesLevel: "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
+        /** @enum {string} */
+        SeriesGranularity: "month" | "year";
+        /**
+         * @description How many stored Brain periods exist in the three-year window.
+         *     `none` — every period liegt nicht vor.
+         *     `single` — exactly one present point; do not draw a trend line.
+         *     `multi` — two or more present points (a change can be shown).
+         * @enum {string}
+         */
+        SeriesCoverage: "none" | "single" | "multi";
+        /**
+         * @description `absent` means the period liegt nicht vor. `value` is omitted.
+         *     Never 0, null, or {} as a stand-in. A stored 0 is `present`.
+         * @enum {string}
+         */
+        SeriesPointStatus: "present" | "absent";
+        SeriesPoint: {
+            /**
+             * @description Calendar stamp. `YYYY` when granularity is year, `YYYY-MM` when
+             *     month. Theme suffixes on Brain `ref_period` (`2025-12|bka`) are
+             *     stripped. A quarter such as `2026-Q1` is the year `2026`, not a
+             *     fabricated month.
+             */
+            period: string;
+            status: components["schemas"]["SeriesPointStatus"];
+            /** @description Stored Brain cell for this period. Omitted when absent. */
+            value?: number;
+        };
+        /**
+         * @description One topic on one Zielregion over the last three UTC calendar years
+         *     (`year`) or the last 36 UTC months (`month`). `coverage` tells the
+         *     client whether a trend exists. `sourceLevel` / `sourceGeoKey` are
+         *     the Brain row, not the picker grain. Brain STAGE (2026-10-05) has
+         *     no Ortsteil / Stadtteil / Stadtbezirk / PLZ feature-docs, so those
+         *     requests resolve to Gemeinde or Kreis and say so here.
+         */
+        YearlySeries: {
+            /** @description Existing topic id (`bevoelkerung`, `pendler`, …), not a new name. */
+            metricId: string;
+            requestedLevel: components["schemas"]["CatalogLevel"];
+            requestedGeoKey: string;
+            sourceLevel: components["schemas"]["SeriesLevel"];
+            /** @description Geo key of the Brain row, or the Gemeinde/Kreis/Land key that was looked up. */
+            sourceGeoKey: string;
+            granularity: components["schemas"]["SeriesGranularity"];
+            coverage: components["schemas"]["SeriesCoverage"];
+            /** @description Metadata field the `value` numbers were taken from, when the row is an object. */
+            valueKey?: string;
+            /**
+             * @description Every expected period in the window. Missing Brain rows are
+             *     `absent` without `value`. Present points are stored cells only.
+             */
+            points: components["schemas"]["SeriesPoint"][];
+        };
+        /**
          * @description Persisted pattern for a later Top-3 step. `source` is `llm` when the
          *     criteria were taken from the language model and checked against the
-         *     retrieved facts, otherwise `heuristic`.
+         *     retrieved facts, otherwise `heuristic`. `yearlySeries` is the
+         *     three-year small-area Brain history for the user's Zielregionen.
+         *     It is not store revenue. A `coverage` of `single` is not a trend.
          */
         AnalysisPattern: {
             /** @enum {string} */
@@ -1050,6 +1113,7 @@ export interface components {
             summary: string;
             revenueDirection: components["schemas"]["RevenueDirection"];
             criteria: components["schemas"]["PatternCriterion"][];
+            yearlySeries?: components["schemas"]["YearlySeries"][];
         };
         PatternCriterion: {
             key: string;

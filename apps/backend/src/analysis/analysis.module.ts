@@ -6,11 +6,12 @@ import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
 import { OmlxClient } from "./omlx.client";
 import { PatternService } from "./pattern.service";
+import { YearlySeriesService } from "./yearly-series.service";
 
 @Module({
   imports: [DatabaseModule, GeoModule],
   controllers: [AnalysisController],
-  providers: [OmlxClient, BrainSearchService, PatternService, AnalysisService],
+  providers: [OmlxClient, BrainSearchService, PatternService, YearlySeriesService, AnalysisService],
   exports: [OmlxClient],
 })
 export class AnalysisModule {}
