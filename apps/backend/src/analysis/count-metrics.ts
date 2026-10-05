@@ -152,6 +152,49 @@ export function displayMetricLabel(key: string): string {
   return leaf.replace(/[._]+/g, " ").trim();
 }
 
+/**
+ * Period stamp in heuristic/evidence brackets (`2020|wohnungen: …`).
+ * Nested leaves (`wohnungen.raeume`) and mapped siblings (`raeume`) use the
+ * leaf label, not the parent/theme suffix from Brain `ref_period`.
+ */
+export function displayPeriodStamp(period: string, metricKey: string): string {
+  const trimmed = period.trim();
+  if (!trimmed) return "ohne Zeitraum";
+  const sep = trimmed.lastIndexOf("|");
+  if (sep <= 0 || sep === trimmed.length - 1) return trimmed;
+  const datePart = trimmed.slice(0, sep).trim();
+  const suffix = trimmed.slice(sep + 1).trim();
+  if (!datePart || !suffix) return trimmed;
+  if (!shouldRewritePeriodSuffix(metricKey, suffix)) return trimmed;
+  return `${datePart}|${periodSuffixLabel(metricKey)}`;
+}
+
+function periodSuffixLabel(metricKey: string): string {
+  const leaf = leafMetricKey(metricKey);
+  const compact = compactMetricKey(leaf);
+  if (KEY_LABELS[compact]) return KEY_LABELS[compact];
+  return leaf;
+}
+
+function shouldRewritePeriodSuffix(metricKey: string, suffix: string): boolean {
+  const leaf = leafMetricKey(metricKey);
+  const compactLeaf = compactMetricKey(leaf);
+  const compactSuffix = compactMetricKey(suffix);
+  if (!compactLeaf || !compactSuffix || compactLeaf === compactSuffix) return false;
+
+  const ancestors = metricKey
+    .trim()
+    .split(".")
+    .slice(0, -1)
+    .map((part) => compactMetricKey(part))
+    .filter((part) => part.length > 0);
+  if (leaf !== metricKey.trim() && ancestors.includes(compactSuffix)) return true;
+
+  // Flat sibling under a Brain theme bag (`raeume` on `2020|wohnungen`).
+  if (ancestors.length === 0 && KEY_LABELS[compactLeaf]) return true;
+  return false;
+}
+
 function normalizeKey(key: string): string {
   return key
     .trim()

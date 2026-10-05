@@ -1,6 +1,7 @@
 import {
   compactMetricKey,
   displayMetricLabel,
+  displayPeriodStamp,
   formatMetricNumber,
   isCountMetricKey,
   isRateLikeKey,
@@ -82,5 +83,16 @@ describe("count-metrics", () => {
     expect(displayMetricLabel("alter.40.59")).toBe("alter 40 59");
     expect(displayMetricLabel("alter_40_59")).toBe("alter 40 59");
     expect(displayMetricLabel("wohnungen")).toBe("wohnungen");
+  });
+
+  it("rewrites parent Brain period suffixes to the nested leaf in evidence stamps", () => {
+    expect(displayPeriodStamp("2020|wohnungen", "wohnungen.raeume")).toBe("2020|Räume");
+    expect(displayPeriodStamp("2020|wohnungen", "raeume")).toBe("2020|Räume");
+    expect(displayPeriodStamp("2024|indicators", "indicators.wohnungen")).toBe("2024|wohnungen");
+    expect(displayPeriodStamp("2020|wohnungen", "wohnungen")).toBe("2020|wohnungen");
+    expect(displayPeriodStamp("2025-12|bka", "einwohner")).toBe("2025-12|bka");
+    expect(displayPeriodStamp("2022|bev_alter", "alter.40.59")).toBe("2022|bev_alter");
+    expect(displayPeriodStamp("2022-05", "wohnungen.raeume")).toBe("2022-05");
+    expect(displayPeriodStamp("", "raeume")).toBe("ohne Zeitraum");
   });
 });

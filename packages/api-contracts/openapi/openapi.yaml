@@ -2010,7 +2010,11 @@ components:
           $ref: "#/components/schemas/CriterionDirection"
         evidence:
           type: string
-          description: Grounded in the retrieved Brain facts or the stored revenue series.
+          description: |
+            Grounded in the retrieved Brain facts or the stored revenue series.
+            Nested metric keys use the leaf in heuristic period stamps
+            (`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent
+            Brain `ref_period` suffix (`2020|wohnungen`).
     AnalysisPatternResponse:
       type: object
       additionalProperties: false
@@ -2173,7 +2177,10 @@ components:
           $ref: "#/components/schemas/CriterionDirection"
         evidence:
           type: string
-          description: German sentence with the months and figures used for the score.
+          description: |
+            German sentence with the months and figures used for the score.
+            Nested metric keys use the leaf label (`Räume` / `raeume` for
+            `wohnungen.raeume`), not the parent key.
     AddressPairRequest:
       type: object
       additionalProperties: false

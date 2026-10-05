@@ -1146,7 +1146,12 @@ export interface components {
             key: string;
             label: string;
             direction: components["schemas"]["CriterionDirection"];
-            /** @description Grounded in the retrieved Brain facts or the stored revenue series. */
+            /**
+             * @description Grounded in the retrieved Brain facts or the stored revenue series.
+             *     Nested metric keys use the leaf in heuristic period stamps
+             *     (`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent
+             *     Brain `ref_period` suffix (`2020|wohnungen`).
+             */
             evidence: string;
         };
         AnalysisPatternResponse: {
@@ -1252,7 +1257,11 @@ export interface components {
             label: string;
             direction: components["schemas"]["CriterionDirection"];
             patternDirection: components["schemas"]["CriterionDirection"];
-            /** @description German sentence with the months and figures used for the score. */
+            /**
+             * @description German sentence with the months and figures used for the score.
+             *     Nested metric keys use the leaf label (`Räume` / `raeume` for
+             *     `wohnungen.raeume`), not the parent key.
+             */
             evidence: string;
         };
         AddressPairRequest: {
