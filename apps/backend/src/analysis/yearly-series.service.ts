@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { sourceThemesForTopics } from "../address-pair/topics";
+import { sourceThemesForSeries } from "../address-pair/topics";
 import { DatabaseService } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
@@ -7,6 +7,7 @@ import {
   isMissingFeaturesRelation,
 } from "../database/pg-error";
 import { officialAgsKey } from "../geo/geo-catalog";
+import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
 import {
   RegionSourceKeys,
   SERIES_METRICS,
@@ -32,6 +33,7 @@ interface OrtsteilRow {
   id: string | null;
   geo_key: string | null;
   geo_ags: string | null;
+  geo_bezirk_id: string | null;
 }
 
 interface BezirkRow {
@@ -119,13 +121,39 @@ export class YearlySeriesService {
 
   private async readOrtsteil(ids: string[]): Promise<OrtsteilRow[]> {
     if (ids.length === 0) return [];
-    return this.readCatalog<OrtsteilRow>(
+    const rows = await this.readCatalog<OrtsteilRow>(
       `SELECT geo_ortsteil_id::text AS id,
               (lower(btrim(kind)) || ':' || geo_ortsteil_id::text) AS geo_key,
-              NULLIF(btrim(geo_ags::text), '') AS geo_ags
+              NULLIF(btrim(geo_ags::text), '') AS geo_ags,
+              NULL::text AS geo_bezirk_id
          FROM geo.geo_ref_ortsteil
         WHERE geo_ortsteil_id::text = ANY($1::text[])
            OR (lower(btrim(kind)) || ':' || geo_ortsteil_id::text) = ANY($1::text[])`,
+      [ids],
+    );
+    const bezirke = await this.readOrtsteilBezirk(ids);
+    return rows.map((row) => {
+      const match = bezirke.find(
+        (item) => item.id === row.id || item.geo_key === row.geo_key,
+      );
+      return match?.geo_bezirk_id ? { ...row, geo_bezirk_id: match.geo_bezirk_id } : row;
+    });
+  }
+
+  private async readOrtsteilBezirk(ids: string[]): Promise<OrtsteilRow[]> {
+    if (ids.length === 0) return [];
+    return this.readCatalog<OrtsteilRow>(
+      `SELECT o.geo_ortsteil_id::text AS id,
+              (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) AS geo_key,
+              NULLIF(btrim(o.geo_ags::text), '') AS geo_ags,
+              NULLIF(btrim(b.geo_bezirk_id::text), '') AS geo_bezirk_id
+         FROM geo.geo_ref_ortsteil o
+         JOIN geo.geo_ref_bezirk b
+           ON o.geom IS NOT NULL AND NOT ST_IsEmpty(o.geom)
+          AND b.geom IS NOT NULL AND NOT ST_IsEmpty(b.geom)
+          AND ST_Intersects(b.geom, ST_PointOnSurface(o.geom))
+        WHERE o.geo_ortsteil_id::text = ANY($1::text[])
+           OR (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) = ANY($1::text[])`,
       [ids],
     );
   }
@@ -143,7 +171,7 @@ export class YearlySeriesService {
 
   private async readFeatureDocs(keys: string[]): Promise<SeriesFeatureRow[]> {
     if (keys.length === 0) return [];
-    const themes = sourceThemesForTopics();
+    const themes = sourceThemesForSeries();
     const sql = `SELECT source_theme,
                         grain,
                         geo_key,
@@ -227,7 +255,12 @@ function resolveOne(
   const gemeindeAgs = fromRegion ?? fromCatalog.gemeinde;
   const kreisAgs = fromCatalog.kreis ?? (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).kreis : null);
   const landAgs = fromCatalog.land ?? (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).land : null);
-  return keysForResolvedPlace(item.requestedLevel, item.requestedGeoKey, gemeindeAgs, kreisAgs, landAgs);
+  const bezirkOfficial = berlinBezirkOfficial(item, fromCatalog.bezirk, bezirkRows);
+  const plz = item.requestedLevel === "plz" ? item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, "") : null;
+  return keysForResolvedPlace(item.requestedLevel, item.requestedGeoKey, gemeindeAgs, kreisAgs, landAgs, {
+    bezirkOfficial,
+    plz,
+  });
 }
 
 function gemeindeFromCatalog(
@@ -235,7 +268,7 @@ function gemeindeFromCatalog(
   plzRows: PlzRow[],
   ortsteilRows: OrtsteilRow[],
   bezirkRows: BezirkRow[],
-): { gemeinde: string | null; kreis: string | null; land: string | null } {
+): { gemeinde: string | null; kreis: string | null; land: string | null; bezirk: string | null } {
   if (item.requestedLevel === "plz") {
     const plz = item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, "");
     const rows = plzRows.filter((row) => row.plz === plz);
@@ -243,12 +276,13 @@ function gemeindeFromCatalog(
     const districts = unique(rows.map((row) => normalizeAgs(row.geo_ags5, 5)));
     const lands = unique(rows.map((row) => normalizeAgs(row.geo_land, 2)));
     if (municipalities.length !== 1 || districts.length !== 1) {
-      return { gemeinde: null, kreis: null, land: null };
+      return { gemeinde: null, kreis: null, land: null, bezirk: null };
     }
     return {
       gemeinde: municipalities[0]!,
       kreis: districts[0]!,
       land: lands.length === 1 ? lands[0]! : null,
+      bezirk: null,
     };
   }
 
@@ -258,22 +292,32 @@ function gemeindeFromCatalog(
       (row) => (row.id && ids.has(row.id)) || (row.geo_key && ids.has(row.geo_key)),
     );
     const municipalities = unique(rows.map((row) => normalizeAgs(row.geo_ags, 8)));
-    if (municipalities.length !== 1) return { gemeinde: null, kreis: null, land: null };
+    const bezirke = unique(rows.map((row) => berlinOfficialBezirkId(row.geo_bezirk_id)));
+    if (municipalities.length !== 1) return { gemeinde: null, kreis: null, land: null, bezirk: bezirke.length === 1 ? bezirke[0]! : null };
     const parents = parentsFromGemeinde(municipalities[0]!);
-    return { gemeinde: municipalities[0]!, kreis: parents.kreis, land: parents.land };
+    return {
+      gemeinde: municipalities[0]!,
+      kreis: parents.kreis,
+      land: parents.land,
+      bezirk: bezirke.length === 1 ? bezirke[0]! : null,
+    };
   }
 
   if (item.requestedLevel === "bezirk" || item.requestedLevel === "stadtbezirk") {
     const id = bezirkLookupId(item.requestedGeoKey);
     const rows = bezirkRows.filter((row) => row.id === id);
     const fromTable = unique(rows.map((row) => normalizeAgs(row.geo_ags, 8)));
+    const official = berlinOfficialBezirkId(id);
     if (fromTable.length === 1) {
       const parents = parentsFromGemeinde(fromTable[0]!);
-      return { gemeinde: fromTable[0]!, kreis: parents.kreis, land: parents.land };
+      return { gemeinde: fromTable[0]!, kreis: parents.kreis, land: parents.land, bezirk: official };
+    }
+    if (official) {
+      return { gemeinde: null, kreis: null, land: null, bezirk: official };
     }
   }
 
-  return { gemeinde: null, kreis: null, land: null };
+  return { gemeinde: null, kreis: null, land: null, bezirk: null };
 }
 
 function ortsteilLookupIds(geoKey: string): string[] {
@@ -289,7 +333,37 @@ function bezirkLookupId(geoKey: string): string | null {
 }
 
 function allLookupKeys(regions: RegionSourceKeys[]): string[] {
-  return unique(regions.flatMap((region) => [...region.requested, ...region.gemeinde, ...region.kreis, ...region.land]));
+  return unique(
+    regions.flatMap((region) => [
+      ...region.requested,
+      ...region.bezirk,
+      region.bezirkRsKey,
+      ...region.plz,
+      ...region.gemeinde,
+      ...region.kreis,
+      ...region.land,
+    ]),
+  );
+}
+
+function berlinBezirkOfficial(
+  item: { region: SeriesRegionInput; requestedLevel: NonNullable<ReturnType<typeof requestedLevelOf>>; requestedGeoKey: string },
+  fromCatalog: string | null,
+  bezirkRows: BezirkRow[],
+): string | null {
+  if (fromCatalog) return fromCatalog;
+  const fromKey = berlinOfficialBezirkId(item.requestedGeoKey) ?? berlinOfficialBezirkId(item.region.ags);
+  if (fromKey) return fromKey;
+  const id = bezirkLookupId(item.requestedGeoKey);
+  const row = bezirkRows.find((itemRow) => itemRow.id === id);
+  return berlinOfficialBezirkId(row?.id ?? null);
+}
+
+function berlinOfficialBezirkId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const stripped = value.replace(/^(?:ags|stadtbezirk|bezirk):/i, "").trim();
+  const official = canonicalBerlinBezirkAgs(stripped);
+  return isOfficialBerlinBezirkAgs(official) ? official : null;
 }
 
 function normalizeAgs(value: string | null | undefined, width: number): string | null {

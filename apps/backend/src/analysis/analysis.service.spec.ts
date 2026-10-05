@@ -108,6 +108,35 @@ describe("AnalysisService", () => {
     expect(run.pattern).toEqual({ ...pattern, yearlySeries: [] });
   });
 
+  it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
+    const stored = [{ metricId: "bevoelkerung", coverage: "single" }];
+    buildSeries.mockResolvedValue([{ metricId: "bevoelkerung", coverage: "multi" }]);
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "15",
+          status: "completed",
+          input: {
+            region: regionRow(),
+            regions: [regionRow()],
+            stores: [],
+            revenueDirection: "up",
+            capturedAt: "2026-10-05T00:00:00.000Z",
+          },
+          brain: brainResult,
+          pattern: { ...pattern, yearlySeries: stored },
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    await expect(service.latestPattern("4")).resolves.toEqual({
+      runId: "15",
+      createdAt: "2026-04-02T00:00:00.000Z",
+      pattern: { ...pattern, yearlySeries: [{ metricId: "bevoelkerung", coverage: "multi" }] },
+    });
+    expect(buildSeries).toHaveBeenCalled();
+  });
+
   it("does not return another user's run", async () => {
     query.mockResolvedValue({ rows: [] });
     await expect(service.getRun("4", "15")).rejects.toMatchObject({ message: RUN_NOT_FOUND });

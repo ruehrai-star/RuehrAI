@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.8 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
+test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.8.0");
+  assert.equal(doc.info.version, "0.9.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -112,6 +112,9 @@ test("v0.8 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("gemeinde"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("kreis"));
   assert.ok(doc.info.description.includes("yearlySeries"));
+  assert.ok(doc.info.description.includes("0.9.0"));
+  assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("destatis_wohnungen"));
+  assert.ok(doc.info.description.includes("ba_sgb2"));
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("vector"), true);
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("sql"), true);
 

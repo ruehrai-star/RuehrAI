@@ -153,9 +153,8 @@ export class AnalysisService {
   }
 
   private async withYearlySeries(pattern: AnalysisPattern, input: AnalysisInput | undefined): Promise<AnalysisPattern> {
-    if (Array.isArray(pattern.yearlySeries)) return pattern;
     if (!input?.region && !(input?.regions && input.regions.length > 0)) {
-      return { ...pattern, yearlySeries: [] };
+      return { ...pattern, yearlySeries: pattern.yearlySeries ?? [] };
     }
     return this.attachYearlySeries(pattern, input);
   }

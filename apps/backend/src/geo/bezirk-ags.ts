@@ -15,6 +15,25 @@ export function isOfficialBerlinBezirkAgs(value: string): boolean {
   return OFFICIAL.test(value);
 }
 
+export function isRegionalstatistikBerlinBezirkAgs(value: string): boolean {
+  const match = ALIAS.exec(value);
+  if (!match?.[1]) return false;
+  const n = Number(match[1]);
+  return Number.isInteger(n) && n >= 1 && n <= 12;
+}
+
+/**
+ * Regionalstatistik stores Berlin Bezirke as doubled AGS8 (`11007007` for
+ * Tempelhof-Schöneberg). Catalog / Location-Guide uses `11000007`.
+ */
+export function regionalstatistikBerlinBezirkAgs(value: string): string | null {
+  const official = canonicalBerlinBezirkAgs(value);
+  const match = OFFICIAL.exec(official);
+  if (!match?.[1]) return null;
+  const n = match[1].padStart(3, "0");
+  return `11${n}${n}`;
+}
+
 /** Map a doubled Bezirk alias onto `1100000N`. Any other string is unchanged. */
 export function canonicalBerlinBezirkAgs(value: string): string {
   const match = ALIAS.exec(value);
