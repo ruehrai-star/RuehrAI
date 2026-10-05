@@ -1145,6 +1145,15 @@ export interface components {
             source: "llm" | "heuristic";
             summary: string;
             revenueDirection: components["schemas"]["RevenueDirection"];
+            /**
+             * @description At most five grounded criteria. Heuristic values (counts and rates)
+             *     are taken only from Brain facts whose geoKey belongs to the target
+             *     region's AGS hierarchy (Köln ags5 `05315` and ags `05315000` are
+             *     the same place). Facts from other cities are not averaged into a
+             *     mean. Destatis `bev_insgesamt` at ags5 is preferred for Einwohner
+             *     over Zensus `ewz`. A Kreis or Land fallback is labeled as such.
+             *     Missing values are absent (liegt nicht vor), never invented.
+             */
             criteria: components["schemas"]["PatternCriterion"][];
             yearlySeries?: components["schemas"]["YearlySeries"][];
         };
@@ -1156,7 +1165,9 @@ export interface components {
              * @description Grounded in the retrieved Brain facts or the stored revenue series.
              *     Nested metric keys use the leaf in heuristic period stamps
              *     (`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent
-             *     Brain `ref_period` suffix (`2020|wohnungen`).
+             *     Brain `ref_period` suffix (`2020|wohnungen`). Heuristic numbers
+             *     use only the Zielregion geoKey / AGS hierarchy, never a mean
+             *     across foreign places.
              */
             evidence: string;
         };
