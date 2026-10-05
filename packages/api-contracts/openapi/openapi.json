@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.9.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n`0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the\nlast three calendar years (or last 36 months) on the user's Zielregionen.\n`coverage` is `single` when only one period is present — that is not a\ntrend. Missing periods are `absent` (liegt nicht vor).\n`0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,\n`destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,\n`ba_sgb2`, `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto\n`yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses\nBerlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips\n`ref_period` tags after `|`, never filters on embedding, always\nrecomputes the field on `GET /analysis/pattern` and new runs, and\nanchors a yearly window to the latest Brain year when that year is still\nwithin two years of `asOf`. Placeholder KBA Elektro zeros and geo\nidentifiers (`ba_schluessel`, `geo_ags`) are never series values. Count\nmetrics (dwellings, population, age-band and other person counts, SGB2\nBG/PERS) are whole numbers; rates, shares, and percentages stay\nfractional. An Ortsteil\nor Stadtteil Zielregion still returns the `yearlySeries` array; missing\nlocal rows fall back to Gemeinde, Kreis, or Land keys and are labeled\nas such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for\nthat lookup, never `gemeinde`.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
+    "version": "0.10.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n`0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the\nlast three calendar years (or last 36 months) on the user's Zielregionen.\n`coverage` is `single` when only one period is present — that is not a\ntrend. Missing periods are `absent` (liegt nicht vor).\n`0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,\n`destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,\n`ba_sgb2`, `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto\n`yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses\nBerlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips\n`ref_period` tags after `|`, never filters on embedding, always\nrecomputes the field on `GET /analysis/pattern` and new runs, and\nanchors a yearly window to the latest Brain year when that year is still\nwithin two years of `asOf`. Placeholder KBA Elektro zeros and geo\nidentifiers (`ba_schluessel`, `geo_ags`) are never series values. Count\nmetrics (dwellings, population, age-band and other person counts, SGB2\nBG/PERS) are whole numbers; rates, shares, and percentages stay\nfractional. An Ortsteil\nor Stadtteil Zielregion still returns the `yearlySeries` array; missing\nlocal rows fall back to Gemeinde, Kreis, or Land keys and are labeled\nas such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for\nthat lookup, never `gemeinde`.\n`0.10.0` lets `GET /analysis/pattern` take optional `geoKey` (the same\ncatalog key as `TargetRegion.geoKey`). When set, the newest completed run\nwhose snapshot includes that place is returned; `yearlySeries` is limited\nto that Zielregion; `region` names the matched snapshot place for the\nStand line. No matching run is `404` with a German message, never another\nregion's pattern. Without `geoKey` the newest completed run is unchanged.\nCreate stays `POST /analysis/runs` (full list snapshot). Marking a\nZielregion is UI-only.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
   },
   "servers": [
     {
@@ -1065,10 +1065,15 @@
         ],
         "operationId": "getAnalysisPattern",
         "summary": "Latest persisted pattern for the signed-in user",
-        "description": "Returns the pattern from the newest completed run. `404` when the\nuser has not completed an analysis yet.\n",
+        "description": "Without `geoKey`, returns the pattern from the newest completed run\n(`input.region` is the Stand-line place). With `geoKey`, returns the\nnewest completed run whose snapshot includes that catalog key\n(`input.region.geoKey` or any `input.regions[].geoKey`), after the\nsame Berlin Bezirk alias rewrite as add/remove on `/target-region`.\n`yearlySeries` is then limited to that Zielregion. Criteria and\nsummary stay as stored. `404` when this user has no matching run —\nnever another region's pattern. This endpoint does not start a run.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AnalysisPatternGeoKey"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Latest pattern.",
+            "description": "Pattern for the latest matching completed run.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1081,16 +1086,29 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "404": {
-            "description": "No completed analysis run for this user.",
+            "description": "No completed analysis run for this user, or `geoKey` did not\nmatch any of this user's completed snapshots.\n",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 },
-                "example": {
-                  "statusCode": 404,
-                  "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
-                  "error": "Not Found"
+                "examples": {
+                  "noPattern": {
+                    "summary": "No completed run",
+                    "value": {
+                      "statusCode": 404,
+                      "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+                      "error": "Not Found"
+                    }
+                  },
+                  "noRunForRegion": {
+                    "summary": "geoKey set, no matching snapshot",
+                    "value": {
+                      "statusCode": 404,
+                      "message": "Für diese Zielregion liegt noch kein Analyselauf vor.",
+                      "error": "Not Found"
+                    }
+                  }
                 }
               }
             }
@@ -1327,6 +1345,17 @@
         "in": "path",
         "required": true,
         "description": "Catalog place id stored on the list item (`geoKey`). Same value\n`GET /search` returns. A Berlin Bezirk alias is matched as the\nofficial AGS.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "AnalysisPatternGeoKey": {
+        "name": "geoKey",
+        "in": "query",
+        "required": false,
+        "description": "Catalog place id (`TargetRegion.geoKey` / `GET /search`). When set,\nthe newest completed run whose snapshot includes this place is\nreturned. A Berlin Bezirk alias is matched as the official AGS.\nOmit for the newest completed run of this user.\n",
         "schema": {
           "type": "string",
           "minLength": 1,
@@ -2616,12 +2645,61 @@
           }
         }
       },
+      "AnalysisPatternRegion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "geoKey"
+        ],
+        "description": "Snapshot place this pattern belongs to, for the Stand line\n(`Stand: Lauf vom … für [label]`). Unfiltered GET uses `input.region`.\nWith `geoKey`, the matching list item. `parentLabel` is optional.\n",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "geoKey": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 200,
+            "description": "Stored catalog key of the snapshot place. Null when unknown."
+          },
+          "level": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CatalogLevel"
+              }
+            ],
+            "nullable": true
+          },
+          "parentLabel": {
+            "type": "string",
+            "nullable": true,
+            "description": "Parent municipality name. Null when unknown or the place is the municipality."
+          },
+          "grain": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "address",
+              "grid100",
+              "plz8",
+              "plz5",
+              "ags",
+              "ags5",
+              "other"
+            ]
+          }
+        }
+      },
       "AnalysisPatternResponse": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "runId",
           "createdAt",
+          "region",
           "pattern"
         ],
         "properties": {
@@ -2631,6 +2709,9 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "region": {
+            "$ref": "#/components/schemas/AnalysisPatternRegion"
           },
           "pattern": {
             "$ref": "#/components/schemas/AnalysisPattern"

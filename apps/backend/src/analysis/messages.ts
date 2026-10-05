@@ -8,3 +8,6 @@ export const RUN_NOT_FOUND = "Die Analyse wurde nicht gefunden.";
 
 export const PATTERN_NOT_FOUND =
   "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.";
+
+export const PATTERN_FOR_REGION_NOT_FOUND =
+  "Für diese Zielregion liegt noch kein Analyselauf vor.";

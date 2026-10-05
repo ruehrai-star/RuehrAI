@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
+test("v0.10 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.9.0");
+  assert.equal(doc.info.version, "0.10.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -65,6 +65,27 @@ test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.equal(doc.paths["/analysis/runs"].post.operationId, "createAnalysisRun");
   assert.equal(doc.paths["/analysis/runs/{id}"].get.operationId, "getAnalysisRun");
   assert.equal(doc.paths["/analysis/pattern"].get.operationId, "getAnalysisPattern");
+  assert.equal(
+    doc.paths["/analysis/pattern"].get.parameters[0].$ref,
+    "#/components/parameters/AnalysisPatternGeoKey",
+  );
+  assert.equal(doc.components.parameters.AnalysisPatternGeoKey.name, "geoKey");
+  assert.equal(doc.components.parameters.AnalysisPatternGeoKey.in, "query");
+  assert.equal(doc.components.parameters.AnalysisPatternGeoKey.required, false);
+  assert.deepEqual(doc.components.schemas.AnalysisPatternResponse.required, [
+    "runId",
+    "createdAt",
+    "region",
+    "pattern",
+  ]);
+  assert.equal(
+    doc.components.schemas.AnalysisPatternResponse.properties.region.$ref,
+    "#/components/schemas/AnalysisPatternRegion",
+  );
+  assert.deepEqual(doc.components.schemas.AnalysisPatternRegion.required, ["label", "geoKey"]);
+  assert.equal(doc.components.schemas.AnalysisPatternRegion.properties.geoKey.nullable, true);
+  assert.ok(doc.info.description.includes("0.10.0"));
+  assert.ok(doc.paths["/analysis/pattern"].get.description.includes("geoKey"));
   assert.equal(doc.paths["/analysis/input"].get.security, undefined);
   assert.equal(doc.paths["/recommendations"].post.operationId, "createRecommendations");
   assert.equal(doc.paths["/recommendations"].get.operationId, "getRecommendations");

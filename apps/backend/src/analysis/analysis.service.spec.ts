@@ -3,9 +3,10 @@ import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
-import { PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND } from "./messages";
+import { PATTERN_FOR_REGION_NOT_FOUND, PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND } from "./messages";
 import { PatternService } from "./pattern.service";
-import { AnalysisBrain, AnalysisPattern } from "./types";
+import { AnalysisBrain, AnalysisInput, AnalysisPattern, AnalysisRegion } from "./types";
+import { YearlySeries } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
 
 const brainResult: AnalysisBrain = {
@@ -110,19 +111,14 @@ describe("AnalysisService", () => {
 
   it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
     const stored = [{ metricId: "bevoelkerung", coverage: "single" }];
+    const muenchen = snapshotRegion();
     buildSeries.mockResolvedValue([{ metricId: "bevoelkerung", coverage: "multi" }]);
     query.mockResolvedValueOnce({
       rows: [
         {
           id: "15",
           status: "completed",
-          input: {
-            region: regionRow(),
-            regions: [regionRow()],
-            stores: [],
-            revenueDirection: "up",
-            capturedAt: "2026-10-05T00:00:00.000Z",
-          },
+          input: runInput(muenchen),
           brain: brainResult,
           pattern: { ...pattern, yearlySeries: stored },
           created_at: new Date("2026-04-02T00:00:00.000Z"),
@@ -132,6 +128,13 @@ describe("AnalysisService", () => {
     await expect(service.latestPattern("4")).resolves.toEqual({
       runId: "15",
       createdAt: "2026-04-02T00:00:00.000Z",
+      region: {
+        label: "München",
+        geoKey: "09162000",
+        level: "gemeinde",
+        parentLabel: null,
+        grain: "ags",
+      },
       pattern: { ...pattern, yearlySeries: [{ metricId: "bevoelkerung", coverage: "multi" }] },
     });
     expect(buildSeries).toHaveBeenCalled();
@@ -154,7 +157,7 @@ describe("AnalysisService", () => {
         {
           id: "15",
           status: "completed",
-          input: {},
+          input: runInput(snapshotRegion()),
           brain: brainResult,
           pattern,
           created_at: new Date("2026-04-02T00:00:00.000Z"),
@@ -164,9 +167,131 @@ describe("AnalysisService", () => {
     await expect(service.latestPattern("4")).resolves.toEqual({
       runId: "15",
       createdAt: "2026-04-02T00:00:00.000Z",
+      region: {
+        label: "München",
+        geoKey: "09162000",
+        level: "gemeinde",
+        parentLabel: null,
+        grain: "ags",
+      },
       pattern: { ...pattern, yearlySeries: [] },
     });
+    expect(query.mock.calls.at(-1)?.[0]).not.toEqual(expect.stringContaining("jsonb_array_elements"));
     expect(query.mock.calls.at(-1)?.[1]).toEqual(["4"]);
+  });
+
+  it("returns the newest run whose snapshot includes the requested geoKey", async () => {
+    const muenchen = snapshotRegion();
+    const mitte = snapshotRegion({
+      label: "Mitte",
+      geoKey: "11000001",
+      ags: "11000001",
+      level: "bezirk",
+      parentLabel: "Berlin",
+    });
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "10",
+          status: "completed",
+          input: runInput(muenchen),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    const filtered = await service.latestPattern("4", "09162000");
+    expect(filtered.runId).toBe("10");
+    expect(filtered.region).toMatchObject({ label: "München", geoKey: "09162000" });
+    expect(query.mock.calls[0]?.[0]).toEqual(expect.stringContaining("jsonb_array_elements"));
+    expect(query.mock.calls[0]?.[1]?.[0]).toBe("4");
+    expect(query.mock.calls[0]?.[1]?.[1]).toEqual(expect.arrayContaining(["09162000", "ags:09162000"]));
+
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "11",
+          status: "completed",
+          input: runInput(mitte),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const other = await service.latestPattern("4", "11000001");
+    expect(other.runId).toBe("11");
+    expect(other.region).toMatchObject({ label: "Mitte", geoKey: "11000001" });
+  });
+
+  it("answers 404 for a geoKey with no matching run instead of another region's pattern", async () => {
+    query.mockResolvedValue({ rows: [] });
+    await expect(service.latestPattern("4", "11000001")).rejects.toMatchObject({
+      message: PATTERN_FOR_REGION_NOT_FOUND,
+    });
+    await expect(service.latestPattern("4", "11000001")).rejects.toBeInstanceOf(NotFoundException);
+    expect(query.mock.calls[0]?.[1]?.[1]).toEqual(expect.arrayContaining(["11000001"]));
+    expect(query.mock.calls[0]?.[1]?.[1]).not.toEqual(expect.arrayContaining(["09162000"]));
+  });
+
+  it("matches a Berlin Bezirk alias onto the official AGS stored on the snapshot", async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "12",
+          status: "completed",
+          input: runInput(
+            snapshotRegion({
+              label: "Steglitz-Zehlendorf",
+              geoKey: "11000006",
+              ags: "11000006",
+              level: "bezirk",
+              parentLabel: "Berlin",
+            }),
+          ),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const result = await service.latestPattern("4", "11006006");
+    expect(result.runId).toBe("12");
+    expect(result.region.geoKey).toBe("11000006");
+    expect(query.mock.calls[0]?.[1]?.[1]).toEqual(expect.arrayContaining(["11006006", "11000006"]));
+  });
+
+  it("filters yearlySeries to the requested Zielregion when geoKey is set", async () => {
+    const muenchen = snapshotRegion();
+    const mitte = snapshotRegion({
+      label: "Mitte",
+      geoKey: "11000001",
+      ags: "11000001",
+      level: "bezirk",
+      parentLabel: "Berlin",
+    });
+    buildSeries.mockResolvedValue([
+      seriesRow("09162000"),
+      seriesRow("11000001"),
+    ]);
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "15",
+          status: "completed",
+          input: runInput(muenchen, [muenchen, mitte]),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+        },
+      ],
+    });
+    const result = await service.latestPattern("4", "09162000");
+    expect(result.pattern.yearlySeries).toEqual([seriesRow("09162000")]);
+    expect(result.pattern.criteria).toEqual([]);
+    expect(buildSeries).toHaveBeenCalledWith([expect.objectContaining({ geoKey: "09162000" })], expect.any(Date));
+    expect(buildSeries.mock.calls[0]?.[0]).toHaveLength(1);
   });
 
   it("fills catalog display on an old target-region row for analysis", async () => {
@@ -227,5 +352,46 @@ function storeRow(revenue: { year: number; month: number; revenue_eur: string })
     lon: null,
     lat: null,
     ...revenue,
+  };
+}
+
+function snapshotRegion(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
+  return {
+    label: "München",
+    grain: "ags",
+    geoKey: "09162000",
+    level: "gemeinde",
+    parentLabel: null,
+    ags: "09162000",
+    plz: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function runInput(region: AnalysisRegion, regions: AnalysisRegion[] = [region]): AnalysisInput {
+  return {
+    region,
+    regions,
+    stores: [],
+    revenueDirection: "up",
+    capturedAt: "2026-10-05T00:00:00.000Z",
+  };
+}
+
+function seriesRow(requestedGeoKey: string): YearlySeries {
+  return {
+    metricId: "bevoelkerung",
+    requestedLevel: "gemeinde",
+    requestedGeoKey,
+    sourceLevel: "gemeinde",
+    sourceGeoKey: requestedGeoKey,
+    granularity: "year",
+    coverage: "single",
+    points: [{ period: "2025", status: "present", value: 1 }],
   };
 }
