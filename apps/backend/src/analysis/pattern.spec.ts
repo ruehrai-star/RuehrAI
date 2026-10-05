@@ -94,7 +94,7 @@ describe("pattern", () => {
         refPeriod: "2024|wohnungen",
         signals: [
           { key: "wohnungen", value: "413771.33" },
-          { key: "ewz", value: "742286.33" },
+          { key: "ewz", value: "1017355.33" },
         ],
       }),
     ]);
@@ -102,8 +102,8 @@ describe("pattern", () => {
     const ewz = pattern.criteria.find((criterion) => criterion.key === "ewz");
     expect(wohnungen?.evidence).toContain("413.771");
     expect(wohnungen?.evidence).not.toContain("413.771,33");
-    expect(ewz?.evidence).toContain("742.286");
-    expect(ewz?.evidence).not.toContain("742.286,33");
+    expect(ewz?.evidence).toContain("1.017.355");
+    expect(ewz?.evidence).not.toContain("1.017.355,33");
   });
 
   it("rounds age-band person counts and labels nested raeume as Räume", () => {
@@ -251,4 +251,152 @@ describe("pattern", () => {
   it("grounds a key that appears in the title even without a signal", () => {
     expect(isGroundedKey("Zensus", [fact()])).toBe(true);
   });
+
+  it("uses only the Zielregion Einwohner, never the Köln/Dortmund/Düsseldorf mean 742286.33", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [
+      cityFact("koeln-zensus", "05315000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "1017355" },
+      ]),
+      cityFact("dortmund", "05913000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "598246" },
+      ]),
+      cityFact("duesseldorf", "05111000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "611258" },
+      ]),
+    ]);
+    const blob = criterionBlob(pattern);
+    expect(blob).not.toContain("742.286");
+    expect(blob).not.toContain("742286");
+    expect(blob).not.toContain("598.246");
+    expect(blob).not.toContain("611.258");
+    const ewz = pattern.criteria.find((criterion) => criterion.key === "ewz");
+    expect(ewz?.evidence).toContain("1.017.355");
+  });
+
+  it("prefers Destatis bev_insgesamt at ags5 05315 over Zensus ewz for Köln", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [
+      cityFact(
+        "koeln-destatis",
+        "05315",
+        "ags5",
+        [
+          { key: "source_theme", value: "destatis" },
+          { key: "bev_insgesamt", value: "1025523" },
+        ],
+        "2025-12",
+      ),
+      cityFact("koeln-zensus", "05315000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "1017355" },
+      ]),
+      cityFact("dortmund", "05913000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "598246" },
+      ]),
+      cityFact("duesseldorf", "05111000", "ags", [
+        { key: "source_theme", value: "zensus2022" },
+        { key: "ewz", value: "611258" },
+      ]),
+    ]);
+    const blob = criterionBlob(pattern);
+    expect(blob).not.toContain("742.286");
+    expect(blob).not.toContain("742286");
+    expect(pattern.criteria.find((criterion) => criterion.key === "ewz")).toBeUndefined();
+    const bev = pattern.criteria.find((criterion) => criterion.key === "bev_insgesamt");
+    expect(bev?.evidence).toContain("1.025.523");
+    expect(bev?.label).not.toContain("Kreis");
+  });
+
+  it("does not average rate metrics across foreign geoKeys either", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [
+      cityFact("koeln-kba", "05315", "ags5", [{ key: "pkw_elektro_anteil", value: "4.1" }]),
+      cityFact("dortmund-kba", "05913", "ags5", [{ key: "pkw_elektro_anteil", value: "9.9" }]),
+    ]);
+    expect(pattern.criteria[0]?.evidence).toContain("4,1");
+    expect(pattern.criteria[0]?.evidence).not.toContain("9,9");
+    expect(pattern.criteria[0]?.evidence).not.toContain("7,0");
+  });
+
+  it("labels a Kreis Einwohner value when the Zielregion is an Ortsteil", () => {
+    const pattern = buildHeuristicPattern(
+      {
+        ...koelnInput(),
+        region: {
+          ...koelnInput().region,
+          label: "Deutz",
+          grain: "other",
+          geoKey: "ortsteil:osm:deutz",
+          level: "ortsteil",
+          ags: "05315000",
+        },
+      },
+      [
+        cityFact(
+          "kreis-destatis",
+          "05315",
+          "ags5",
+          [
+            { key: "source_theme", value: "destatis" },
+            { key: "bev_insgesamt", value: "1025523" },
+          ],
+          "2025-12",
+        ),
+      ],
+    );
+    const bev = pattern.criteria.find((criterion) => criterion.key === "bev_insgesamt");
+    expect(bev?.label).toBe("bev insgesamt (Kreis)");
+    expect(bev?.evidence).toContain("Kreis");
+    expect(bev?.evidence).toContain("1.025.523");
+  });
+
+  it("omits a metric that only exists on foreign geoKeys instead of inventing a mean", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [
+      cityFact("dortmund", "05913000", "ags", [{ key: "ewz", value: "598246" }]),
+      cityFact("duesseldorf", "05111000", "ags", [{ key: "ewz", value: "611258" }]),
+    ]);
+    expect(pattern.criteria.find((criterion) => criterion.key === "ewz")).toBeUndefined();
+    expect(criterionBlob(pattern)).not.toContain("742.286");
+    expect(pattern.summary).toContain("keine Brain-Fakten");
+  });
 });
+
+function koelnInput(): AnalysisInput {
+  const base = input();
+  return {
+    ...base,
+    region: {
+      ...base.region,
+      label: "Köln",
+      grain: "ags5",
+      geoKey: "05315",
+      ags: "05315",
+      plz: null,
+    },
+  };
+}
+
+function cityFact(
+  id: string,
+  geoKey: string,
+  grain: string,
+  signals: BrainFact["signals"],
+  refPeriod = "2022-05",
+): BrainFact {
+  return fact({
+    id,
+    geoKey,
+    grain,
+    name: geoKey,
+    title: `Gebiet ${geoKey}`,
+    refPeriod,
+    excerpt: `Kennzahlen ${geoKey}.`,
+    signals,
+  });
+}
+
+function criterionBlob(pattern: ReturnType<typeof buildHeuristicPattern>): string {
+  return `${pattern.summary} ${pattern.criteria.map((criterion) => `${criterion.key} ${criterion.label} ${criterion.evidence}`).join(" ")}`;
+}

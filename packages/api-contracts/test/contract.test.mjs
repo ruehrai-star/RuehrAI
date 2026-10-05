@@ -136,6 +136,9 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("whole numbers"));
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("age-band"));
   assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("wohnungen.raeume"));
+  assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("Zielregion geoKey"));
+  assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("05315"));
+  assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("bev_insgesamt"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.evidence.description.includes("leaf"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("gemeinde"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("kreis"));
