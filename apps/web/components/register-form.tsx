@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { resolveSignedInEntryHref } from "@/lib/entry";
+import { getLocationApi } from "@/lib/locations/api";
 import { authErrorMessage } from "@/lib/user-message";
 import { useSession } from "./session-provider";
 import { SignedInPanel } from "./signed-in-panel";
@@ -26,7 +28,7 @@ export function RegisterForm() {
     setError(null);
     try {
       await register(email.trim(), password);
-      router.push("/");
+      router.push(await resolveSignedInEntryHref(getLocationApi()));
     } catch (caught) {
       setError(authErrorMessage(caught, "register"));
     } finally {
@@ -49,7 +51,7 @@ export function RegisterForm() {
       <p className="stub-kicker">Konto</p>
       <h1>Registrieren</h1>
       <form className="auth-card" onSubmit={onSubmit}>
-        <p className="stub-copy">Neues Konto anlegen. Danach ist das Konto angemeldet und die Karte öffnet sich.</p>
+        <p className="stub-copy">Neues Konto anlegen. Danach öffnen sich die Standorte zur Eingabe.</p>
         <label htmlFor="register-email">E-Mail</label>
         <input
           id="register-email"

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { resolveSignedInEntryHref } from "@/lib/entry";
+import { getLocationApi } from "@/lib/locations/api";
 import { authErrorMessage } from "@/lib/user-message";
 import { useSession } from "./session-provider";
 import { SignedInPanel } from "./signed-in-panel";
@@ -21,7 +23,7 @@ export function LoginForm() {
     setError(null);
     try {
       await login(email.trim(), password);
-      router.push("/");
+      router.push(await resolveSignedInEntryHref(getLocationApi()));
     } catch (caught) {
       setError(authErrorMessage(caught, "login"));
     } finally {
@@ -44,7 +46,7 @@ export function LoginForm() {
       <p className="stub-kicker">Konto</p>
       <h1>Anmelden</h1>
       <form className="auth-card" onSubmit={onSubmit}>
-        <p className="stub-copy">Mit E-Mail und Passwort anmelden. Danach öffnet sich die Karte.</p>
+        <p className="stub-copy">Mit E-Mail und Passwort anmelden. Danach öffnet sich der Verlauf, ohne Standorte die Eingabe.</p>
         <label htmlFor="login-email">E-Mail</label>
         <input
           id="login-email"
