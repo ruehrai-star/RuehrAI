@@ -360,6 +360,105 @@ describe("analysis yearlySeries HTTP", () => {
     expect(sgb2.coverage).toBe("multi");
     expect(sgb2.sourceGeoKey).toBe("11000");
   });
+
+  it("keeps yearlySeries on GET for Köln grain ags5 Kreis", async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "15",
+          status: "completed",
+          input: {
+            region: {
+              label: "Köln",
+              grain: "ags5",
+              geoKey: "05315",
+              level: null,
+              ags: "05315",
+              plz: null,
+              lon: null,
+              lat: null,
+              bounds: null,
+              geometry: null,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+            stores: [],
+            revenueDirection: "up",
+            capturedAt: "2026-10-05T00:00:00.000Z",
+          },
+          brain: { mode: "sql", vectorUnavailableReason: "features_unavailable", factCount: 0, facts: [] },
+          pattern: {
+            source: "heuristic",
+            summary: "Der Filialumsatz ist steigend.",
+            revenueDirection: "up",
+            criteria: [],
+          },
+          created_at: new Date("2026-10-05T00:00:00.000Z"),
+        },
+      ],
+    });
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      if (sql.includes("location_feature_docs") || sql.includes("v_location_search")) {
+        return {
+          rows: [
+            {
+              source_theme: "destatis_wohnungen",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { wohnungen: 540000 },
+              ref_period: "2024|wohnungen",
+            },
+            {
+              source_theme: "destatis_wohnungen",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { wohnungen: 545000 },
+              ref_period: "2025|wohnungen",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { bg: 40000 },
+              ref_period: "2026-08|sgb2",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { bg: 40100 },
+              ref_period: "2026-09|sgb2",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/analysis/pattern")
+      .set("authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.pattern.yearlySeries).toHaveLength(SERIES_METRICS.length);
+    expect(response.body.pattern.yearlySeries.length).toBeGreaterThan(0);
+    const wohnungen = response.body.pattern.yearlySeries.find(
+      (item: { metricId: string }) => item.metricId === "destatis_wohnungen",
+    );
+    expect(wohnungen).toMatchObject({
+      requestedLevel: "kreis",
+      requestedGeoKey: "05315",
+      sourceLevel: "kreis",
+      sourceGeoKey: "05315",
+      coverage: "multi",
+    });
+    const sgb2 = response.body.pattern.yearlySeries.find((item: { metricId: string }) => item.metricId === "ba_sgb2");
+    expect(sgb2).toMatchObject({
+      requestedLevel: "kreis",
+      sourceLevel: "kreis",
+      sourceGeoKey: "05315",
+      coverage: "multi",
+    });
+  });
 });
 
 function stadtteilRow() {

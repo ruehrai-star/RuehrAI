@@ -197,6 +197,7 @@ test("sourceLevel kreis on a PLZ request is labeled as Kreiswerte", () => {
     "Kreiswerte, nicht lokale Werte der gewählten Ebene (PLZ).",
   );
   assert.equal(sourceAttribution({ requestedLevel: "gemeinde", sourceLevel: "gemeinde" }), null);
+  assert.equal(sourceAttribution({ requestedLevel: "kreis", sourceLevel: "kreis" }), null);
 });
 
 test("store monthly revenue is not part of yearlySeries", () => {

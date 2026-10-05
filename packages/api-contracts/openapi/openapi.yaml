@@ -39,7 +39,8 @@ info:
     identifiers (`ba_schluessel`, `geo_ags`) are never series values; SGB2
     count metrics are whole numbers. An Ortsteil or Stadtteil Zielregion
     still returns the `yearlySeries` array; missing local rows fall back to
-    Gemeinde, Kreis, or Land keys and are labeled as such.
+    Gemeinde, Kreis, or Land keys and are labeled as such. Grain `ags5` /
+    a 5-digit AGS (Köln `05315`) is `kreis` for that lookup, never `gemeinde`.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1856,9 +1857,11 @@ components:
     SeriesLevel:
       type: string
       description: |
-        Level the stored Brain row actually belongs to. Separate from the
-        requested Zielregion level. Gemeinde or Kreis numbers are never
-        labeled as Stadtteil, Ortsteil, PLZ, or Stadtbezirk.
+        Geographic level of a yearlySeries row. `sourceLevel` is the stored
+        Brain row. `requestedLevel` is the Zielregion. Grain `ags5` and a
+        5-digit AGS (Köln `05315`) are `kreis`, never `gemeinde`. Gemeinde
+        or Kreis numbers are never labeled as Stadtteil, Ortsteil, PLZ, or
+        Stadtbezirk.
       enum: [plz, bezirk, stadtbezirk, stadtteil, ortsteil, gemeinde, kreis, land]
     SeriesGranularity:
       type: string
@@ -1924,8 +1927,9 @@ components:
         PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
         grain `ags` / `ags5` / `other` and are labeled as such. An Ortsteil
         or Stadtteil picker still produces this array: missing local rows
-        fall back to Gemeinde / Kreis / Land. Missing cells are `absent`
-        without `value`. Store revenue is not included.
+        fall back to Gemeinde / Kreis / Land. Grain `ags5` / a 5-digit AGS
+        is requested as `kreis`. Missing cells are `absent` without `value`.
+        Store revenue is not included.
       properties:
         metricId:
           type: string
@@ -1934,7 +1938,7 @@ components:
             series theme id (`destatis_wohnungen`, `kba_elektro_pkw`, …).
             Not store revenue.
         requestedLevel:
-          $ref: "#/components/schemas/CatalogLevel"
+          $ref: "#/components/schemas/SeriesLevel"
         requestedGeoKey:
           type: string
         sourceLevel:

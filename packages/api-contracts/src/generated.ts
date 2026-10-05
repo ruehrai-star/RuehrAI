@@ -1040,9 +1040,11 @@ export interface components {
             value: string;
         };
         /**
-         * @description Level the stored Brain row actually belongs to. Separate from the
-         *     requested Zielregion level. Gemeinde or Kreis numbers are never
-         *     labeled as Stadtteil, Ortsteil, PLZ, or Stadtbezirk.
+         * @description Geographic level of a yearlySeries row. `sourceLevel` is the stored
+         *     Brain row. `requestedLevel` is the Zielregion. Grain `ags5` and a
+         *     5-digit AGS (Köln `05315`) are `kreis`, never `gemeinde`. Gemeinde
+         *     or Kreis numbers are never labeled as Stadtteil, Ortsteil, PLZ, or
+         *     Stadtbezirk.
          * @enum {string}
          */
         SeriesLevel: "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
@@ -1092,8 +1094,9 @@ export interface components {
          *     PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
          *     grain `ags` / `ags5` / `other` and are labeled as such. An Ortsteil
          *     or Stadtteil picker still produces this array: missing local rows
-         *     fall back to Gemeinde / Kreis / Land. Missing cells are `absent`
-         *     without `value`. Store revenue is not included.
+         *     fall back to Gemeinde / Kreis / Land. Grain `ags5` / a 5-digit AGS
+         *     is requested as `kreis`. Missing cells are `absent` without `value`.
+         *     Store revenue is not included.
          */
         YearlySeries: {
             /**
@@ -1102,7 +1105,7 @@ export interface components {
              *     Not store revenue.
              */
             metricId: string;
-            requestedLevel: components["schemas"]["CatalogLevel"];
+            requestedLevel: components["schemas"]["SeriesLevel"];
             requestedGeoKey: string;
             sourceLevel: components["schemas"]["SeriesLevel"];
             /** @description Geo key of the Brain row, or the Gemeinde/Kreis/Land key that was looked up. */

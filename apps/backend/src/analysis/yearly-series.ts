@@ -41,7 +41,7 @@ export interface SeriesPoint {
 
 export interface YearlySeries {
   metricId: string;
-  requestedLevel: CatalogLevel;
+  requestedLevel: SeriesLevel;
   requestedGeoKey: string;
   sourceLevel: SeriesLevel;
   sourceGeoKey: string;
@@ -67,7 +67,7 @@ export interface ParsedPeriod {
 }
 
 export interface RegionSourceKeys {
-  requestedLevel: CatalogLevel;
+  requestedLevel: SeriesLevel;
   requestedGeoKey: string;
   requested: string[];
   bezirk: string[];
@@ -205,14 +205,34 @@ export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: Topi
   ...EXTRA_SERIES_METRICS.map((metric) => ({ id: metric.id, homeLevel: metric.homeLevel })),
 ];
 
-export function requestedLevelOf(region: SeriesRegionInput): CatalogLevel | null {
-  if (isCatalogLevel(region.level)) return region.level;
-  return catalogLevelForPlace({
+export function isSeriesLevel(value: unknown): value is SeriesLevel {
+  return isCatalogLevel(value) || value === "kreis" || value === "land";
+}
+
+/**
+ * Grain `ags5` and a 5-digit AGS (Köln `05315`) are Kreis.
+ * CatalogLevel has no `kreis`; do not invent Gemeinde.
+ */
+export function isKreisPlace(region: SeriesRegionInput): boolean {
+  const grain = region.grain ?? null;
+  if (grain === "plz5" || grain === "plz8" || grain === "other") return false;
+  const rawKey = region.geoKey ?? region.ags ?? "";
+  if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk):/i.test(rawKey.trim())) return false;
+  if (grain === "ags5") return true;
+  return kreisAgsKey(region.geoKey) != null || kreisAgsKey(region.ags) != null;
+}
+
+export function requestedLevelOf(region: SeriesRegionInput): SeriesLevel | null {
+  if (isSeriesLevel(region.level)) return region.level;
+  const catalog = catalogLevelForPlace({
     grain: region.grain,
     geoKey: region.geoKey,
     ags: region.ags,
     level: region.level,
   });
+  if (catalog) return catalog;
+  if (isKreisPlace(region)) return "kreis";
+  return null;
 }
 
 export function requestedGeoKeyOf(region: SeriesRegionInput): string | null {
@@ -335,19 +355,46 @@ export function parentsFromGemeinde(gemeindeAgs: string): { kreis: string; land:
   return { kreis, land };
 }
 
+/** 5-digit Kreis AGS. Not an 8-digit Gemeinde and not a PLZ. */
+export function kreisAgsKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const stripped = stripPrefixedKey(value);
+  return /^[0-9]{5}$/.test(stripped) ? stripped : null;
+}
+
+export function kreisAgsFrom(region: SeriesRegionInput): string | null {
+  const fromFive = kreisAgsKey(region.geoKey) ?? kreisAgsKey(region.ags);
+  if (fromFive) return fromFive;
+  if (region.grain === "ags5") {
+    const raw = emptyToNull(region.geoKey) ?? emptyToNull(region.ags);
+    const digitsOnly = raw ? stripPrefixedKey(raw).replace(/\D/g, "") : "";
+    if (digitsOnly.length >= 5) return padDigits(digitsOnly.slice(0, 5), 5);
+  }
+  const gemeinde = municipalityAgsFrom(region);
+  return gemeinde ? parentsFromGemeinde(gemeinde).kreis : null;
+}
+
 export function keysForResolvedPlace(
-  requestedLevel: CatalogLevel,
+  requestedLevel: SeriesLevel,
   requestedGeoKey: string,
   gemeindeAgs: string | null,
   kreisAgs: string | null,
   landAgs: string | null,
   extras: { bezirkOfficial?: string | null; plz?: string | null } = {},
 ): RegionSourceKeys {
-  const place = gemeindeAgs && kreisAgs ? placeKeys(gemeindeAgs, kreisAgs, landAgs) : { gemeinde: [], kreis: [], land: [] };
+  const resolvedKreis =
+    kreisAgs ??
+    (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).kreis : null) ??
+    (requestedLevel === "kreis" ? kreisAgsKey(requestedGeoKey) ?? kreisAgsFrom({ grain: "ags5", geoKey: requestedGeoKey }) : null);
+  const resolvedLand =
+    landAgs ??
+    (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).land : null) ??
+    (resolvedKreis ? parentsFromGemeinde(resolvedKreis).land : null);
+  const place = placeKeys(gemeindeAgs, resolvedKreis, resolvedLand);
   const bezirkOfficial =
     extras.bezirkOfficial ?? berlinOfficialFromRequested(requestedLevel, requestedGeoKey);
   const bezirkRs = bezirkOfficial ? regionalstatistikBerlinBezirkAgs(bezirkOfficial) : null;
-  const landKey = landAgs ? (landAgs.startsWith("land:") ? landAgs : `land:${landAgs}`) : null;
+  const landKey = resolvedLand ? (resolvedLand.startsWith("land:") ? resolvedLand : `land:${resolvedLand}`) : null;
   return {
     requestedLevel,
     requestedGeoKey,
@@ -360,28 +407,35 @@ export function keysForResolvedPlace(
     plz: extras.plz ? requestedKeyVariants("plz", extras.plz) : requestedLevel === "plz" ? requestedKeyVariants("plz", requestedGeoKey) : [],
     gemeinde: place.gemeinde,
     kreis: place.kreis,
-    land: unique([...place.land, landKey, landAgs]),
+    land: unique([...place.land, landKey, resolvedLand]),
     gemeindeKey: gemeindeAgs,
-    kreisKey: kreisAgs,
-    landKey: landKey ?? landAgs,
+    kreisKey: resolvedKreis,
+    landKey: landKey ?? resolvedLand,
     bezirkKey: bezirkOfficial,
     bezirkRsKey: bezirkRs,
   };
 }
 
-export function requestedKeyVariants(level: CatalogLevel, geoKey: string): string[] {
+export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string[] {
   if (level === "plz") {
     const plz = geoKey.replace(/^(?:plz5|plz8):/i, "");
     return unique([plz, `plz5:${plz}`, geoKey]);
   }
+  if (level === "land") {
+    const land = geoKey.replace(/^(?:land|ags):/i, "");
+    return unique([land, `land:${land}`, geoKey]);
+  }
   const ags = officialAgsKey(geoKey);
+  const kreis = level === "kreis" ? kreisAgsKey(geoKey) : null;
   const prefixes =
     level === "stadtteil" || level === "ortsteil"
       ? [level]
       : level === "bezirk" || level === "stadtbezirk"
         ? ["ags", "stadtbezirk", "bezirk"]
-        : ["ags"];
-  const base = unique([geoKey, ags, stripPrefixedKey(geoKey)]);
+        : level === "kreis"
+          ? ["ags", "ags5"]
+          : ["ags"];
+  const base = unique([geoKey, ags, kreis, stripPrefixedKey(geoKey)]);
   const prefixed = prefixes.flatMap((prefix) =>
     base.flatMap((value) => (value ? [`${prefix}:${value}`, value] : [])),
   );
@@ -594,7 +648,7 @@ function comparePeriod(left: string | null, right: string | null): number {
   return (left ?? "").localeCompare(right ?? "");
 }
 
-function isSmallArea(level: CatalogLevel): boolean {
+function isSmallArea(level: SeriesLevel): boolean {
   return level === "plz" || level === "bezirk" || level === "stadtbezirk" || level === "stadtteil" || level === "ortsteil";
 }
 
@@ -626,7 +680,7 @@ function stripPrefixedKey(value: string): string {
   return match?.[1] ?? value.trim();
 }
 
-function berlinOfficialFromRequested(level: CatalogLevel, geoKey: string): string | null {
+function berlinOfficialFromRequested(level: SeriesLevel, geoKey: string): string | null {
   if (level !== "bezirk" && level !== "stadtbezirk") return null;
   const bare = officialAgsKey(geoKey) ?? digits(stripPrefixedKey(geoKey));
   if (!bare) return null;

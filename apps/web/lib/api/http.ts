@@ -542,7 +542,7 @@ function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
   if (
     !body ||
     typeof body.metricId !== "string" ||
-    !isCatalogLevel(body.requestedLevel) ||
+    !isSeriesLevel(body.requestedLevel) ||
     typeof body.requestedGeoKey !== "string" ||
     !isSeriesLevel(body.sourceLevel) ||
     typeof body.sourceGeoKey !== "string" ||

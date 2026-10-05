@@ -440,6 +440,87 @@ describe("YearlySeriesService", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps yearlySeries for Köln-like grain ags5 Kreis without inventing Gemeinde", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      if (sql.includes("location_feature_docs")) {
+        return {
+          rows: [
+            {
+              source_theme: "destatis_wohnungen",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { wohnungen: 540000 },
+              ref_period: "2024|wohnungen",
+            },
+            {
+              source_theme: "destatis_wohnungen",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { wohnungen: 545000 },
+              ref_period: "2025|wohnungen",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags5",
+              geo_key: "05315",
+              metadata: { bg: 40000 },
+              ref_period: "2026-09|sgb2",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "05315000",
+              metadata: { personen: 1085664 },
+              ref_period: "2025-12",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+
+    const series = await service.build([koelnKreis()], asOf);
+    expect(series).toHaveLength(SERIES_METRICS.length);
+    expect(series.map((item) => item.metricId)).toEqual(SERIES_METRICS.map((metric) => metric.id));
+    expect(series.every((item) => item.requestedLevel === "kreis")).toBe(true);
+    expect(series.every((item) => item.requestedGeoKey === "05315")).toBe(true);
+    const wohnungen = series.find((item) => item.metricId === "destatis_wohnungen");
+    expect(wohnungen).toMatchObject({
+      requestedLevel: "kreis",
+      sourceLevel: "kreis",
+      sourceGeoKey: "05315",
+      coverage: "multi",
+    });
+    const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
+    expect(sgb2).toMatchObject({
+      requestedLevel: "kreis",
+      sourceLevel: "kreis",
+      sourceGeoKey: "05315",
+    });
+    const bevoelkerung = series.find((item) => item.metricId === "bevoelkerung");
+    expect(bevoelkerung?.requestedLevel).toBe("kreis");
+    expect(bevoelkerung?.coverage).toBe("none");
+    expect(bevoelkerung?.points.every((point) => point.status === "absent" && !("value" in point))).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.every((call) => !String(call[0]).includes("geo_ref_ortsteil")),
+    ).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("05315"),
+      ),
+    ).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("land:05"),
+      ),
+    ).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("05315000"),
+      ),
+    ).toBe(true);
+  });
 });
 
 function plzRegion(plz: string): AnalysisRegion {
@@ -529,6 +610,22 @@ function gemeindeMuenchen(): AnalysisRegion {
     geoKey: "09162000",
     level: "gemeinde",
     ags: "09162000",
+    plz: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function koelnKreis(): AnalysisRegion {
+  return {
+    label: "Köln",
+    grain: "ags5",
+    geoKey: "05315",
+    level: null,
+    ags: "05315",
     plz: null,
     lon: null,
     lat: null,

@@ -248,6 +248,13 @@ describe("address-pair helpers", () => {
     expect(keys.gemeinde).toEqual(expect.arrayContaining(["09161123", "ags:09161123"]));
     expect(keys.gemeinde).not.toContain("09161");
   });
+
+  it("builds Kreis keys without a Gemeinde AGS", () => {
+    const keys = placeKeys(null, "05315", "05");
+    expect(keys.gemeinde).toEqual([]);
+    expect(keys.kreis).toEqual(expect.arrayContaining(["05315", "ags5:05315", "05315000"]));
+    expect(keys.land).toEqual(expect.arrayContaining(["05", "land:05"]));
+  });
 });
 
 function present(
