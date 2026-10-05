@@ -161,7 +161,7 @@ function mergeStandRegion(
   const markedGrain = isGrain(marked.grain) ? marked.grain : undefined;
   return {
     label,
-    geoKey: typeof region.geoKey === "string" ? region.geoKey : marked.geoKey,
+    geoKey: typeof region.geoKey === "string" ? region.geoKey : (marked.geoKey ?? null),
     level: catalogLevelOf("level" in region ? region.level : undefined) ?? catalogLevelOf(marked.level),
     parentLabel: catalogParentName(region) ?? catalogParentName(marked),
     grain: regionGrain ?? markedGrain,
