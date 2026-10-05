@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { OmlxClient } from "./omlx.client";
 import { buildHeuristicPattern, parseLlmPattern } from "./pattern";
+import { factsMatchingTargetRegion } from "./pattern-geo";
 import { AnalysisInput, AnalysisPattern, BrainFact } from "./types";
 
 const SYSTEM_PROMPT = [
@@ -27,8 +28,9 @@ export class PatternService {
    * If oMLX chat is unset or fails, the result is marked source "heuristic".
    */
   async derive(input: AnalysisInput, facts: BrainFact[]): Promise<AnalysisPattern> {
+    const localFacts = factsMatchingTargetRegion(input, facts);
     const heuristic = buildHeuristicPattern(input, facts);
-    if (facts.length === 0 || !this.omlx.llmEnabled()) return heuristic;
+    if (localFacts.length === 0 || !this.omlx.llmEnabled()) return heuristic;
 
     const payload = JSON.stringify({
       revenueDirection: input.revenueDirection,
@@ -45,10 +47,10 @@ export class PatternService {
         postalCode: store.postalCode,
         changes: store.changes,
       })),
-      facts,
+      facts: localFacts,
     });
     const completed = await this.omlx.complete(SYSTEM_PROMPT, payload);
     if (!completed.ok) return heuristic;
-    return parseLlmPattern(completed.content, facts, input.revenueDirection) ?? heuristic;
+    return parseLlmPattern(completed.content, localFacts, input.revenueDirection) ?? heuristic;
   }
 }
