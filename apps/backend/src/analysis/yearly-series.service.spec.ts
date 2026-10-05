@@ -188,23 +188,23 @@ describe("YearlySeriesService", () => {
             },
             {
               source_theme: "ba_sgb2",
-              grain: "ags",
-              geo_key: "11000000",
-              metadata: { bg: 100, pers: 200, elb: 80, nef: 40, rlb: 160, geo_ags5: "11000" },
+              grain: "ags5",
+              geo_key: "11000",
+              metadata: { bg: 100, pers: 200, elb: 80, nef: 40, rlb: 160 },
               ref_period: "2023-10|sgb2",
             },
             {
               source_theme: "ba_sgb2",
-              grain: "ags",
-              geo_key: "11000000",
-              metadata: { bg: 101, pers: 201, elb: 81, nef: 41, rlb: 161, geo_ags5: "11000" },
+              grain: "ags5",
+              geo_key: "11000",
+              metadata: { bg: 101, pers: 201, elb: 81, nef: 41, rlb: 161 },
               ref_period: "2023-11|sgb2",
             },
             {
               source_theme: "ba_sgb2",
-              grain: "ags",
-              geo_key: "11000000",
-              metadata: { bg: 108, pers: 210, elb: 85, nef: 42, rlb: 170, geo_ags5: "11000" },
+              grain: "ags5",
+              geo_key: "11000",
+              metadata: { bg: 108, pers: 210, elb: 85, nef: 42, rlb: 170 },
               ref_period: "2026-09|sgb2",
             },
           ],
@@ -233,10 +233,21 @@ describe("YearlySeriesService", () => {
     });
     const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
     expect(sgb2).toMatchObject({
-      sourceLevel: "gemeinde",
-      sourceGeoKey: "11000000",
+      sourceLevel: "kreis",
+      sourceGeoKey: "11000",
       coverage: "multi",
       granularity: "month",
+    });
+    expect(sgb2?.points).toHaveLength(36);
+    expect(sgb2?.points.find((point) => point.period === "2023-10")).toEqual({
+      period: "2023-10",
+      status: "present",
+      value: 100,
+    });
+    expect(sgb2?.points.find((point) => point.period === "2026-09")).toEqual({
+      period: "2026-09",
+      status: "present",
+      value: 108,
     });
     expect(sgb2?.points.find((point) => point.period === "2024-01")).toEqual({ period: "2024-01", status: "absent" });
     expect(sgb2?.points.find((point) => point.period === "2024-01")).not.toHaveProperty("value");
@@ -248,6 +259,11 @@ describe("YearlySeriesService", () => {
     expect(
       queryReadingFeatures.mock.calls.some(
         (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("11007007"),
+      ),
+    ).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("11000"),
       ),
     ).toBe(true);
     expect(

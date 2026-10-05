@@ -408,10 +408,10 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(vgrdl.points.every((point) => point.status === "absent" && !("value" in point))).toBe(true);
   });
 
-  it("maps ba_sgb2 as a monthly Gemeinde series on stored geo_key 11000000", () => {
+  it("maps ba_sgb2 as a monthly Kreis series on stored geo_key 11000", () => {
     const sgb2 = buildMetricSeries({
       metricId: "ba_sgb2",
-      homeLevel: "gemeinde",
+      homeLevel: "kreis",
       region,
       docs,
       asOf,
@@ -419,8 +419,8 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(sgb2).toMatchObject({
       requestedLevel: "ortsteil",
       requestedGeoKey: "ortsteil:osm:162894",
-      sourceLevel: "gemeinde",
-      sourceGeoKey: "11000000",
+      sourceLevel: "kreis",
+      sourceGeoKey: "11000",
       coverage: "multi",
       granularity: "month",
       valueKey: "bg",
@@ -551,10 +551,10 @@ function tempelhofDocs(): SeriesFeatureRow[] {
   const sgb2 = ["2023-10|sgb2", "2023-11|sgb2", "2026-09|sgb2"].map((period, index) =>
     feature({
       theme: "ba_sgb2",
-      grain: "ags",
-      key: "11000000",
+      grain: "ags5",
+      key: "11000",
       period,
-      metadata: { bg: 100 + index, pers: 200, elb: 80, nef: 40, rlb: 160, geo_ags5: "11000" },
+      metadata: { bg: 100 + index, pers: 200, elb: 80, nef: 40, rlb: 160 },
     }),
   );
   return [...bevoelkerung, ...wanderungen, ...wohnungen, ...elektro, ...unfaelle, ...sgb2];

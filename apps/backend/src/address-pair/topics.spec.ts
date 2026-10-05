@@ -80,8 +80,8 @@ describe("address-pair topic catalog", () => {
     expect(grainMatchesTopic("other", "unfallatlas", "gemeinde")).toBe(false);
     expect(grainMatchesTopic("ags5", "destatis_wohnungen", "kreis")).toBe(true);
     expect(grainMatchesTopic("ags", "kba_elektro_pkw", "gemeinde")).toBe(true);
-    expect(grainMatchesTopic("ags", "ba_sgb2", "gemeinde")).toBe(true);
-    expect(grainMatchesTopic("ags5", "ba_sgb2", "kreis")).toBe(false);
+    expect(grainMatchesTopic("ags5", "ba_sgb2", "kreis")).toBe(true);
+    expect(grainMatchesTopic("ags", "ba_sgb2", "gemeinde")).toBe(false);
     expect(grainMatchesTopic("other", "kba_neuzulassungen", "land")).toBe(true);
   });
 
