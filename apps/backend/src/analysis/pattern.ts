@@ -6,7 +6,12 @@ import {
   PatternCriterion,
   RevenueDirection,
 } from "./types";
-import { displayMetricLabel, formatMetricNumber, roundCountMetricValue } from "./count-metrics";
+import {
+  displayMetricLabel,
+  displayPeriodStamp,
+  formatMetricNumber,
+  roundCountMetricValue,
+} from "./count-metrics";
 
 const SKIP_KEYS = new Set([
   "gemeinde_name",
@@ -149,7 +154,7 @@ function evidenceFor(
   const rendered = ordered
     .slice(0, 4)
     .map(([period, values]) => {
-      const stamp = period || "ohne Zeitraum";
+      const stamp = displayPeriodStamp(period, key);
       return `${stamp}: ${formatMetricNumber(key, mean(values))}`;
     })
     .join("; ");

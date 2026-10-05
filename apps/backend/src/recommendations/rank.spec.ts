@@ -151,6 +151,32 @@ describe("rankCandidates", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain(",67");
   });
 
+  it("labels nested raeume evidence with the leaf, not the parent wohnungen key", () => {
+    const ranked = rankCandidates(
+      [
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-04",
+          metadata: { wohnungen: { raeume: 4.4 } },
+        }),
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-09",
+          metadata: { wohnungen: { raeume: 3.2 } },
+        }),
+      ],
+      [{ key: "wohnungen.raeume", label: "Räume", direction: "down", evidence: "fällt" }],
+      months,
+    );
+    expect(ranked[0]?.criteriaEvidence[0]?.label).toBe("Räume");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Räume");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("4");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("3");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain("wohnungen");
+  });
+
   it("returns nothing when the pattern has no direction", () => {
     const ranked = rankCandidates(
       [

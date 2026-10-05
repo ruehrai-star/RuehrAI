@@ -1,5 +1,9 @@
 import { AnalysisRegion, CriterionDirection, PatternCriterion } from "../analysis/types";
-import { formatMetricNumber, roundCountMetricValue } from "../analysis/count-metrics";
+import {
+  displayPeriodStamp,
+  formatMetricNumber,
+  roundCountMetricValue,
+} from "../analysis/count-metrics";
 import { GRAINS, Grain } from "../target-region/dto";
 import { CandidateRow, ScoredLocation } from "./types";
 import { monthKey } from "./window";
@@ -207,7 +211,10 @@ function evidenceFor(
     .filter(([, values]) => values.length > 0)
     .sort((left, right) => left[0].localeCompare(right[0]));
   const rendered = ordered
-    .map(([period, values]) => `${period}: ${formatMetricNumber(key, mean(values))}`)
+    .map(
+      ([period, values]) =>
+        `${displayPeriodStamp(period, key)}: ${formatMetricNumber(key, mean(values))}`,
+    )
     .join("; ");
   const word = direction === "up" ? "steigt" : direction === "down" ? "fällt" : "bleibt nahezu gleich";
   return `${label} ${word} in den letzten sechs Monaten (${rendered}).`;

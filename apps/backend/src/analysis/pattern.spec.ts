@@ -127,6 +127,62 @@ describe("pattern", () => {
     expect(rooms?.evidence).not.toContain("wohnungen");
   });
 
+  it("uses the nested leaf in heuristic evidence brackets, not the parent Brain suffix", () => {
+    const pattern = buildHeuristicPattern(input(), [
+      fact({
+        id: "1",
+        refPeriod: "2020|wohnungen",
+        signals: [{ key: "wohnungen.raeume", value: "4.4" }],
+      }),
+      fact({
+        id: "2",
+        refPeriod: "2021|wohnungen",
+        signals: [{ key: "wohnungen.raeume", value: "3.2" }],
+      }),
+    ]);
+    const rooms = pattern.criteria.find((criterion) => criterion.key === "wohnungen.raeume");
+    expect(rooms?.label).toBe("Räume");
+    expect(rooms?.direction).toBe("down");
+    expect(rooms?.evidence).toContain("2020|Räume");
+    expect(rooms?.evidence).toContain("2021|Räume");
+    expect(rooms?.evidence).not.toContain("2020|wohnungen");
+    expect(rooms?.evidence).not.toContain("2021|wohnungen");
+
+    const nested = buildHeuristicPattern(input(), [
+      fact({
+        refPeriod: "2024|indicators",
+        signals: [{ key: "indicators.wohnungen", value: "12" }],
+      }),
+    ]);
+    expect(nested.criteria[0]?.evidence).toContain("2024|wohnungen");
+    expect(nested.criteria[0]?.evidence).not.toContain("2024|indicators");
+
+    const theme = buildHeuristicPattern(input(), [
+      fact({
+        refPeriod: "2025-12|bka",
+        signals: [{ key: "einwohner", value: "100" }],
+      }),
+    ]);
+    expect(theme.criteria[0]?.evidence).toContain("2025-12|bka");
+
+    const flatRooms = buildHeuristicPattern(input(), [
+      fact({
+        id: "1",
+        refPeriod: "2020|wohnungen",
+        signals: [{ key: "raeume", value: "4.4" }],
+      }),
+      fact({
+        id: "2",
+        refPeriod: "2021|wohnungen",
+        signals: [{ key: "raeume", value: "3.2" }],
+      }),
+    ]);
+    const flat = flatRooms.criteria.find((criterion) => criterion.key === "raeume");
+    expect(flat?.label).toBe("Räume");
+    expect(flat?.evidence).toContain("2020|Räume");
+    expect(flat?.evidence).not.toContain("2020|wohnungen");
+  });
+
   it("keeps rate-like heuristic values fractional", () => {
     const pattern = buildHeuristicPattern(input(), [
       fact({
