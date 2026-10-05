@@ -114,6 +114,7 @@ test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.ok(doc.info.description.includes("yearlySeries"));
   assert.ok(doc.info.description.includes("0.9.0"));
   assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("destatis_wohnungen"));
+  assert.ok(doc.info.description.includes("ba_sgb2"));
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("vector"), true);
   assert.equal(doc.components.schemas.AnalysisBrain.properties.mode.enum.includes("sql"), true);
 

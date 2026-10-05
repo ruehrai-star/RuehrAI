@@ -186,6 +186,27 @@ describe("YearlySeriesService", () => {
               metadata: { unfaelle_gesamt: 44, getoetet_kat1: 0 },
               ref_period: "2025|unfallatlas_gebiet",
             },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { bg: 100, pers: 200, elb: 80, nef: 40, rlb: 160, geo_ags5: "11000" },
+              ref_period: "2023-10|sgb2",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { bg: 101, pers: 201, elb: 81, nef: 41, rlb: 161, geo_ags5: "11000" },
+              ref_period: "2023-11|sgb2",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { bg: 108, pers: 210, elb: 85, nef: 42, rlb: 170, geo_ags5: "11000" },
+              ref_period: "2026-09|sgb2",
+            },
           ],
         };
       }
@@ -210,6 +231,15 @@ describe("YearlySeriesService", () => {
       sourceGeoKey: "ortsteil:osm:162894",
       coverage: "multi",
     });
+    const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
+    expect(sgb2).toMatchObject({
+      sourceLevel: "gemeinde",
+      sourceGeoKey: "11000000",
+      coverage: "multi",
+      granularity: "month",
+    });
+    expect(sgb2?.points.find((point) => point.period === "2024-01")).toEqual({ period: "2024-01", status: "absent" });
+    expect(sgb2?.points.find((point) => point.period === "2024-01")).not.toHaveProperty("value");
     const featureSql = queryReadingFeatures.mock.calls
       .map((call) => String(call[0]))
       .find((sql) => sql.includes("location_feature_docs"));

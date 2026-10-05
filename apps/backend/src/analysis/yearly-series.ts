@@ -132,6 +132,7 @@ const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
   destatis_bevoelkerung_alter: ["gesamt", "personen"],
   kba: ["pkw", "kfz_insgesamt"],
   kba_elektro_pkw: ["pkw_elektro", "pkw_insgesamt"],
+  ba_sgb2: ["bg", "BG", "pers", "PERS", "elb", "ELB", "nef", "NEF", "rlb", "RLB"],
   kba_neuzulassungen: ["kfz_insgesamt", "pkw"],
   kba_bestand: ["kfz_insgesamt", "pkw"],
   baugenehmigungen: ["wohnungen", "bauten", "value"],
@@ -201,9 +202,15 @@ export function yearWindow(asOf: Date, availableYears: number[] = []): string[] 
   return [String(end - 2), String(end - 1), String(end)];
 }
 
-export function monthWindow(asOf: Date): string[] {
+export function monthWindow(asOf: Date, availableMonths: string[] = []): string[] {
+  const asOfStamp = `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}`;
+  const latest = [...availableMonths].filter(Boolean).sort().at(-1) ?? asOfStamp;
+  const end =
+    monthsBetween(latest, asOfStamp) === 1
+      ? monthDate(latest)
+      : new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
   const out: string[] = [];
-  const start = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - 35, 1));
+  const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 35, 1));
   for (let i = 0; i < 36; i += 1) {
     const stamp = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
     out.push(`${stamp.getUTCFullYear()}-${String(stamp.getUTCMonth() + 1).padStart(2, "0")}`);
@@ -338,7 +345,10 @@ export function buildMetricSeries(input: {
     .filter((item): item is { row: SeriesFeatureRow; period: ParsedPeriod } => item.period !== null);
   const granularity = detectGranularity(parsed.map((item) => item.period));
   const availableYears = parsed.map((item) => item.period.year);
-  const window = granularity === "month" ? monthWindow(input.asOf) : yearWindow(input.asOf, availableYears);
+  const availableMonths = parsed
+    .map((item) => item.period.monthStamp)
+    .filter((stamp): stamp is string => Boolean(stamp));
+  const window = granularity === "month" ? monthWindow(input.asOf, availableMonths) : yearWindow(input.asOf, availableYears);
   const byPeriod = valuesByPeriod(input.metricId, parsed, granularity);
 
   const points: SeriesPoint[] = window.map((period) => {
@@ -609,4 +619,15 @@ function unique(values: Array<string | null | undefined>): string[] {
     out.push(value);
   }
   return out;
+}
+
+function monthDate(stamp: string): Date {
+  const [year, month] = stamp.split("-").map(Number);
+  return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, 1));
+}
+
+function monthsBetween(earlier: string, later: string): number {
+  const start = monthDate(earlier);
+  const end = monthDate(later);
+  return (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + (end.getUTCMonth() - start.getUTCMonth());
 }

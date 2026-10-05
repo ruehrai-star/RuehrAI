@@ -29,7 +29,7 @@ info:
     trend. Missing periods are `absent` (liegt nicht vor).
     `0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,
     `destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,
-    `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto
+    `ba_sgb2`, `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto
     `yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses
     Berlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips
     `ref_period` tags after `|`, never filters on embedding, always

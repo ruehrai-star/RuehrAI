@@ -77,6 +77,7 @@ export const EXTRA_SERIES_METRICS = [
   { id: "destatis_kfz_bestand", homeLevel: "kreis" },
   { id: "destatis_bevoelkerung_alter", homeLevel: "kreis" },
   { id: "kba_elektro_pkw", homeLevel: "gemeinde" },
+  { id: "ba_sgb2", homeLevel: "gemeinde" },
   { id: "kba_neuzulassungen", homeLevel: "land" },
   { id: "kba_bestand", homeLevel: "land" },
 ] as const;
@@ -89,6 +90,7 @@ export const EXTRA_SERIES_SOURCE_THEMES: Record<ExtraSeriesMetricId, readonly st
   destatis_kfz_bestand: ["destatis_kfz_bestand"],
   destatis_bevoelkerung_alter: ["destatis_bevoelkerung_alter"],
   kba_elektro_pkw: ["kba_elektro_pkw"],
+  ba_sgb2: ["ba_sgb2"],
   kba_neuzulassungen: ["kba_neuzulassungen"],
   kba_bestand: ["kba_bestand"],
 };
@@ -98,6 +100,7 @@ export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<Top
   destatis_kfz_bestand: { kreis: ["ags5"] },
   destatis_bevoelkerung_alter: { kreis: ["ags5"] },
   kba_elektro_pkw: { gemeinde: ["ags"] },
+  ba_sgb2: { gemeinde: ["ags"] },
   kba_neuzulassungen: { land: ["other"] },
   kba_bestand: { land: ["other"] },
 };

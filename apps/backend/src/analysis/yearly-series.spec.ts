@@ -9,6 +9,7 @@ import {
   parseRefPeriod,
   requestedLevelOf,
   seriesNumber,
+  monthWindow,
   yearWindow,
 } from "./yearly-series";
 
@@ -65,11 +66,17 @@ describe("yearly-series helpers", () => {
       yearStamp: "2023",
       monthStamp: "2023-10",
     });
-    expect(parseRefPeriod("2018|unfallatlas_gebiet")).toEqual({
-      year: 2018,
-      month: null,
-      yearStamp: "2018",
-      monthStamp: null,
+    expect(parseRefPeriod("2023-10|sgb2")).toEqual({
+      year: 2023,
+      month: 10,
+      yearStamp: "2023",
+      monthStamp: "2023-10",
+    });
+    expect(parseRefPeriod("2026-09|sgb2")).toEqual({
+      year: 2026,
+      month: 9,
+      yearStamp: "2026",
+      monthStamp: "2026-09",
     });
     expect(parseRefPeriod("11000000|elektro")).toBeNull();
     expect(parseRefPeriod("")).toBeNull();
@@ -93,6 +100,10 @@ describe("yearly-series helpers", () => {
     expect(seriesNumber({ werte: { kfz_insgesamt: 40, pkw: 30 } }, "kba_neuzulassungen")).toEqual({
       value: 40,
       key: "kfz_insgesamt",
+    });
+    expect(seriesNumber({ bg: 12, pers: 20, elb: 8, nef: 4, rlb: 16 }, "ba_sgb2")).toEqual({
+      value: 12,
+      key: "bg",
     });
   });
 
@@ -119,6 +130,10 @@ describe("yearly-series helpers", () => {
     expect(yearWindow(asOf, [2022, 2023, 2024])).toEqual(["2022", "2023", "2024"]);
     expect(yearWindow(asOf, [2022, 2023, 2024, 2025])).toEqual(["2023", "2024", "2025"]);
     expect(yearWindow(asOf, [2022])).toEqual(["2024", "2025", "2026"]);
+    expect(monthWindow(asOf)[0]).toBe("2023-11");
+    expect(monthWindow(asOf).at(-1)).toBe("2026-10");
+    expect(monthWindow(asOf, ["2023-10", "2026-09"])[0]).toBe("2023-10");
+    expect(monthWindow(asOf, ["2023-10", "2026-09"]).at(-1)).toBe("2026-09");
   });
 });
 
@@ -285,6 +300,7 @@ describe("buildMetricSeries", () => {
         "destatis_kfz_bestand",
         "destatis_bevoelkerung_alter",
         "kba_elektro_pkw",
+        "ba_sgb2",
         "kba_neuzulassungen",
         "kba_bestand",
       ]),
@@ -392,6 +408,44 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(vgrdl.points.every((point) => point.status === "absent" && !("value" in point))).toBe(true);
   });
 
+  it("maps ba_sgb2 as a monthly Gemeinde series on stored geo_key 11000000", () => {
+    const sgb2 = buildMetricSeries({
+      metricId: "ba_sgb2",
+      homeLevel: "gemeinde",
+      region,
+      docs,
+      asOf,
+    });
+    expect(sgb2).toMatchObject({
+      requestedLevel: "ortsteil",
+      requestedGeoKey: "ortsteil:osm:162894",
+      sourceLevel: "gemeinde",
+      sourceGeoKey: "11000000",
+      coverage: "multi",
+      granularity: "month",
+      valueKey: "bg",
+    });
+    expect(sgb2.points).toHaveLength(36);
+    expect(sgb2.points.find((point) => point.period === "2023-10")).toEqual({
+      period: "2023-10",
+      status: "present",
+      value: 100,
+    });
+    expect(sgb2.points.find((point) => point.period === "2023-11")).toEqual({
+      period: "2023-11",
+      status: "present",
+      value: 101,
+    });
+    expect(sgb2.points.find((point) => point.period === "2026-09")).toEqual({
+      period: "2026-09",
+      status: "present",
+      value: 102,
+    });
+    expect(sgb2.points.find((point) => point.period === "2026-10")).toBeUndefined();
+    expect(sgb2.points.find((point) => point.period === "2024-01")).toEqual({ period: "2024-01", status: "absent" });
+    expect(sgb2.points.find((point) => point.period === "2024-01")).not.toHaveProperty("value");
+  });
+
   it("prefers local unfallatlas_gebiet and labels Gemeinde Unfallatlas as Gemeinde", () => {
     const local = buildMetricSeries({
       metricId: "unfallatlas",
@@ -494,7 +548,16 @@ function tempelhofDocs(): SeriesFeatureRow[] {
         metadata: { unfaelle_gesamt: 40 + index, getoetet_kat1: 0, schwer_kat2: 2 },
       }),
   );
-  return [...bevoelkerung, ...wanderungen, ...wohnungen, ...elektro, ...unfaelle];
+  const sgb2 = ["2023-10|sgb2", "2023-11|sgb2", "2026-09|sgb2"].map((period, index) =>
+    feature({
+      theme: "ba_sgb2",
+      grain: "ags",
+      key: "11000000",
+      period,
+      metadata: { bg: 100 + index, pers: 200, elb: 80, nef: 40, rlb: 160, geo_ags5: "11000" },
+    }),
+  );
+  return [...bevoelkerung, ...wanderungen, ...wohnungen, ...elektro, ...unfaelle, ...sgb2];
 }
 
 function feature(input: {
