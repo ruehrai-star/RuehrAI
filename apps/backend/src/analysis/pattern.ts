@@ -6,6 +6,7 @@ import {
   PatternCriterion,
   RevenueDirection,
 } from "./types";
+import { formatMetricNumber, roundCountMetricValue } from "./count-metrics";
 
 const SKIP_KEYS = new Set([
   "gemeinde_name",
@@ -92,6 +93,7 @@ function heuristicCriteria(facts: BrainFact[]): PatternCriterion[] {
       if (SKIP_KEYS.has(signal.key) || signal.key === "source_theme") continue;
       const numeric = asNumber(signal.value);
       if (numeric === null) continue;
+      const value = roundCountMetricValue(signal.key, numeric);
       if (!seen.has(signal.key)) {
         counts.set(signal.key, (counts.get(signal.key) ?? 0) + 1);
         seen.add(signal.key);
@@ -99,7 +101,7 @@ function heuristicCriteria(facts: BrainFact[]): PatternCriterion[] {
       const periods = grouped.get(signal.key) ?? new Map<string, number[]>();
       const period = fact.refPeriod ?? "";
       const values = periods.get(period) ?? [];
-      values.push(numeric);
+      values.push(value);
       periods.set(period, values);
       grouped.set(signal.key, periods);
     }
@@ -148,7 +150,7 @@ function evidenceFor(
     .slice(0, 4)
     .map(([period, values]) => {
       const stamp = period || "ohne Zeitraum";
-      return `${stamp}: ${formatNumber(mean(values))}`;
+      return `${stamp}: ${formatMetricNumber(key, mean(values))}`;
     })
     .join("; ");
   if (direction === "unknown") {
@@ -250,10 +252,6 @@ function asNumber(value: string): number | null {
 
 function mean(values: number[]): number {
   return values.reduce((total, value) => total + value, 0) / values.length;
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
 }
 
 function labelFor(key: string): string {

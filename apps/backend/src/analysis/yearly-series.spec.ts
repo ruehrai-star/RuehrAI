@@ -178,6 +178,19 @@ describe("yearly-series helpers", () => {
     expect(seriesNumber({ bg: 230216.0, pers: 435602.0 }, "ba_sgb2")).toEqual({ value: 230216, key: "bg" });
   });
 
+  it("rounds dwelling and population counts and leaves rates fractional", () => {
+    expect(seriesNumber({ wohnungen: 413771.33, raeume: 3, wohnflaeche_1000qm: 80.4 }, "destatis_wohnungen")).toEqual({
+      value: 413771,
+      key: "wohnungen",
+    });
+    expect(seriesNumber({ ewz: 742286.33 })).toEqual({ value: 742286, key: "ewz" });
+    expect(seriesNumber({ einwohner: 1480000.6 })).toEqual({ value: 1480001, key: "einwohner" });
+    expect(seriesNumber({ pkw_elektro_anteil: 4.133 }, "kba_elektro_pkw")).toEqual({
+      value: 4.133,
+      key: "pkw_elektro_anteil",
+    });
+  });
+
   it("uses year granularity for a single YYYY-MM snapshot", () => {
     expect(detectGranularity([parseRefPeriod("2025-12|bka")!])).toBe("year");
     expect(

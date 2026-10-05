@@ -15,6 +15,7 @@ import {
   flagsFromColumns,
 } from "./brain-search.sql";
 import { OmlxClient } from "./omlx.client";
+import { roundCountMetricValue } from "./count-metrics";
 import {
   AnalysisBrain,
   AnalysisInput,
@@ -304,7 +305,7 @@ function collectSignals(signals: BrainSignal[], value: unknown, prefix: string):
 function pushSignal(signals: BrainSignal[], key: string, value: unknown): void {
   if (signals.length >= 6 || value === null || value === undefined) return;
   if (typeof value === "number" && Number.isFinite(value)) {
-    signals.push({ key, value: String(value) });
+    signals.push({ key, value: String(roundCountMetricValue(key, value)) });
     return;
   }
   if (typeof value === "boolean") {
@@ -314,6 +315,13 @@ function pushSignal(signals: BrainSignal[], key: string, value: unknown): void {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return;
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      if (Number.isFinite(numeric)) {
+        signals.push({ key, value: String(roundCountMetricValue(key, numeric)) });
+        return;
+      }
+    }
     signals.push({ key, value: trimmed.slice(0, 80) });
   }
 }

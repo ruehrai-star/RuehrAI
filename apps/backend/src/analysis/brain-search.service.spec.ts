@@ -123,6 +123,45 @@ describe("BrainSearchService", () => {
     ]);
   });
 
+  it("rounds count-like Brain metadata floats and leaves shares fractional", async () => {
+    queryReadingFeatures
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: columns })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "11",
+            geo_key: "11000000",
+            grain: "ags",
+            name: "Berlin",
+            ref_period: "2024|wohnungen",
+            title: "Berlin",
+            content: "Wohnungen und Einwohner.",
+            metadata: {
+              wohnungen: 413771.33,
+              ewz: 742286.33,
+              pkw_elektro_anteil: 4.1,
+              gemeinde_name: "Berlin",
+            },
+            source_theme: "destatis_wohnungen",
+            distance: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const result = await service.search(input());
+    expect(result.facts[0]?.signals).toEqual(
+      expect.arrayContaining([
+        { key: "source_theme", value: "destatis_wohnungen" },
+        { key: "wohnungen", value: "413771" },
+        { key: "ewz", value: "742286" },
+        { key: "pkw_elektro_anteil", value: "4.1" },
+      ]),
+    );
+    expect(result.facts[0]?.signals.find((signal) => signal.key === "wohnungen")?.value).not.toContain(".");
+  });
+
   it("uses a query embedding and cosine order when oMLX answers", async () => {
     vectorGate.mockReturnValue("ready");
     embed.mockResolvedValue({ ok: true, vector: [0.2, 0.4] });

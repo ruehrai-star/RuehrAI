@@ -103,6 +103,30 @@ describe("rankCandidates", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("2026-09");
   });
 
+  it("formats count-like evidence as whole numbers", () => {
+    const ranked = rankCandidates(
+      [
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-04",
+          metadata: { wohnungen: 400000.33 },
+        }),
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-09",
+          metadata: { wohnungen: 500000.6 },
+        }),
+      ],
+      [{ key: "wohnungen", label: "wohnungen", direction: "up", evidence: "steigt" }],
+      months,
+    );
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("400.000");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("500.001");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain(",33");
+  });
+
   it("returns nothing when the pattern has no direction", () => {
     const ranked = rankCandidates(
       [

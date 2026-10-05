@@ -36,11 +36,13 @@ info:
     recomputes the field on `GET /analysis/pattern` and new runs, and
     anchors a yearly window to the latest Brain year when that year is still
     within two years of `asOf`. Placeholder KBA Elektro zeros and geo
-    identifiers (`ba_schluessel`, `geo_ags`) are never series values; SGB2
-    count metrics are whole numbers. An Ortsteil or Stadtteil Zielregion
-    still returns the `yearlySeries` array; missing local rows fall back to
-    Gemeinde, Kreis, or Land keys and are labeled as such. Grain `ags5` /
-    a 5-digit AGS (Köln `05315`) is `kreis` for that lookup, never `gemeinde`.
+    identifiers (`ba_schluessel`, `geo_ags`) are never series values. Count
+    metrics (dwellings, population, people counts, SGB2 BG/PERS) are whole
+    numbers; rates, shares, and percentages stay fractional. An Ortsteil
+    or Stadtteil Zielregion still returns the `yearlySeries` array; missing
+    local rows fall back to Gemeinde, Kreis, or Land keys and are labeled
+    as such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for
+    that lookup, never `gemeinde`.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1854,6 +1856,10 @@ components:
           type: string
         value:
           type: string
+          description: |
+            Display value for this signal. Count-like metrics (dwellings,
+            population, people counts, SGB2 BG/PERS, …) are whole numbers.
+            Rates, shares, and percentages stay fractional.
     SeriesLevel:
       type: string
       description: |
@@ -1902,8 +1908,9 @@ components:
           description: |
             Stored Brain cell for this period. Omitted when absent.
             Not a geo identifier (`ba_schluessel`, `geo_ags`, `geo_ags5`,
-            `geo_key`, `source_theme`). Count-like SGB2 metrics (BG, PERS,
-            ELB, NEF, RLB) are whole numbers.
+            `geo_key`, `source_theme`). Count-like metrics (dwellings,
+            population, people counts, SGB2 BG, PERS, ELB, NEF, RLB) are
+            whole numbers. Rates, shares, and percentages stay fractional.
     YearlySeries:
       type: object
       additionalProperties: false
