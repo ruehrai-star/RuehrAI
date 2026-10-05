@@ -3,6 +3,16 @@ import {
   formatMetricNumber,
 } from "./count-metrics";
 import {
+  attachNormalizedValues,
+  baselineForMetric,
+  baselineNoun,
+  isPopulationMetric,
+  latestNormalizedValue,
+  latestRawValue,
+  presentNormalizedPoints,
+  SeriesBaseline,
+} from "./series-baseline";
+import {
   CriterionDirection,
   PatternCriterion,
 } from "./types";
@@ -139,11 +149,18 @@ export function presentPoints(points: SeriesPoint[]): Array<SeriesPoint & { valu
   );
 }
 
-export function directionFromPoints(points: SeriesPoint[]): CriterionDirection {
+export function directionFromPoints(points: SeriesPoint[], field: "value" | "normalizedValue" = "value"): CriterionDirection {
+  if (field === "normalizedValue") {
+    const present = presentNormalizedPoints(points);
+    if (present.length < 2) return "unknown";
+    return directionBetween(present[0]!.normalizedValue, present[present.length - 1]!.normalizedValue);
+  }
   const present = presentPoints(points);
   if (present.length < 2) return "unknown";
-  const first = present[0]!.value;
-  const last = present[present.length - 1]!.value;
+  return directionBetween(present[0]!.value, present[present.length - 1]!.value);
+}
+
+function directionBetween(first: number, last: number): CriterionDirection {
   const scale = Math.max(Math.abs(first), 1);
   if (Math.abs(last - first) / scale < FLAT_BAND) return "flat";
   return last > first ? "up" : "down";
@@ -181,23 +198,37 @@ export function frameNoun(level: SeriesLevel | string | undefined): string | nul
  * Coverage `none` is skipped. Absent cells never become 0.
  */
 export function criteriaFromYearlySeries(series: YearlySeries[]): PatternCriterion[] {
-  const picked = pickSeriesForPattern(series);
+  const picked = pickSeriesForPattern(attachNormalizedValues(series));
   return picked.map((item) => toCriterion(item));
 }
 
-export function seriesEvidence(series: YearlySeries, direction: CriterionDirection): string {
+export function seriesEvidence(
+  series: YearlySeries,
+  direction: CriterionDirection,
+  baseline?: SeriesBaseline,
+): string {
   const label = metricLabel(series.metricId, series.sourceLevel);
   const present = presentPoints(series.points);
   if (present.length === 0) return `${label} liegt nicht vor.`;
-  const rendered = present
+  const usedBaseline = baseline ?? baselineForMetric(series.metricId, series.valueKey);
+  const noun = baselineNoun(usedBaseline);
+  const normalized = presentNormalizedPoints(series.points);
+  if (normalized.length === 0) {
+    return `${label} Rohwert liegt vor, Bezugsgröße (${noun}) liegt nicht vor.`;
+  }
+  const rendered = normalized
     .slice(0, 4)
-    .map((point) => `${point.period}: ${formatMetricNumber(series.valueKey ?? series.metricId, point.value, series.metricId)}`)
+    .map((point) => {
+      const raw = formatMetricNumber(series.valueKey ?? series.metricId, point.value, series.metricId);
+      const norm = formatMetricNumber(series.valueKey ?? series.metricId, point.normalizedValue, series.metricId);
+      return `${point.period}: ${raw} Roh / ${norm} ${noun}`;
+    })
     .join("; ");
-  if (series.coverage === "single" || direction === "unknown") {
+  if (normalized.length < 2 || direction === "unknown") {
     return `${label} liegt als Stichtag vor (${rendered}). Eine Dreijahresrichtung ist daraus nicht ableitbar.`;
   }
   const word = direction === "up" ? "steigt" : direction === "down" ? "fällt" : "bleibt nahezu gleich";
-  return `${label} ${word} im Dreijahresverlauf (${rendered}).`;
+  return `${label} ${word} im Dreijahresverlauf ${noun} (${rendered}).`;
 }
 
 export function absentEvidence(key: string, label: string): string {
@@ -209,8 +240,9 @@ function pickSeriesForPattern(series: YearlySeries[]): YearlySeries[] {
   const finest = new Map<string, YearlySeries>();
   for (const item of usable) {
     if (item.sourceLevel === "land") continue;
+    if (isPopulationMetric(item.metricId)) continue;
     const current = finest.get(item.metricId);
-    if (!current || seriesLevelRank(item.sourceLevel) < seriesLevelRank(current.sourceLevel)) {
+    if (!current || preferSeries(item, current)) {
       finest.set(item.metricId, item);
     }
   }
@@ -248,19 +280,37 @@ function pickSeriesForPattern(series: YearlySeries[]): YearlySeries[] {
 }
 
 function toCriterion(series: YearlySeries): PatternCriterion {
-  const direction = directionFromPoints(series.points);
-  const kind = kindFromCoverage(series.coverage) ?? (direction === "unknown" ? "stichtag" : "trend");
+  const baseline = baselineForMetric(series.metricId, series.valueKey);
+  const normalized = presentNormalizedPoints(series.points);
+  const direction =
+    normalized.length >= 2 ? directionFromPoints(series.points, "normalizedValue") : "unknown";
+  const kind =
+    normalized.length >= 2
+      ? "trend"
+      : kindFromCoverage(series.coverage) ?? (direction === "unknown" ? "stichtag" : "trend");
   const label = metricLabel(series.metricId, series.sourceLevel);
   return {
     key: series.metricId,
+    metricId: series.metricId,
     label,
-    direction: kind === "stichtag" ? "unknown" : direction,
-    evidence: seriesEvidence(series, kind === "stichtag" ? "unknown" : direction),
-    kind,
+    direction: kind === "stichtag" || normalized.length < 2 ? "unknown" : direction,
+    evidence: seriesEvidence(series, kind === "stichtag" || normalized.length < 2 ? "unknown" : direction, baseline),
+    kind: normalized.length >= 2 ? "trend" : kind,
     coverage: series.coverage,
     sourceLevel: series.sourceLevel,
     sourceGeoKey: series.sourceGeoKey,
+    baseline,
+    rawValue: latestRawValue(series.points),
+    normalizedValue: latestNormalizedValue(series.points),
   };
+}
+
+function preferSeries(item: YearlySeries, current: YearlySeries): boolean {
+  const itemNorm = presentNormalizedPoints(item.points).length;
+  const currentNorm = presentNormalizedPoints(current.points).length;
+  if (itemNorm > 0 && currentNorm === 0) return true;
+  if (itemNorm === 0 && currentNorm > 0) return false;
+  return seriesLevelRank(item.sourceLevel) < seriesLevelRank(current.sourceLevel);
 }
 
 function compareSeries(left: YearlySeries, right: YearlySeries): number {

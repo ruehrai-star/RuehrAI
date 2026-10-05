@@ -44,6 +44,8 @@ export type {
   PatternLevel,
   PatternLevelProfile,
   PatternLevelRole,
+  PatternDatasetProfile,
+  SeriesBaseline,
   Recommendation,
   RecommendationCreate,
   RecommendationEvidence,

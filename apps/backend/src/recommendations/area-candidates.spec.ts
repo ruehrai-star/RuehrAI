@@ -15,6 +15,7 @@ import {
   buildTeilCatalogSql,
   isRegionAnchor,
   parentMemberships,
+  selectCatalogHits,
   selectFinestHits,
 } from "./area-candidates";
 
@@ -360,5 +361,52 @@ describe("selectFinestHits", () => {
       regions,
     );
     expect(hits).toEqual([]);
+  });
+});
+
+describe("selectCatalogHits", () => {
+  it("keeps every kind except the Zielregion anchor and 2006 LOR when PLR exists", () => {
+    const hits = selectCatalogHits(
+      [
+        {
+          id: "ags:09162000",
+          geoKey: "09162000",
+          grain: "ags",
+          kind: "gemeinde",
+          title: "München",
+          name: "München",
+          ags: "09162000",
+          plz: null,
+          lon: null,
+          lat: null,
+        },
+        {
+          id: "plz5:80801",
+          geoKey: "80801",
+          grain: "plz5",
+          kind: "plz",
+          title: "80801",
+          name: "80801",
+          ags: "09162000",
+          plz: "80801",
+          lon: null,
+          lat: null,
+        },
+        {
+          id: "other:ortsteil:osm:1",
+          geoKey: "ortsteil:osm:1",
+          grain: "other",
+          kind: "ortsteil",
+          title: "Schwabing",
+          name: "Schwabing",
+          ags: "09162000",
+          plz: null,
+          lon: 11.58,
+          lat: 48.16,
+        },
+      ],
+      [region()],
+    );
+    expect(hits.map((item) => item.kind)).toEqual(["plz", "ortsteil"]);
   });
 });

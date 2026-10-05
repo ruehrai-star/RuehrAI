@@ -1160,7 +1160,22 @@ export interface components {
              *     stay fractional.
              */
             value?: number;
+            /**
+             * @description Raw `value` divided by the area Bezugsgröße (`per_1000_inhabitants`
+             *     is per 1.000 inhabitants). Omitted when the Bezugsgröße for that
+             *     Fläche and year liegt nicht vor. Never invented as `0`.
+             */
+            normalizedValue?: number;
         };
+        /**
+         * @description Bezugsgröße used to baseline a dataset on its own Fläche.
+         *     `per_1000_inhabitants` — je 1.000 Einwohner.
+         *     `per_km2` — je km² (Einwohner stock, or when area is the baseline).
+         *     `per_household` — je Haushalt.
+         *     Missing divisor → `normalizedValue` omitted, status `absent`.
+         * @enum {string}
+         */
+        SeriesBaseline: "per_1000_inhabitants" | "per_km2" | "per_household";
         /**
          * @description One topic on one Zielregion over the last three UTC calendar years
          *     (`year`) or the last 36 UTC months (`month`). When the newest Brain
@@ -1249,14 +1264,30 @@ export interface components {
             evidence: string;
             kind?: components["schemas"]["CriterionKind"];
             coverage?: components["schemas"]["SeriesCoverage"];
+            /** @description Flächenebene on which this dataset is present. */
             sourceLevel?: components["schemas"]["SeriesLevel"];
             sourceGeoKey?: string;
             /**
-             * @description Present on `patternByLevel` criteria. `local` is native to that
-             *     Ebene. `inherited` was taken from a coarser parent and does not
-             *     differentiate siblings. Omitted on older `pattern.criteria`.
+             * @description Present on `patternByLevel` / `patternByDataset` criteria.
+             *     `local` is native to that Fläche. `inherited` was taken from a
+             *     coarser parent and does not differentiate siblings. Omitted on
+             *     older `pattern.criteria`.
              */
             scope?: components["schemas"]["EvidenceScope"];
+            /**
+             * @description Dataset / Brain theme id this criterion compares (`kba_elektro_pkw`,
+             *     `unfallatlas`, …). Same as `key` on new sets. Additive.
+             */
+            metricId?: string;
+            /** @description Bezugsgröße for the relative match. Omitted on older stored sets. */
+            baseline?: components["schemas"]["SeriesBaseline"];
+            /** @description Latest present raw Brain cell. Omitted when every period is absent. */
+            rawValue?: number;
+            /**
+             * @description Latest present `rawValue` after baselining. Omitted when the
+             *     Bezugsgröße liegt nicht vor. Never `0` as a stand-in.
+             */
+            normalizedValue?: number;
         };
         /**
          * @description Canonical Ebene of a store-surroundings Musterprofil.
@@ -1266,9 +1297,8 @@ export interface components {
          */
         PatternLevel: "address" | "grid100" | "lor" | "quartier" | "ortsteil" | "plz" | "bezirk" | "gemeinde" | "kreis";
         /**
-         * @description `pattern` is compared Ebene-für-Ebene with Zielregion candidates
-         *     of the same Ebene. `frame` (Kreis) is context only and does not
-         *     differentiate siblings.
+         * @description Geography inventory on `patternByLevel`. `frame` (Kreis) is context
+         *     only. Compare/score uses `patternByDataset`, not same-Ebene matching.
          * @enum {string}
          */
         PatternLevelRole: "pattern" | "frame";
@@ -1285,6 +1315,23 @@ export interface components {
             geoKeys: string[];
             yearlySeries: components["schemas"]["YearlySeries"][];
             criteria: components["schemas"]["PatternCriterion"][];
+        };
+        /**
+         * @description Store-surroundings Musterprofil for one dataset. `yearlySeries` is
+         *     the finest Bestandstandort Fläche where that metric exists.
+         *     `normalizedValue` on points and on `criterion` is the relative
+         *     match (je 1.000 Einwohner, je km², or je Haushalt). Missing
+         *     Bezugsgröße omits `normalizedValue`. Additive; older stored sets
+         *     may omit `patternByDataset`.
+         */
+        PatternDatasetProfile: {
+            metricId: string;
+            baseline: components["schemas"]["SeriesBaseline"];
+            /** @description Flächenebene on which this dataset is present. */
+            sourceLevel: components["schemas"]["SeriesLevel"];
+            sourceGeoKey: string;
+            yearlySeries: components["schemas"]["YearlySeries"];
+            criterion: components["schemas"]["PatternCriterion"];
         };
         /**
          * @description Snapshot place this pattern belongs to, for the Stand line
@@ -1317,14 +1364,16 @@ export interface components {
             runId?: string;
         };
         /**
-         * @description Ranked finest Teilflächen the web client binds to. `count` is
-         *     `items.length`. `reason` is null when at least one finer sub-area
+         * @description Ranked Teilflächen the web client binds to. `count` is
+         *     `items.length`. `reason` is null when at least one sub-area
          *     exists and the catalog read was not truncated. `pattern` is the
          *     flattened store-surroundings snapshot (older clients).
-         *     `patternByLevel` is the Musterprofil je Ebene used for Ebene-für-Ebene
-         *     ranking. Empty `items` only when no finer sub-area exists inside
-         *     the Zielregion. Parent areas are omitted when a child at a finer
-         *     Ebene matches.
+         *     `patternByLevel` is the geography inventory je Ebene.
+         *     `patternByDataset` is the Musterprofil used for dataset compare
+         *     (normalized trend per metricId). Empty `items` only when no
+         *     sub-area exists inside the Zielregion. Hit size is the Fläche
+         *     where the dataset lives, not the smallest admin Ebene at all
+         *     costs; several datasets yield their intersection.
          */
         RecommendationSet: {
             /** @description Recommendation set id as a decimal string. */
@@ -1344,13 +1393,20 @@ export interface components {
             pattern: components["schemas"]["AnalysisPattern"];
             /**
              * @description Store-surroundings Musterprofil je Ebene, finest → coarse.
-             *     New `POST /recommendations` always includes the Ebenen that
-             *     were resolved for the Bestandstandorte. Older stored sets may
-             *     omit this field. Candidates are compared to the profile of the
-             *     **same** Ebene. Kreis is `role: frame` and does not
-             *     differentiate siblings.
+             *     New `POST /recommendations` includes the Ebenen resolved for
+             *     the Bestandstandorte. Older stored sets may omit this field.
+             *     Geography inventory only; compare/score uses `patternByDataset`.
+             *     Kreis is `role: frame` and does not differentiate siblings.
              */
             patternByLevel?: components["schemas"]["PatternLevelProfile"][];
+            /**
+             * @description Store-surroundings Musterprofil je Datensatz (normalized
+             *     value + three-year trend at the finest Fläche where that
+             *     metric exists). New `POST /recommendations` always includes
+             *     it. Older stored sets may omit the field. Web uses this to
+             *     show the relative dataset match, not only Muster je Ebene.
+             */
+            patternByDataset?: components["schemas"]["PatternDatasetProfile"][];
             items: components["schemas"]["Recommendation"][];
         };
         /**
@@ -1386,11 +1442,14 @@ export interface components {
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
-             * @description Share of **local** three-year trend criteria whose direction
-             *     matches the store-surroundings pattern of the **same** Ebene.
-             *     Inherited parent-level trends and Kreis-frame series do not
-             *     change this score. Stichtag criteria are labeled and do not
-             *     drive this score. 1 is a full local trend fit.
+             * @description Share of **local** three-year trend criteria whose **normalized**
+             *     direction matches the store-surroundings pattern of the **same
+             *     dataset** (`metricId`). Different Ebenen may still match when
+             *     both are baselined (Berlin Bezirk vs Köln PLZ). Inherited
+             *     parent-level trends and Kreis-frame series do not change this
+             *     score. Stichtag criteria are labeled and do not drive this
+             *     score. Missing Bezugsgröße is absent and does not match. 1 is
+             *     a full local trend fit.
              */
             score: number;
             /**
@@ -1420,10 +1479,12 @@ export interface components {
         /**
          * @description One pattern criterion observed on this Teilfläche.
          *     `kind` is `trend`, `stichtag`, or `absent`. `status` is `present`
-         *     or `absent`. Missing values omit `value` and are never `0`.
-         *     `patternDirection` is the stored Musteranalyse direction.
-         *     `scope` is `local` when the series is native to this Ebene, or
-         *     `inherited` when it was taken from a coarser parent.
+         *     or `absent`. Missing values omit `value` / `normalizedValue` and
+         *     are never `0`. `patternDirection` is the stored Musteranalyse
+         *     direction. `scope` is `local` when the series is native to this
+         *     Fläche, or `inherited` when it was taken from a coarser parent.
+         *     `metricId`, `baseline`, `rawValue`, `normalizedValue`, and
+         *     `sourceLevel` (Flächenebene) describe the dataset compare.
          */
         RecommendationEvidence: {
             key: string;
@@ -1442,10 +1503,19 @@ export interface components {
             match?: boolean;
             coverage?: components["schemas"]["SeriesCoverage"];
             scope?: components["schemas"]["EvidenceScope"];
+            /** @description Flächenebene on which this dataset is present. */
             sourceLevel?: components["schemas"]["SeriesLevel"];
-            /** @description Geo key of the Brain row when `scope` is inherited. */
-            sourceGeoKey?: string;
             points?: components["schemas"]["SeriesPoint"][];
+            /** @description Dataset / Brain theme id compared on this Fläche. */
+            metricId?: string;
+            baseline?: components["schemas"]["SeriesBaseline"];
+            /** @description Latest present raw Brain cell. Omitted when absent. */
+            rawValue?: number;
+            /**
+             * @description Latest present baselined value. Omitted when the Bezugsgröße
+             *     liegt nicht vor. Never invented as `0`.
+             */
+            normalizedValue?: number;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

@@ -50,7 +50,7 @@ describe("AreaCandidateService", () => {
     queryReadingFeatures.mockReset();
   });
 
-  it("returns only the finest hits and drops the region anchor", async () => {
+  it("returns catalog kinds minus the region anchor", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
       if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
@@ -91,7 +91,7 @@ describe("AreaCandidateService", () => {
     });
 
     const loaded = await service.load([region()]);
-    expect(loaded.items.map((item) => item.geoKey)).toEqual(["ortsteil:osm:1"]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["80801", "ortsteil:osm:1"]);
     expect(loaded.items.map((item) => item.id)).not.toContain("ags:09162000");
     expect(queryReadingFeatures.mock.calls.some((call) => String(call[0]) === buildAddressCandidateSql())).toBe(true);
     expect(queryReadingFeatures.mock.calls.some((call) => String(call[0]) === buildGrid100CandidateSql())).toBe(true);
@@ -137,7 +137,7 @@ describe("AreaCandidateService", () => {
     });
 
     const loaded = await service.load([region()]);
-    expect(loaded.items.map((item) => item.kind)).toEqual(["grid100"]);
+    expect(loaded.items.map((item) => item.kind)).toEqual(["grid100", "ortsteil"]);
   });
 
   it("lists LOR Planungsraum as finest over Ortsteil and does not require embeddings", async () => {
@@ -188,8 +188,8 @@ describe("AreaCandidateService", () => {
         geometry: null,
       }),
     ]);
-    expect(loaded.items.map((item) => item.kind)).toEqual(["lor"]);
-    expect(loaded.items.map((item) => item.geoKey)).toEqual(["lor:plr:01100101"]);
+    expect(loaded.items.map((item) => item.kind)).toEqual(["lor", "ortsteil"]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["lor:plr:01100101", "ortsteil:osm:1"]);
   });
 
   it("skips missing geo_ref_address and continues at the next Ebene", async () => {

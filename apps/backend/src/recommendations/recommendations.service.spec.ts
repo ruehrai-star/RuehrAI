@@ -89,6 +89,27 @@ function trend(
   };
 }
 
+function inhabitants(
+  requestedGeoKey: string,
+  requestedLevel: YearlySeries["requestedLevel"] = "ortsteil",
+  value = 10_000,
+): YearlySeries {
+  return {
+    metricId: "bevoelkerung",
+    requestedLevel,
+    requestedGeoKey,
+    sourceLevel: requestedLevel,
+    sourceGeoKey: requestedGeoKey,
+    granularity: "year",
+    coverage: "multi",
+    points: [
+      { period: "2023", status: "present", value },
+      { period: "2024", status: "present", value },
+      { period: "2025", status: "present", value },
+    ],
+  };
+}
+
 describe("RecommendationsService", () => {
   const query = jest.fn();
   const load = jest.fn();
@@ -158,12 +179,17 @@ describe("RecommendationsService", () => {
     build
       .mockResolvedValueOnce([
         trend("ortsteil:osm:store", 20, 8, "ortsteil"),
+        inhabitants("ortsteil:osm:store", "ortsteil"),
         trend("80331", 20, 8, "plz"),
+        inhabitants("80331", "plz"),
       ])
       .mockResolvedValueOnce([
         trend("ortsteil:osm:1", 20, 8),
+        inhabitants("ortsteil:osm:1"),
         trend("ortsteil:osm:2", 18, 9),
+        inhabitants("ortsteil:osm:2"),
         trend("ortsteil:osm:3", 10, 30),
+        inhabitants("ortsteil:osm:3"),
       ]);
 
     const set = await service.create("4", undefined, asOf);
@@ -179,6 +205,13 @@ describe("RecommendationsService", () => {
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["ortsteil", "plz"]);
     expect(set.patternByLevel?.find((item) => item.level === "ortsteil")?.criteria[0]?.scope).toBe("local");
     expect(set.patternByLevel?.find((item) => item.level === "plz")?.geoKeys).toEqual(["80331"]);
+    expect(set.patternByDataset?.[0]).toMatchObject({
+      metricId: "unfallatlas",
+      baseline: "per_1000_inhabitants",
+      sourceLevel: "ortsteil",
+    });
+    expect(set.pattern.criteria[0]?.baseline).toBe("per_1000_inhabitants");
+    expect(set.pattern.criteria[0]?.normalizedValue).toBe(0.8);
 
     const insert = query.mock.calls[1] as [string, unknown[]];
     expect(insert[0]).toContain("INSERT INTO app.recommendation_sets");
@@ -186,7 +219,7 @@ describe("RecommendationsService", () => {
     expect(load.mock.calls[0]?.[0]?.[0]?.geoKey).toBe("09162000");
   });
 
-  it("does not score Ortsteil candidates from a PLZ-only store pattern", async () => {
+  it("scores Ortsteil candidates against a PLZ-store dataset on normalized values", async () => {
     resolve.mockResolvedValue({
       regions: [{ grain: "plz5", geoKey: "80331", plz: "80331", level: "plz" }],
       keys: ["80331"],
@@ -201,13 +234,23 @@ describe("RecommendationsService", () => {
       truncated: false,
     });
     build
-      .mockResolvedValueOnce([trend("80331", 20, 8, "plz")])
-      .mockResolvedValueOnce([trend("ortsteil:osm:1", 20, 8), trend("ortsteil:osm:2", 10, 30)]);
+      .mockResolvedValueOnce([trend("80331", 20, 8, "plz"), inhabitants("80331", "plz")])
+      .mockResolvedValueOnce([
+        trend("ortsteil:osm:1", 20, 8),
+        inhabitants("ortsteil:osm:1"),
+        trend("ortsteil:osm:2", 10, 30),
+        inhabitants("ortsteil:osm:2"),
+      ]);
 
     const set = await service.create("4", undefined, asOf);
-    expect(set.items.every((item) => item.score === 0)).toBe(true);
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["plz"]);
-    expect(set.items.map((item) => item.criteriaEvidence)).toEqual([[], []]);
+    expect(set.patternByDataset?.[0]?.sourceLevel).toBe("plz");
+    expect(set.items.map((item) => item.title)).toEqual(["Schwabing", "Sendling"]);
+    expect(set.items[0]?.score).toBe(1);
+    expect(set.items[1]?.score).toBe(0);
+    expect(set.items[0]?.criteriaEvidence[0]?.baseline).toBe("per_1000_inhabitants");
+    expect(set.items[0]?.criteriaEvidence[0]?.match).toBe(true);
+    expect(set.items.every((item) => item.criteriaEvidence.length === 1)).toBe(true);
   });
 
   it("returns an empty list only when no sub-area exists", async () => {

@@ -1,6 +1,7 @@
 import { LonLatBounds, RegionGeometry } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 import { SeriesCoverage, SeriesLevel, YearlySeries } from "./yearly-series";
+import { SeriesBaseline } from "./series-baseline";
 
 export type { SeriesCoverage, SeriesGranularity, SeriesLevel, SeriesPoint, YearlySeries } from "./yearly-series";
 
@@ -117,8 +118,12 @@ export interface PatternCriterion {
   coverage?: SeriesCoverage;
   sourceLevel?: SeriesLevel;
   sourceGeoKey?: string;
-  /** On `patternByLevel` criteria: native to that Ebene, or taken from a parent. */
+  /** On `patternByLevel` / `patternByDataset` criteria. */
   scope?: CriterionScope;
+  metricId?: string;
+  baseline?: SeriesBaseline;
+  rawValue?: number;
+  normalizedValue?: number;
 }
 
 export interface AnalysisPattern {

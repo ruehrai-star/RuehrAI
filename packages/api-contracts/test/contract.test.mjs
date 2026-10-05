@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.14.0");
+  assert.equal(doc.info.version, "0.15.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -88,7 +88,10 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.12.1"));
   assert.ok(doc.info.description.includes("0.13.0"));
   assert.ok(doc.info.description.includes("0.14.0"));
+  assert.ok(doc.info.description.includes("0.15.0"));
   assert.ok(doc.info.description.includes("patternByLevel"));
+  assert.ok(doc.info.description.includes("patternByDataset"));
+  assert.ok(doc.info.description.includes("per_1000_inhabitants"));
   assert.ok(doc.info.description.includes("lor:plr"));
   assert.ok(doc.info.description.includes("koeln:sq"));
   assert.ok(doc.info.description.includes("geo.geo_ref_address"));
@@ -125,6 +128,39 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
     "#/components/schemas/PatternLevelProfile",
   );
   assert.equal(doc.components.schemas.RecommendationSet.required.includes("patternByLevel"), false);
+  assert.equal(
+    doc.components.schemas.RecommendationSet.properties.patternByDataset.items.$ref,
+    "#/components/schemas/PatternDatasetProfile",
+  );
+  assert.equal(doc.components.schemas.RecommendationSet.required.includes("patternByDataset"), false);
+  assert.deepEqual(doc.components.schemas.SeriesBaseline.enum, [
+    "per_1000_inhabitants",
+    "per_km2",
+    "per_household",
+  ]);
+  assert.deepEqual(doc.components.schemas.PatternDatasetProfile.required, [
+    "metricId",
+    "baseline",
+    "sourceLevel",
+    "sourceGeoKey",
+    "yearlySeries",
+    "criterion",
+  ]);
+  assert.equal(doc.components.schemas.PatternCriterion.properties.metricId.type, "string");
+  assert.equal(
+    doc.components.schemas.PatternCriterion.properties.baseline.$ref,
+    "#/components/schemas/SeriesBaseline",
+  );
+  assert.equal(doc.components.schemas.PatternCriterion.properties.rawValue.type, "number");
+  assert.equal(doc.components.schemas.PatternCriterion.properties.normalizedValue.type, "number");
+  assert.equal(doc.components.schemas.SeriesPoint.properties.normalizedValue.type, "number");
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.metricId.type, "string");
+  assert.equal(
+    doc.components.schemas.RecommendationEvidence.properties.baseline.$ref,
+    "#/components/schemas/SeriesBaseline",
+  );
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.rawValue.type, "number");
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.normalizedValue.type, "number");
   assert.deepEqual(doc.components.schemas.PatternLevel.enum, [
     "address",
     "grid100",

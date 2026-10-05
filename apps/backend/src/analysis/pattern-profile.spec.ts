@@ -1,4 +1,4 @@
-import { buildPatternByLevel, canonicalPatternLevel, criteriaForPatternLevel } from "./pattern-profile";
+import { buildPatternByDataset, buildPatternByLevel, canonicalPatternLevel } from "./pattern-profile";
 import { YearlySeries } from "./yearly-series";
 
 function series(overrides: Partial<YearlySeries> & Pick<YearlySeries, "metricId" | "requestedLevel" | "requestedGeoKey">): YearlySeries {
@@ -36,6 +36,18 @@ describe("buildPatternByLevel", () => {
           requestedLevel: "ortsteil",
           requestedGeoKey: "ortsteil:osm:1",
           sourceLevel: "ortsteil",
+        }),
+        series({
+          metricId: "bevoelkerung",
+          requestedLevel: "ortsteil",
+          requestedGeoKey: "ortsteil:osm:1",
+          sourceLevel: "ortsteil",
+          sourceGeoKey: "ortsteil:osm:1",
+          points: [
+            { period: "2023", status: "present", value: 10_000 },
+            { period: "2024", status: "present", value: 10_000 },
+            { period: "2025", status: "present", value: 10_000 },
+          ],
         }),
         series({
           metricId: "bevoelkerung",
@@ -86,16 +98,69 @@ describe("buildPatternByLevel", () => {
     expect(ortsteil?.criteria[0]?.scope).toBe("local");
     expect(ortsteil?.yearlySeries.find((item) => item.metricId === "breitband")).toBeUndefined();
     expect(JSON.stringify(ortsteil?.yearlySeries)).not.toMatch(/"value":0/);
+  });
+});
 
-    const plz = profiles.find((item) => item.level === "plz");
-    expect(plz?.criteria[0]?.scope).toBe("inherited");
-    expect(plz?.criteria[0]?.sourceLevel).toBe("gemeinde");
+describe("buildPatternByDataset", () => {
+  it("exposes one normalized Musterprofil per dataset at the finest store Fläche", () => {
+    const profiles = buildPatternByDataset([
+      series({
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "bezirk",
+        requestedGeoKey: "11000001",
+        sourceLevel: "bezirk",
+        sourceGeoKey: "11000001",
+        points: [
+          { period: "2023", status: "present", value: 20 },
+          { period: "2025", status: "present", value: 40 },
+        ],
+      }),
+      series({
+        metricId: "bevoelkerung",
+        requestedLevel: "bezirk",
+        requestedGeoKey: "11000001",
+        sourceLevel: "bezirk",
+        sourceGeoKey: "11000001",
+        points: [
+          { period: "2023", status: "present", value: 10_000 },
+          { period: "2025", status: "present", value: 10_000 },
+        ],
+      }),
+      series({
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "plz",
+        requestedGeoKey: "50667",
+        sourceLevel: "plz",
+        sourceGeoKey: "50667",
+        points: [
+          { period: "2023", status: "present", value: 4 },
+          { period: "2025", status: "present", value: 8 },
+        ],
+      }),
+      series({
+        metricId: "bevoelkerung",
+        requestedLevel: "plz",
+        requestedGeoKey: "50667",
+        sourceLevel: "plz",
+        sourceGeoKey: "50667",
+        points: [
+          { period: "2023", status: "present", value: 2_000 },
+          { period: "2025", status: "present", value: 2_000 },
+        ],
+      }),
+    ]);
 
-    expect(criteriaForPatternLevel("ortsteil", profiles, [])[0]?.key).toBe("unfallatlas");
-    expect(criteriaForPatternLevel("stadtteil", profiles, [])[0]?.key).toBe("unfallatlas");
-    expect(criteriaForPatternLevel("kreis", profiles, [{ key: "x", label: "x", direction: "up", evidence: "x" }])).toEqual(
-      [],
-    );
-    expect(criteriaForPatternLevel("grid100", profiles, [])).toEqual([]);
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0]).toMatchObject({
+      metricId: "kba_elektro_pkw",
+      baseline: "per_1000_inhabitants",
+      sourceLevel: "plz",
+      sourceGeoKey: "50667",
+    });
+    expect(profiles[0]?.criterion.normalizedValue).toBe(4);
+    expect(profiles[0]?.criterion.rawValue).toBe(8);
+    expect(profiles[0]?.criterion.kind).toBe("trend");
+    expect(profiles[0]?.criterion.direction).toBe("up");
+    expect(profiles.find((item) => item.metricId === "bevoelkerung")).toBeUndefined();
   });
 });

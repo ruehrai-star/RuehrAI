@@ -281,14 +281,34 @@ describe("pattern", () => {
             { period: "2025", status: "present", value: 10 },
           ],
         },
+        {
+          metricId: "bevoelkerung",
+          requestedLevel: "plz",
+          requestedGeoKey: "80331",
+          sourceLevel: "plz",
+          sourceGeoKey: "80331",
+          granularity: "year",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 10_000 },
+            { period: "2024", status: "present", value: 10_000 },
+            { period: "2025", status: "present", value: 10_000 },
+          ],
+        },
       ],
     );
-    expect(pattern.criteria[0]).toMatchObject({ key: "unfallatlas", kind: "trend", direction: "down" });
+    expect(pattern.criteria[0]).toMatchObject({
+      key: "unfallatlas",
+      kind: "trend",
+      direction: "down",
+      baseline: "per_1000_inhabitants",
+    });
     expect(pattern.criteria[0]?.evidence).toContain("Dreijahresverlauf");
+    expect(pattern.criteria.find((criterion) => criterion.key === "bevoelkerung")).toBeUndefined();
     expect(pattern.summary).toContain("Bestandstandorte");
   });
 
-  it("prefers Destatis bev_insgesamt series at the store Kreis over Zensus Stichtag", () => {
+  it("uses Destatis Einwohner as Bezugsgröße, not as a relative dataset", () => {
     const pattern = buildHeuristicPattern(koelnInput(), [], [
       {
         metricId: "destatis",
@@ -299,8 +319,21 @@ describe("pattern", () => {
         granularity: "year",
         coverage: "multi",
         points: [
-          { period: "2023", status: "present", value: 1000000 },
-          { period: "2025", status: "present", value: 1025523 },
+          { period: "2023", status: "present", value: 1_000_000 },
+          { period: "2025", status: "present", value: 1_025_523 },
+        ],
+      },
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "kreis",
+        requestedGeoKey: "05315",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 2000 },
+          { period: "2025", status: "present", value: 3000 },
         ],
       },
       {
@@ -314,9 +347,11 @@ describe("pattern", () => {
         points: [{ period: "2022", status: "present", value: 1017355 }],
       },
     ]);
-    expect(pattern.criteria[0]?.key).toBe("destatis");
+    expect(pattern.criteria[0]?.key).toBe("kba_elektro_pkw");
     expect(pattern.criteria[0]?.kind).toBe("trend");
     expect(pattern.criteria[0]?.label).toContain("Kreis");
+    expect(pattern.criteria[0]?.baseline).toBe("per_1000_inhabitants");
+    expect(pattern.criteria.find((criterion) => criterion.key === "destatis")).toBeUndefined();
     expect(pattern.criteria.find((criterion) => criterion.key === "zensus2022")?.kind).toBe("stichtag");
   });
 
@@ -330,7 +365,7 @@ describe("pattern", () => {
     expect(pattern.criteria[0]?.evidence).not.toContain("7,0");
   });
 
-  it("labels a Kreis Einwohner value when the store series comes from Kreis", () => {
+  it("labels a Kreis count dataset when the store series comes from Kreis", () => {
     const pattern = buildHeuristicPattern(koelnInput(), [], [
       {
         metricId: "destatis",
@@ -341,15 +376,30 @@ describe("pattern", () => {
         granularity: "year",
         coverage: "multi",
         points: [
-          { period: "2023", status: "present", value: 1000000 },
-          { period: "2025", status: "present", value: 1025523 },
+          { period: "2023", status: "present", value: 1_000_000 },
+          { period: "2025", status: "present", value: 1_025_523 },
+        ],
+      },
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "ortsteil",
+        requestedGeoKey: "ortsteil:osm:deutz",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 2000 },
+          { period: "2025", status: "present", value: 3000 },
         ],
       },
     ]);
-    const bev = pattern.criteria.find((criterion) => criterion.key === "destatis");
-    expect(bev?.label).toContain("Kreis");
-    expect(bev?.evidence).toContain("Kreis");
-    expect(bev?.evidence).toContain("1.025.523");
+    const kba = pattern.criteria.find((criterion) => criterion.key === "kba_elektro_pkw");
+    expect(kba?.label).toContain("Kreis");
+    expect(kba?.evidence).toContain("Kreis");
+    expect(kba?.evidence).toContain("je 1.000 Einwohner");
+    expect(kba?.baseline).toBe("per_1000_inhabitants");
+    expect(pattern.criteria.find((criterion) => criterion.key === "destatis")).toBeUndefined();
   });
 
   it("omits a metric that only exists on foreign geoKeys instead of inventing a mean", () => {

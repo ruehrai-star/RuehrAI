@@ -38,6 +38,8 @@ export interface SeriesPoint {
   period: string;
   status: SeriesPointStatus;
   value?: number;
+  /** Rohwert / Bezugsgröße. Omitted when the Bezugsgröße liegt nicht vor. */
+  normalizedValue?: number;
 }
 
 export interface YearlySeries {

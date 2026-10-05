@@ -1,6 +1,12 @@
 import { PatternCriterion } from "./types";
 import { criteriaFromYearlySeries, seriesLevelRank } from "./series-criteria";
 import {
+  attachNormalizedValues,
+  baselineForMetric,
+  SeriesBaseline,
+} from "./series-baseline";
+import {
+  SeriesLevel,
   SeriesRegionInput,
   YearlySeries,
   requestedGeoKeyOf,
@@ -29,6 +35,15 @@ export interface PatternLevelProfile {
   geoKeys: string[];
   yearlySeries: YearlySeries[];
   criteria: PatternCriterion[];
+}
+
+export interface PatternDatasetProfile {
+  metricId: string;
+  baseline: SeriesBaseline;
+  sourceLevel: SeriesLevel;
+  sourceGeoKey: string;
+  yearlySeries: YearlySeries;
+  criterion: PatternCriterion;
 }
 
 const LEVEL_ALIASES: Record<string, PatternLevel> = {
@@ -95,25 +110,42 @@ export function buildPatternByLevel(
   return profiles;
 }
 
-/** Same-Ebene criteria. Missing profile or Kreis frame → empty (score 0). */
-export function criteriaForPatternLevel(
-  level: string | null | undefined,
-  profiles: PatternLevelProfile[] | undefined,
-  fallback: PatternCriterion[],
-): PatternCriterion[] {
-  if (!profiles) return fallback;
-  const canonical = canonicalPatternLevel(level);
-  if (!canonical) return [];
-  const profile = profiles.find((item) => item.level === canonical);
-  if (!profile || profile.role === "frame") return [];
-  return profile.criteria;
+/**
+ * One Musterprofil per dataset: finest available store Fläche, normalized
+ * trend. Kreis may be that Fläche when the dataset only exists there.
+ */
+export function buildPatternByDataset(series: YearlySeries[]): PatternDatasetProfile[] {
+  const normalized = attachNormalizedValues(series);
+  return criteriaFromYearlySeries(normalized).map((criterion) => {
+    const item =
+      normalized.find(
+        (entry) => entry.metricId === criterion.key && entry.sourceGeoKey === criterion.sourceGeoKey,
+      ) ??
+      normalized.find((entry) => entry.metricId === criterion.key);
+    const yearlySeries = item ?? emptySeries(criterion.key);
+    const baseline = criterion.baseline ?? baselineForMetric(criterion.key);
+    return {
+      metricId: criterion.metricId ?? criterion.key,
+      baseline,
+      sourceLevel: (criterion.sourceLevel ?? yearlySeries.sourceLevel) as SeriesLevel,
+      sourceGeoKey: criterion.sourceGeoKey ?? yearlySeries.sourceGeoKey,
+      yearlySeries,
+      criterion: { ...criterion, metricId: criterion.metricId ?? criterion.key, baseline },
+    };
+  });
 }
 
-/** Flattened `pattern.criteria` for older clients: non-Kreis Ebenen, finest source wins. */
-export function flattenedPatternCriteria(profiles: PatternLevelProfile[]): PatternCriterion[] {
-  return criteriaFromYearlySeries(
-    profiles.filter((item) => item.role === "pattern").flatMap((item) => item.yearlySeries),
-  );
+function emptySeries(metricId: string): YearlySeries {
+  return {
+    metricId,
+    requestedLevel: "gemeinde",
+    requestedGeoKey: "",
+    sourceLevel: "gemeinde",
+    sourceGeoKey: "",
+    granularity: "year",
+    coverage: "none",
+    points: [],
+  };
 }
 
 function withScope(criterion: PatternCriterion, profileLevel: PatternLevel): PatternCriterion {

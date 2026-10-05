@@ -31,6 +31,8 @@ export type {
   PatternLevel,
   PatternLevelProfile,
   PatternLevelRole,
+  PatternDatasetProfile,
+  SeriesBaseline,
   RecommendationCreate,
   RecommendationEvidence,
   RecommendationWindow,

@@ -154,6 +154,75 @@ test("GET /recommendations accepts additive patternByLevel and still parses with
   assert.equal(latest?.patternByLevel?.[0]?.yearlySeries[0]?.points.find((point) => point.period === "2024")?.value, undefined);
 });
 
+test("GET /recommendations accepts additive patternByDataset and still parses without it", async () => {
+  const withDataset = {
+    ...set,
+    patternByDataset: [
+      {
+        metricId: "kba_elektro_pkw",
+        baseline: "per_1000_inhabitants",
+        sourceLevel: "plz",
+        sourceGeoKey: "80801",
+        yearlySeries: {
+          metricId: "kba_elektro_pkw",
+          requestedLevel: "plz",
+          requestedGeoKey: "80801",
+          sourceLevel: "plz",
+          sourceGeoKey: "80801",
+          granularity: "year",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 10, normalizedValue: 1 },
+            { period: "2024", status: "absent" },
+            { period: "2025", status: "present", value: 20, normalizedValue: 2 },
+          ],
+        },
+        criterion: {
+          key: "kba_elektro_pkw",
+          metricId: "kba_elektro_pkw",
+          label: "Elektro-Pkw",
+          direction: "up",
+          evidence: "steigt je 1.000 Einwohner",
+          kind: "trend",
+          baseline: "per_1000_inhabitants",
+          rawValue: 20,
+          normalizedValue: 2,
+          sourceLevel: "plz",
+        },
+      },
+    ],
+    items: [
+      {
+        ...set.items[0],
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            metricId: "kba_elektro_pkw",
+            baseline: "per_1000_inhabitants",
+            rawValue: 20,
+            normalizedValue: 2,
+            sourceLevel: "plz",
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withDataset),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.patternByDataset?.length, 1);
+  assert.equal(latest?.patternByDataset?.[0]?.metricId, "kba_elektro_pkw");
+  assert.equal(latest?.patternByDataset?.[0]?.baseline, "per_1000_inhabitants");
+  assert.equal(latest?.patternByDataset?.[0]?.criterion.normalizedValue, 2);
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.rawValue, 20);
+  assert.equal(
+    latest?.patternByDataset?.[0]?.yearlySeries.points.find((point) => point.period === "2024")?.normalizedValue,
+    undefined,
+  );
+});
+
 test("GET /recommendations maps 404 to no set", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

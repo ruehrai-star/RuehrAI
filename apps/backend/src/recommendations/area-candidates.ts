@@ -53,7 +53,8 @@ export interface ParentMembership {
 /**
  * Finest → coarsest. Address is skipped when geo_ref_address / Brain has 0 docs.
  * LOR Planungsraum and Köln-Quartier sit **above** Ortsteil (finer).
- * Only the finest rank with hits is returned; parents stay off the list.
+ * Catalog load keeps every kind (minus anchors); dataset ranking picks the
+ * native Fläche. `selectFinestHits` remains a fallback for a single grain.
  */
 export function areaKindRank(kind: AreaKind): number {
   if (kind === "address") return 0;
@@ -92,6 +93,15 @@ function finestKindOrderSql(): string {
        WHEN 'gemeinde' THEN 6
        ELSE 7
      END`;
+}
+
+export function selectCatalogHits(
+  candidates: AreaCandidate[],
+  regions: Array<Pick<AnalysisRegion, "geoKey" | "grain" | "ags" | "plz">>,
+): AreaCandidate[] {
+  return dropLor2006WhenPlrExists(
+    candidates.filter((candidate) => !regions.some((region) => isRegionAnchor(candidate, region))),
+  );
 }
 
 export function selectFinestHits(

@@ -31,7 +31,7 @@ import {
   isLorPlrKey,
   lorCandidateParams,
   parentMemberships,
-  selectFinestHits,
+  selectCatalogHits,
 } from "./area-candidates";
 
 const GRAIN_SET = new Set<string>(["address", "grid100", "plz8", "plz5", "ags", "ags5", "other"]);
@@ -48,8 +48,9 @@ export class AreaCandidateService {
   constructor(private readonly db: DatabaseService) {}
 
   /**
-   * Finest Teilflächen inside the Zielregion. Never the region geoKey itself.
-   * Address is skipped when `geo.geo_ref_address` / Brain has no rows; grid100 is tried next.
+   * Catalog Teilflächen inside the Zielregion (all kinds). Never the region
+   * geoKey itself. Dataset ranking later picks the native Fläche per metric.
+   * Address is skipped when `geo.geo_ref_address` / Brain has no rows.
    * Berlin 2021 PLR (`lor:plr:*`) wins over 2006 LOR; Köln `koeln:sq:*` is quartier.
    */
   async load(regions: AnalysisRegion[]): Promise<AreaCandidateLoad> {
@@ -61,7 +62,7 @@ export class AreaCandidateService {
       for (const region of regions) {
         const loaded = await this.loadRegion(region);
         if (loaded.truncated) truncated = true;
-        collected.push(...selectFinestHits(loaded.items, [region, ...regions]));
+        collected.push(...selectCatalogHits(loaded.items, [region, ...regions]));
       }
       const out: AreaCandidate[] = [];
       for (const candidate of collected) {

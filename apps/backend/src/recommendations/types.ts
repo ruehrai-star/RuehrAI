@@ -1,5 +1,6 @@
 import { Grain } from "../target-region/dto";
-import { PatternLevelProfile } from "../analysis/pattern-profile";
+import { PatternLevelProfile, PatternDatasetProfile } from "../analysis/pattern-profile";
+import { SeriesBaseline } from "../analysis/series-baseline";
 import { AnalysisPattern, CriterionDirection, PatternSource } from "../analysis/types";
 import { SeriesCoverage, SeriesPoint, SeriesPointStatus } from "../analysis/yearly-series";
 import { AreaKind } from "./area-candidates";
@@ -34,6 +35,10 @@ export interface RecommendationEvidence {
   sourceLevel?: string;
   sourceGeoKey?: string;
   points?: SeriesPoint[];
+  metricId?: string;
+  baseline?: SeriesBaseline;
+  rawValue?: number;
+  normalizedValue?: number;
 }
 
 export interface ScoredLocation {
@@ -59,6 +64,8 @@ export interface RecommendationPayload {
   pattern: AnalysisPattern;
   /** Store-surroundings Musterprofil je Ebene. Omitted on older stored sets. */
   patternByLevel?: PatternLevelProfile[];
+  /** Store-surroundings Musterprofil je Datensatz (normalized trend). */
+  patternByDataset?: PatternDatasetProfile[];
   items: RecommendationItem[];
 }
 

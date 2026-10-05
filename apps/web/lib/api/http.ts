@@ -13,6 +13,7 @@ import type {
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
   PatternLevelProfile,
+  PatternDatasetProfile,
   RecommendationCreate,
   RecommendationEvidence,
   RevenueDirection,
@@ -456,6 +457,7 @@ const PATTERN_LEVELS = new Set([
 ] as const);
 const PATTERN_LEVEL_ROLES = new Set(["pattern", "frame"] as const);
 const EVIDENCE_SCOPES = new Set(["local", "inherited"] as const);
+const SERIES_BASELINES = new Set<string>(["per_1000_inhabitants", "per_km2", "per_household"]);
 const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
 const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
 const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
@@ -549,6 +551,7 @@ function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPat
     if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
+    parseCriterionDatasetFields(criterion, route);
   }
   if (body.yearlySeries !== undefined) {
     if (!Array.isArray(body.yearlySeries)) {
@@ -578,6 +581,9 @@ function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
     if (point.status === "present" && typeof point.value !== "number") {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (point.normalizedValue !== undefined && typeof point.normalizedValue !== "number") {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
@@ -661,6 +667,12 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     }
     body.patternByLevel.forEach((profile) => parsePatternLevelProfile(profile, route));
   }
+  if (body.patternByDataset !== undefined) {
+    if (!Array.isArray(body.patternByDataset)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    body.patternByDataset.forEach((profile) => parsePatternDatasetProfile(profile, route));
+  }
   body.items.forEach((item) => parseRecommendation(item, route));
   return body;
 }
@@ -693,7 +705,34 @@ function parsePatternLevelProfile(body: PatternLevelProfile, route: string): voi
     if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
+    parseCriterionDatasetFields(criterion, route);
   }
+}
+
+function parsePatternDatasetProfile(body: PatternDatasetProfile, route: string): void {
+  if (
+    !body ||
+    typeof body.metricId !== "string" ||
+    !SERIES_BASELINES.has(body.baseline) ||
+    !isSeriesLevel(body.sourceLevel) ||
+    typeof body.sourceGeoKey !== "string" ||
+    !body.yearlySeries ||
+    !body.criterion
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseYearlySeries(body.yearlySeries, route);
+  const criterion = body.criterion;
+  if (
+    !criterion ||
+    typeof criterion.key !== "string" ||
+    typeof criterion.label !== "string" ||
+    typeof criterion.evidence !== "string" ||
+    !CRITERION_DIRECTIONS.has(criterion.direction)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseCriterionDatasetFields(criterion, route);
 }
 
 function parseRecommendation(body: Recommendation, route: string): Recommendation {
@@ -738,6 +777,30 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
     !CRITERION_DIRECTIONS.has(body.direction) ||
     !CRITERION_DIRECTIONS.has(body.patternDirection)
   ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseCriterionDatasetFields(body, route);
+}
+
+function parseCriterionDatasetFields(
+  body: {
+    metricId?: string;
+    baseline?: string;
+    rawValue?: number;
+    normalizedValue?: number;
+  },
+  route: string,
+): void {
+  if (body.metricId !== undefined && typeof body.metricId !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.baseline !== undefined && !SERIES_BASELINES.has(body.baseline)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.rawValue !== undefined && typeof body.rawValue !== "number") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.normalizedValue !== undefined && typeof body.normalizedValue !== "number") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
 }
