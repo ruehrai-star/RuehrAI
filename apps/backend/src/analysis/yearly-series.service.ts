@@ -84,11 +84,7 @@ export class YearlySeriesService {
       .filter((item) => item.requestedLevel === "plz" && !municipalityAgsFrom(item.region))
       .map((item) => item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, ""));
     const needOrtsteil = wanted
-      .filter(
-        (item) =>
-          (item.requestedLevel === "stadtteil" || item.requestedLevel === "ortsteil") &&
-          !municipalityAgsFrom(item.region),
-      )
+      .filter((item) => item.requestedLevel === "stadtteil" || item.requestedLevel === "ortsteil")
       .flatMap((item) => ortsteilLookupIds(item.requestedGeoKey));
     const needBezirk = wanted
       .filter(
@@ -142,20 +138,25 @@ export class YearlySeriesService {
 
   private async readOrtsteilBezirk(ids: string[]): Promise<OrtsteilRow[]> {
     if (ids.length === 0) return [];
-    return this.readCatalog<OrtsteilRow>(
-      `SELECT o.geo_ortsteil_id::text AS id,
-              (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) AS geo_key,
-              NULLIF(btrim(o.geo_ags::text), '') AS geo_ags,
-              NULLIF(btrim(b.geo_bezirk_id::text), '') AS geo_bezirk_id
-         FROM geo.geo_ref_ortsteil o
-         JOIN geo.geo_ref_bezirk b
-           ON o.geom IS NOT NULL AND NOT ST_IsEmpty(o.geom)
-          AND b.geom IS NOT NULL AND NOT ST_IsEmpty(b.geom)
-          AND ST_Intersects(b.geom, ST_PointOnSurface(o.geom))
-        WHERE o.geo_ortsteil_id::text = ANY($1::text[])
-           OR (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) = ANY($1::text[])`,
-      [ids],
-    );
+    try {
+      return await this.readCatalog<OrtsteilRow>(
+        `SELECT o.geo_ortsteil_id::text AS id,
+                (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) AS geo_key,
+                NULLIF(btrim(o.geo_ags::text), '') AS geo_ags,
+                NULLIF(btrim(b.geo_bezirk_id::text), '') AS geo_bezirk_id
+           FROM geo.geo_ref_ortsteil o
+           JOIN geo.geo_ref_bezirk b
+             ON o.geom IS NOT NULL AND NOT ST_IsEmpty(o.geom)
+            AND b.geom IS NOT NULL AND NOT ST_IsEmpty(b.geom)
+            AND ST_Intersects(b.geom, ST_PointOnSurface(o.geom))
+          WHERE o.geo_ortsteil_id::text = ANY($1::text[])
+             OR (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) = ANY($1::text[])`,
+        [ids],
+      );
+    } catch (error) {
+      this.noteCatalogMiss(error);
+      return [];
+    }
   }
 
   private async readBezirk(ids: string[]): Promise<BezirkRow[]> {

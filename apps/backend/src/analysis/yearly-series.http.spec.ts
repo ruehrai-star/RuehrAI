@@ -256,6 +256,110 @@ describe("analysis yearlySeries HTTP", () => {
     expect(bevoelkerung.sourceGeoKey).toBe("11007007");
     expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(3);
   });
+
+  it("keeps yearlySeries on GET when Tempelhof Ortsteil has no stored level", async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "15",
+          status: "completed",
+          input: {
+            region: {
+              label: "Tempelhof",
+              grain: "other",
+              geoKey: "ortsteil:osm:162894",
+              level: null,
+              ags: "11000000",
+              plz: null,
+              lon: null,
+              lat: null,
+              bounds: null,
+              geometry: null,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+            stores: [],
+            revenueDirection: "up",
+            capturedAt: "2026-10-05T00:00:00.000Z",
+          },
+          brain: { mode: "sql", vectorUnavailableReason: "features_unavailable", factCount: 0, facts: [] },
+          pattern: {
+            source: "heuristic",
+            summary: "Der Filialumsatz ist steigend.",
+            revenueDirection: "up",
+            criteria: [],
+          },
+          created_at: new Date("2026-10-05T00:00:00.000Z"),
+        },
+      ],
+    });
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      if (sql.includes("geo_ref_ortsteil")) {
+        return { rows: [{ id: "osm:162894", geo_key: "ortsteil:osm:162894", geo_ags: "11000000" }] };
+      }
+      if (sql.includes("location_feature_docs") || sql.includes("v_location_search")) {
+        return {
+          rows: [
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { values: { insgesamt: 3750000 } },
+              ref_period: "2023-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { values: { insgesamt: 3760000 } },
+              ref_period: "2024-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { values: { insgesamt: 3770000 } },
+              ref_period: "2025-12",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags5",
+              geo_key: "11000",
+              metadata: { bg: 230217 },
+              ref_period: "2026-09|sgb2",
+            },
+            {
+              source_theme: "ba_sgb2",
+              grain: "ags5",
+              geo_key: "11000",
+              metadata: { bg: 229100 },
+              ref_period: "2026-08|sgb2",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/analysis/pattern")
+      .set("authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.pattern.yearlySeries).toHaveLength(SERIES_METRICS.length);
+    const bevoelkerung = response.body.pattern.yearlySeries.find(
+      (item: { metricId: string }) => item.metricId === "bevoelkerung",
+    );
+    expect(bevoelkerung).toMatchObject({
+      requestedLevel: "ortsteil",
+      requestedGeoKey: "ortsteil:osm:162894",
+      sourceLevel: "gemeinde",
+      sourceGeoKey: "11000000",
+      coverage: "multi",
+    });
+    const sgb2 = response.body.pattern.yearlySeries.find((item: { metricId: string }) => item.metricId === "ba_sgb2");
+    expect(sgb2.coverage).toBe("multi");
+    expect(sgb2.sourceGeoKey).toBe("11000");
+  });
 });
 
 function stadtteilRow() {

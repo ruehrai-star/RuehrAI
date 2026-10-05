@@ -37,7 +37,9 @@ info:
     anchors a yearly window to the latest Brain year when that year is still
     within two years of `asOf`. Placeholder KBA Elektro zeros and geo
     identifiers (`ba_schluessel`, `geo_ags`) are never series values; SGB2
-    count metrics are whole numbers.
+    count metrics are whole numbers. An Ortsteil or Stadtteil Zielregion
+    still returns the `yearlySeries` array; missing local rows fall back to
+    Gemeinde, Kreis, or Land keys and are labeled as such.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1920,8 +1922,10 @@ components:
         trend exists. `sourceLevel` / `sourceGeoKey` are the Brain row, not
         the picker grain. Unfallatlas Gebiet may be Ortsteil, Bezirk, or
         PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
-        grain `ags` / `ags5` / `other` and are labeled as such. Missing
-        cells are `absent` without `value`. Store revenue is not included.
+        grain `ags` / `ags5` / `other` and are labeled as such. An Ortsteil
+        or Stadtteil picker still produces this array: missing local rows
+        fall back to Gemeinde / Kreis / Land. Missing cells are `absent`
+        without `value`. Store revenue is not included.
       properties:
         metricId:
           type: string
