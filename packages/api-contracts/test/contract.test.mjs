@@ -109,6 +109,8 @@ test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.deepEqual(doc.components.schemas.SeriesGranularity.enum, ["month", "year"]);
   assert.deepEqual(doc.components.schemas.SeriesPointStatus.enum, ["present", "absent"]);
   assert.equal(doc.components.schemas.SeriesPoint.required.includes("value"), false);
+  assert.ok(doc.components.schemas.SeriesPointStatus.description.includes("Placeholder zeros"));
+  assert.ok(doc.components.schemas.SeriesPoint.properties.value.description.includes("ba_schluessel"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("gemeinde"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("kreis"));
   assert.ok(doc.info.description.includes("yearlySeries"));

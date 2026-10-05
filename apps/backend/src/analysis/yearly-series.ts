@@ -98,6 +98,38 @@ const SKIP_VALUE_KEYS = new Set([
   "id",
   "source_theme",
   "source_tables",
+  "ba_schluessel",
+  "gemeinde_schluessel",
+  "kreis_schluessel",
+  "ags",
+  "ags5",
+  "rs",
+]);
+
+const NESTED_VALUE_BAGS = ["values", "werte", "indicators"] as const;
+
+const KBA_ELEKTRO_COUNT_KEYS = new Set(["pkw_elektro", "pkw_insgesamt", "pkw_bev", "pkw_phev"]);
+
+const SGB2_COUNT_KEYS = new Set([
+  "bg",
+  "BG",
+  "bedarfsgemeinschaften",
+  "pers",
+  "PERS",
+  "personen_sgb2",
+  "personen",
+  "elb",
+  "ELB",
+  "erwerbsfaehige_leistungsberechtigte",
+  "erwerbsfaehige",
+  "nef",
+  "NEF",
+  "nicht_erwerbsfaehige_leistungsberechtigte",
+  "nicht_erwerbsfaehige",
+  "rlb",
+  "RLB",
+  "regelleistungsberechtigte",
+  "leistungsberechtigte",
 ]);
 
 const PREFERRED_VALUE_KEYS = [
@@ -132,7 +164,25 @@ const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
   destatis_bevoelkerung_alter: ["gesamt", "personen"],
   kba: ["pkw", "kfz_insgesamt"],
   kba_elektro_pkw: ["pkw_elektro", "pkw_insgesamt"],
-  ba_sgb2: ["bg", "BG", "pers", "PERS", "elb", "ELB", "nef", "NEF", "rlb", "RLB"],
+  arbeitsmarkt: ["arbeitslose_insgesamt", "arbeitslose"],
+  ba_sgb2: [
+    "bedarfsgemeinschaften",
+    "bg",
+    "BG",
+    "personen_sgb2",
+    "pers",
+    "PERS",
+    "personen",
+    "erwerbsfaehige_leistungsberechtigte",
+    "elb",
+    "ELB",
+    "nicht_erwerbsfaehige_leistungsberechtigte",
+    "nef",
+    "NEF",
+    "regelleistungsberechtigte",
+    "rlb",
+    "RLB",
+  ],
   kba_neuzulassungen: ["kfz_insgesamt", "pkw"],
   kba_bestand: ["kfz_insgesamt", "pkw"],
   baugenehmigungen: ["wohnungen", "bauten", "value"],
@@ -226,8 +276,9 @@ export function coverageOf(points: SeriesPoint[]): SeriesCoverage {
 }
 
 /**
- * One stored numeric cell. 0 is a real value. Missing / unreadable cells are
- * null — never coerced to 0 or {}.
+ * One stored numeric cell. A real 0 is a value. Missing, unreadable, or
+ * placeholder cells are null — never coerced to 0 or {}. Geo identifiers
+ * (`ba_schluessel`, `geo_ags`, …) are not metric numbers.
  */
 export function seriesNumber(metadata: unknown, metricId?: string): { value: number; key?: string } | null {
   if (typeof metadata === "number" && Number.isFinite(metadata)) return { value: metadata };
@@ -242,12 +293,17 @@ export function seriesNumber(metadata: unknown, metricId?: string): { value: num
   const numeric = collectNumericFields(cleaned);
   if (numeric.length === 0) return null;
   const preferred = [...(metricId ? (METRIC_VALUE_KEYS[metricId] ?? []) : []), ...PREFERRED_VALUE_KEYS];
+  let hit: { key: string; value: number } | null = null;
   for (const key of preferred) {
-    const hit = numeric.find((item) => item.key === key);
-    if (hit) return hit;
+    const found = numeric.find((item) => item.key === key);
+    if (found) {
+      hit = found;
+      break;
+    }
   }
-  if (numeric.length === 1) return numeric[0]!;
-  return null;
+  if (!hit && numeric.length === 1) hit = numeric[0]!;
+  if (!hit) return null;
+  return finalizeSeriesNumber(hit, numeric, metricId);
 }
 
 export function detectGranularity(periods: ParsedPeriod[]): SeriesGranularity {
@@ -581,17 +637,60 @@ function berlinOfficialFromRequested(level: CatalogLevel, geoKey: string): strin
 function collectNumericFields(row: Record<string, unknown>): Array<{ key: string; value: number }> {
   const numeric: Array<{ key: string; value: number }> = [];
   const bags: Record<string, unknown>[] = [row];
-  if (isRecord(row.values)) bags.push(row.values);
-  if (isRecord(row.werte)) bags.push(row.werte);
+  for (const nested of NESTED_VALUE_BAGS) {
+    if (isRecord(row[nested])) bags.push(row[nested]);
+  }
   for (const bag of bags) {
     for (const [key, value] of Object.entries(bag)) {
-      if (SKIP_VALUE_KEYS.has(key) || key === "values" || key === "werte") continue;
+      if (isSkippedValueKey(key) || isNestedValueBag(key)) continue;
       const parsed = asFiniteNumber(value);
       if (parsed === null) continue;
       numeric.push({ key, value: parsed });
     }
   }
   return numeric;
+}
+
+function isSkippedValueKey(key: string): boolean {
+  if (SKIP_VALUE_KEYS.has(key)) return true;
+  if (/schluessel$/i.test(key)) return true;
+  if (/^geo_/i.test(key)) return true;
+  if (/^source_/i.test(key)) return true;
+  return false;
+}
+
+function isNestedValueBag(key: string): boolean {
+  return (NESTED_VALUE_BAGS as readonly string[]).includes(key);
+}
+
+function finalizeSeriesNumber(
+  hit: { key: string; value: number },
+  numeric: Array<{ key: string; value: number }>,
+  metricId?: string,
+): { value: number; key?: string } | null {
+  if (isSuppressedKbaElektroZero(hit, numeric, metricId)) return null;
+  if (isSgb2CountMetric(hit.key, metricId)) return { key: hit.key, value: Math.round(hit.value) };
+  return hit;
+}
+
+function isSgb2CountMetric(key: string, metricId?: string): boolean {
+  if (!SGB2_COUNT_KEYS.has(key)) return false;
+  if (metricId === "ba_sgb2") return true;
+  return key !== "personen";
+}
+
+function isSuppressedKbaElektroZero(
+  hit: { key: string; value: number },
+  numeric: Array<{ key: string; value: number }>,
+  metricId?: string,
+): boolean {
+  if (metricId && metricId !== "kba_elektro_pkw") return false;
+  if (!KBA_ELEKTRO_COUNT_KEYS.has(hit.key) || hit.value !== 0) return false;
+  const anteil = numeric.find((item) => item.key === "pkw_elektro_anteil" || /anteil/i.test(item.key));
+  if (anteil != null && anteil.value > 0) return true;
+  const elektro = numeric.find((item) => item.key === "pkw_elektro");
+  const insgesamt = numeric.find((item) => item.key === "pkw_insgesamt");
+  return Boolean(elektro && insgesamt && elektro.value === 0 && insgesamt.value === 0);
 }
 
 function digits(value: string | null | undefined): string | null {
