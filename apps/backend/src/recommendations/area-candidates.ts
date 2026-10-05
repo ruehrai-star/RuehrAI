@@ -177,7 +177,7 @@ export function parentMemberships(region: AnalysisRegion): ParentMembership {
   if (/^lor:/i.test(geoKey ?? "")) {
     add("lor", geoKey);
   }
-  if (isKoelnQuartierKey(geoKey) || fromKey === "quartier") {
+  if (isKoelnQuartierKey(geoKey)) {
     add("quartier", geoKey);
     add("koeln_quartier", geoKey);
   }
