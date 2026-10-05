@@ -5,6 +5,7 @@ import {
   LAND_TOPIC_IDS,
   TOPIC_SOURCE_THEMES,
   grainMatchesTopic,
+  sourceThemesForSeries,
   sourceThemesForTopics,
 } from "./topics";
 
@@ -57,6 +58,31 @@ describe("address-pair topic catalog", () => {
     expect(grainMatchesTopic("grid100", "breitband", "gemeinde")).toBe(false);
     expect(grainMatchesTopic("plz8", "pendler", "gemeinde")).toBe(false);
     expect(grainMatchesTopic("address", "wwk", "gemeinde")).toBe(false);
+  });
+
+  it("maps Unfallatlas Gebiet and Destatis Kreis series themes without mixing them into other topics", () => {
+    const themes = sourceThemesForSeries();
+    expect(themes).toEqual(
+      expect.arrayContaining([
+        "unfallatlas_gebiet",
+        "destatis_wohnungen",
+        "destatis_kfz_bestand",
+        "destatis_bevoelkerung_alter",
+        "kba_elektro_pkw",
+        "ba_sgb2",
+        "kba_neuzulassungen",
+        "kba_bestand",
+      ]),
+    );
+    expect(TOPIC_SOURCE_THEMES.kba).toEqual(["kba_besitz"]);
+    expect(TOPIC_SOURCE_THEMES.destatis).toEqual(["destatis"]);
+    expect(TOPIC_SOURCE_THEMES.unfallatlas).toEqual(["unfallatlas", "unfallatlas_gebiet"]);
+    expect(grainMatchesTopic("other", "unfallatlas", "gemeinde")).toBe(false);
+    expect(grainMatchesTopic("ags5", "destatis_wohnungen", "kreis")).toBe(true);
+    expect(grainMatchesTopic("ags", "kba_elektro_pkw", "gemeinde")).toBe(true);
+    expect(grainMatchesTopic("ags5", "ba_sgb2", "kreis")).toBe(true);
+    expect(grainMatchesTopic("ags", "ba_sgb2", "gemeinde")).toBe(false);
+    expect(grainMatchesTopic("other", "kba_neuzulassungen", "land")).toBe(true);
   });
 
   it("maps every catalog id to a Brain source_theme that already exists", () => {

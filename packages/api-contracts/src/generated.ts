@@ -1076,14 +1076,22 @@ export interface components {
         };
         /**
          * @description One topic on one Zielregion over the last three UTC calendar years
-         *     (`year`) or the last 36 UTC months (`month`). `coverage` tells the
-         *     client whether a trend exists. `sourceLevel` / `sourceGeoKey` are
-         *     the Brain row, not the picker grain. Brain STAGE (2026-10-05) has
-         *     no Ortsteil / Stadtteil / Stadtbezirk / PLZ feature-docs, so those
-         *     requests resolve to Gemeinde or Kreis and say so here.
+         *     (`year`) or the last 36 UTC months (`month`). When the newest Brain
+         *     year is older than `asOf` but still within two years, the year
+         *     window ends on that Brain year so a series such as Wanderungen
+         *     through 2024 stays `multi`. `coverage` tells the client whether a
+         *     trend exists. `sourceLevel` / `sourceGeoKey` are the Brain row, not
+         *     the picker grain. Unfallatlas Gebiet may be Ortsteil, Bezirk, or
+         *     PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
+         *     grain `ags` / `ags5` / `other` and are labeled as such. Missing
+         *     cells are `absent` without `value`. Store revenue is not included.
          */
         YearlySeries: {
-            /** @description Existing topic id (`bevoelkerung`, `pendler`, …), not a new name. */
+            /**
+             * @description Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain
+             *     series theme id (`destatis_wohnungen`, `kba_elektro_pkw`, …).
+             *     Not store revenue.
+             */
             metricId: string;
             requestedLevel: components["schemas"]["CatalogLevel"];
             requestedGeoKey: string;
