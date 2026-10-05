@@ -113,6 +113,11 @@ test("v0.9 covers health, auth, search, layers, customer inputs, analysis, recom
   assert.ok(doc.components.schemas.SeriesPoint.properties.value.description.includes("ba_schluessel"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("gemeinde"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("kreis"));
+  assert.equal(
+    doc.components.schemas.YearlySeries.properties.requestedLevel.$ref,
+    "#/components/schemas/SeriesLevel",
+  );
+  assert.ok(doc.components.schemas.SeriesLevel.description.includes("ags5"));
   assert.ok(doc.info.description.includes("yearlySeries"));
   assert.ok(doc.info.description.includes("0.9.0"));
   assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("destatis_wohnungen"));

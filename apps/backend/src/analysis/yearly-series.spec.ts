@@ -2,6 +2,7 @@ import { CatalogLevel } from "../geo/geo-catalog";
 import {
   SERIES_METRICS,
   SeriesFeatureRow,
+  SeriesLevel,
   buildMetricSeries,
   coverageOf,
   detectGranularity,
@@ -408,6 +409,32 @@ describe("buildMetricSeries", () => {
         plz: null,
       }),
     ).toBe("ortsteil" satisfies CatalogLevel);
+  });
+
+  it("classifies grain ags5 / 5-digit AGS as kreis, never gemeinde", () => {
+    expect(
+      requestedLevelOf({
+        grain: "ags5",
+        geoKey: "05315",
+        ags: "05315",
+        level: null,
+      }),
+    ).toBe("kreis" satisfies SeriesLevel);
+    expect(requestedLevelOf({ grain: "ags5", geoKey: "05111", ags: "05111", level: null })).toBe("kreis");
+    expect(requestedLevelOf({ grain: "ags5", geoKey: "05913", ags: "05913", level: null })).toBe("kreis");
+    expect(requestedLevelOf({ grain: "ags", geoKey: "11000", ags: "11000" })).toBe("kreis");
+    expect(requestedLevelOf({ grain: "plz5", geoKey: "80331", ags: null })).toBeNull();
+    expect(requestedLevelOf({ grain: "ags", geoKey: "09162000", ags: "09162000" })).toBe("gemeinde");
+  });
+
+  it("resolves Kreis lookup keys without inventing a Gemeinde", () => {
+    const region = keysForResolvedPlace("kreis", "05315", null, "05315", "05");
+    expect(region.requestedLevel).toBe("kreis");
+    expect(region.gemeinde).toEqual([]);
+    expect(region.gemeindeKey).toBeNull();
+    expect(region.kreis).toEqual(expect.arrayContaining(["05315", "ags:05315", "ags5:05315", "05315000"]));
+    expect(region.kreisKey).toBe("05315");
+    expect(region.land).toEqual(expect.arrayContaining(["05", "land:05"]));
   });
 });
 

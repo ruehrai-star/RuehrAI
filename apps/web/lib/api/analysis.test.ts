@@ -212,6 +212,32 @@ test("GET /analysis/pattern keeps yearlySeries points and absent cells without v
   assert.equal(latest?.pattern.yearlySeries?.[0]?.points[0]?.value, undefined);
 });
 
+test("GET /analysis/pattern accepts requestedLevel kreis for grain ags5", async () => {
+  const yearlySeries = [
+    {
+      metricId: "destatis_wohnungen",
+      requestedLevel: "kreis",
+      requestedGeoKey: "05315",
+      sourceLevel: "kreis",
+      sourceGeoKey: "05315",
+      granularity: "year",
+      coverage: "multi",
+      points: [
+        { period: "2023", status: "absent" },
+        { period: "2024", status: "present", value: 540000 },
+        { period: "2025", status: "present", value: 545000 },
+      ],
+    },
+  ];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ runId: "7", createdAt: run.createdAt, pattern: { ...pattern, yearlySeries } }),
+  });
+  const latest = await api.getAnalysisPattern();
+  assert.equal(latest?.pattern.yearlySeries?.[0]?.requestedLevel, "kreis");
+  assert.equal(latest?.pattern.yearlySeries?.[0]?.coverage, "multi");
+});
+
 test("GET /analysis/pattern rejects a present yearlySeries point without a number", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

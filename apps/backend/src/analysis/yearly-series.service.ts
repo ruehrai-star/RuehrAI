@@ -16,6 +16,7 @@ import {
   YearlySeries,
   buildMetricSeries,
   keysForResolvedPlace,
+  kreisAgsFrom,
   municipalityAgsFrom,
   parentsFromGemeinde,
   requestedGeoKeyOf,
@@ -254,8 +255,14 @@ function resolveOne(
   const fromRegion = municipalityAgsFrom(item.region);
   const fromCatalog = gemeindeFromCatalog(item, plzRows, ortsteilRows, bezirkRows);
   const gemeindeAgs = fromRegion ?? fromCatalog.gemeinde;
-  const kreisAgs = fromCatalog.kreis ?? (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).kreis : null);
-  const landAgs = fromCatalog.land ?? (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).land : null);
+  const kreisAgs =
+    fromCatalog.kreis ??
+    (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).kreis : null) ??
+    (item.requestedLevel === "kreis" ? kreisAgsFrom(item.region) : null);
+  const landAgs =
+    fromCatalog.land ??
+    (gemeindeAgs ? parentsFromGemeinde(gemeindeAgs).land : null) ??
+    (kreisAgs ? parentsFromGemeinde(kreisAgs).land : null);
   const bezirkOfficial = berlinBezirkOfficial(item, fromCatalog.bezirk, bezirkRows);
   const plz = item.requestedLevel === "plz" ? item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, "") : null;
   return keysForResolvedPlace(item.requestedLevel, item.requestedGeoKey, gemeindeAgs, kreisAgs, landAgs, {

@@ -303,11 +303,13 @@ function resolvePlace(rows: PlzRow[], adminNames: Map<string, string>): Resolved
   };
 }
 
-export function placeKeys(gemeindeAgs: string, kreisAgs: string, landAgs: string | null): PlaceKeys {
-  const paddedKreis = kreisAgs.length === 5 ? `${kreisAgs}000` : kreisAgs;
+export function placeKeys(gemeindeAgs: string | null, kreisAgs: string | null, landAgs: string | null): PlaceKeys {
+  const paddedKreis = kreisAgs && kreisAgs.length === 5 ? `${kreisAgs}000` : kreisAgs;
   return {
-    gemeinde: keyVariants(gemeindeAgs, ["ags"]),
-    kreis: unique([...keyVariants(kreisAgs, ["ags", "ags5"]), ...keyVariants(paddedKreis, ["ags"])]),
+    gemeinde: gemeindeAgs ? keyVariants(gemeindeAgs, ["ags"]) : [],
+    kreis: kreisAgs
+      ? unique([...keyVariants(kreisAgs, ["ags", "ags5"]), ...(paddedKreis ? keyVariants(paddedKreis, ["ags"]) : [])])
+      : [],
     land: landAgs ? keyVariants(landAgs, ["ags", "land"]) : [],
   };
 }
