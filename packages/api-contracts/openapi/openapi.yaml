@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.16.0
+  version: 0.17.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -121,8 +121,13 @@ info:
     of the divisor (`official`, `estimate_lor_sum`, `estimate_address`,
     `missing`, `geom`, `fixed_grid`). `einwohner_method` is never a
     silent NULL; `missing` omits `normalizedValue` and never divides by
-    1. Catalog-first per theme. Zensus-Gitter-EW is not in v1 (grid100
-    often `estimate_address` or absent). Additive.
+    1. Catalog-first per theme. Additive.
+    `0.17.0` adds Zensus-2022 Gitter methods on `BaselineMethod`:
+    `official_zensus2022_grid` (100m cell EWZ) and
+    `estimate_zensus2022_grid_sum` (PLZ/Ortsteil centroid sum). Address
+    counts stay `estimate_address` only as fallback; `attrs.preferred_ew`
+    selects the Zensus row. `dwd1km` is Fläche-only (`missing` EW).
+    Additive.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -2131,11 +2136,23 @@ components:
       type: string
       description: |
         Method of the Bezugsgröße from Brain `geo.area_baseline`.
-        Einwohner: `official` | `estimate_lor_sum` | `estimate_address` |
-        `missing` (never a silent NULL). Fläche: `geom` | `official` |
-        `fixed_grid`. `missing` means `normalizedValue` is absent; never
-        divide by 1.
-      enum: [official, estimate_lor_sum, estimate_address, missing, geom, fixed_grid]
+        Einwohner: `official` | `official_zensus2022_grid` |
+        `estimate_lor_sum` | `estimate_zensus2022_grid_sum` |
+        `estimate_address` | `missing` (never a silent NULL). Fläche:
+        `geom` | `official` | `fixed_grid`. `missing` means
+        `normalizedValue` is absent; never divide by 1. Zensus methods
+        are not remapped to `estimate_address`.
+      enum:
+        [
+          official,
+          official_zensus2022_grid,
+          estimate_lor_sum,
+          estimate_zensus2022_grid_sum,
+          estimate_address,
+          missing,
+          geom,
+          fixed_grid,
+        ]
     YearlySeries:
       type: object
       additionalProperties: false

@@ -8,6 +8,7 @@ import {
 import {
   AREA_BASELINE_SQL,
   AREA_SNAPSHOT_YEAR,
+  AREA_ZENSUS_YEAR,
   AreaBaselineRow,
   AreaBaselineSqlRow,
   BASELINE_METRIC_CATALOG_SQL,
@@ -38,6 +39,7 @@ export class AreaBaselineService {
     const keys = collectAreaLookupKeys(series.flatMap((item) => [item.sourceGeoKey, item.requestedGeoKey]));
     const years = collectYears(series);
     years.add(AREA_SNAPSHOT_YEAR);
+    years.add(AREA_ZENSUS_YEAR);
     const rows = keys.length === 0 || years.size === 0 ? [] : await this.loadRows(keys, [...years]);
     return attachNormalizedValues(series, { catalog, rows });
   }

@@ -66,4 +66,18 @@ describe("AreaBaselineService", () => {
       baselineMethod: "official",
     });
   });
+
+  it("always loads the 2022 Zensus year with the 2026 snapshot", async () => {
+    const queryReadingFeatures = jest.fn(async (sql: string) => {
+      if (sql.includes("baseline_metric_catalog")) return { rows: [] };
+      if (sql.includes("area_baseline")) return { rows: [] };
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+    const service = new AreaBaselineService({ queryReadingFeatures } as unknown as DatabaseService);
+    await service.normalize(series());
+    const areaCall = queryReadingFeatures.mock.calls.find((call) => String(call[0]).includes("area_baseline")) as
+      | [string, [string[], number[]]]
+      | undefined;
+    expect(areaCall?.[1]?.[1]).toEqual(expect.arrayContaining([2022, 2026]));
+  });
 });

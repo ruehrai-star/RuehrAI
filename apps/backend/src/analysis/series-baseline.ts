@@ -1,5 +1,6 @@
 import { sourceThemesForMetric } from "../address-pair/topics";
 import {
+  AreaBaselineIndex,
   AreaBaselineRow,
   BaselineMethod,
   MetricCatalogEntry,
@@ -150,7 +151,7 @@ export function normalizePoint(
   area?: {
     catalog?: MetricCatalogEntry;
     scale: number;
-    index: Map<string, AreaBaselineRow> | null;
+    index: AreaBaselineIndex | null;
   },
 ): SeriesPoint {
   if (point.status !== "present" || typeof point.value !== "number" || !Number.isFinite(point.value)) {
@@ -211,7 +212,7 @@ function normalizeFromArea(
   series: Pick<YearlySeries, "sourceGeoKey" | "requestedGeoKey">,
   catalog: MetricCatalogEntry,
   scale: number,
-  index: Map<string, AreaBaselineRow>,
+  index: AreaBaselineIndex,
 ): SeriesPoint {
   const year = yearOf(point.period);
   if (year == null) return presentRaw(point.period, point.value!, "missing");

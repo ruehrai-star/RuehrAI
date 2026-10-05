@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.16.0");
+  assert.equal(doc.info.version, "0.17.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -90,6 +90,9 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.14.0"));
   assert.ok(doc.info.description.includes("0.15.0"));
   assert.ok(doc.info.description.includes("0.16.0"));
+  assert.ok(doc.info.description.includes("0.17.0"));
+  assert.ok(doc.info.description.includes("official_zensus2022_grid"));
+  assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
   assert.ok(doc.info.description.includes("geo.area_baseline"));
   assert.ok(doc.info.description.includes("baselineMethod"));
   assert.ok(doc.info.description.includes("patternByLevel"));
@@ -159,7 +162,9 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.SeriesPoint.properties.normalizedValue.type, "number");
   assert.deepEqual(doc.components.schemas.BaselineMethod.enum, [
     "official",
+    "official_zensus2022_grid",
     "estimate_lor_sum",
+    "estimate_zensus2022_grid_sum",
     "estimate_address",
     "missing",
     "geom",

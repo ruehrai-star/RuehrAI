@@ -7,6 +7,7 @@ import {
   findAreaBaseline,
   parseAreaBaselineRow,
   parseMetricCatalogRow,
+  parsePreferredEw,
 } from "./area-baseline";
 
 describe("area-baseline", () => {
@@ -51,6 +52,106 @@ describe("area-baseline", () => {
     });
     expect(areaKeyAliases("ags:11000000")).toEqual(expect.arrayContaining(["ags:11000000", "11000000"]));
     expect(areaKeyAliases("lor:plr:01100101")).toEqual(["lor:plr:01100101"]);
+    expect(areaKeyAliases("dwd1km:181:0")).toEqual(["dwd1km:181:0"]);
+  });
+
+  it("keeps Hanau attrs.ags_alias_of and follows preferred_ew to the Zensus row", () => {
+    const hanau = parseAreaBaselineRow({
+      geo_key: "06415000",
+      grain: "ags",
+      ref_year: 2025,
+      einwohner: "98582",
+      flaeche_km2: "77.16",
+      haushalte: null,
+      einwohner_method: "official",
+      haushalte_method: null,
+      flaeche_method: "geom",
+      attrs: { ags_alias_of: "06435014" },
+    });
+    expect(hanau).toMatchObject({
+      einwohner: 98_582,
+      einwohnerMethod: "official",
+      agsAliasOf: "06435014",
+    });
+    expect(hanau?.attrs).toMatchObject({ ags_alias_of: "06435014" });
+    expect(parsePreferredEw({ preferred_ew: 2022 })).toEqual({ year: 2022, method: null });
+    expect(parsePreferredEw({ preferred_ew: "official_zensus2022_grid" })).toEqual({
+      year: 2022,
+      method: "official_zensus2022_grid",
+    });
+
+    const index = buildAreaBaselineIndex([
+      {
+        geoKey: "10115",
+        grain: "plz5",
+        refYear: 2026,
+        einwohner: 3992,
+        flaecheKm2: 2.4,
+        haushalte: null,
+        einwohnerMethod: "estimate_address",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+        attrs: { preferred_ew: 2022 },
+      },
+      {
+        geoKey: "10115",
+        grain: "plz5",
+        refYear: 2022,
+        einwohner: 26_764,
+        flaecheKm2: 2.4,
+        haushalte: null,
+        einwohnerMethod: "estimate_zensus2022_grid_sum",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+      },
+    ]);
+    expect(findAreaBaseline(index, ["10115"], 2026, "einwohner")).toMatchObject({
+      einwohner: 26_764,
+      einwohnerMethod: "estimate_zensus2022_grid_sum",
+    });
+    expect(findAreaBaseline(index, ["10115"], 2024, "einwohner")).toMatchObject({
+      einwohnerMethod: "estimate_zensus2022_grid_sum",
+    });
+    expect(areaDivisor(findAreaBaseline(index, ["10115"], 2026, "einwohner"), "einwohner")).toEqual({
+      value: 26_764,
+      method: "estimate_zensus2022_grid_sum",
+    });
+  });
+
+  it("passes official_zensus2022_grid through and does not remap it to estimate_address", () => {
+    const index = buildAreaBaselineIndex([
+      {
+        geoKey: "CRS3035RES100mN1",
+        grain: "grid100",
+        refYear: 2022,
+        einwohner: 84,
+        flaecheKm2: 0.01,
+        haushalte: null,
+        einwohnerMethod: "official_zensus2022_grid",
+        haushalteMethod: null,
+        flaecheMethod: "fixed_grid",
+      },
+      {
+        geoKey: "CRS3035RES100mN1",
+        grain: "grid100",
+        refYear: 2026,
+        einwohner: 12,
+        flaecheKm2: 0.01,
+        haushalte: null,
+        einwohnerMethod: "estimate_address",
+        haushalteMethod: null,
+        flaecheMethod: "fixed_grid",
+        attrs: { preferred_ew: "official_zensus2022_grid" },
+      },
+    ]);
+    expect(findAreaBaseline(index, ["CRS3035RES100mN1"], 2026, "einwohner")).toMatchObject({
+      einwohner: 84,
+      einwohnerMethod: "official_zensus2022_grid",
+    });
+    expect(areaDivisor(findAreaBaseline(index, ["CRS3035RES100mN1"], 2024, "einwohner"), "einwohner")).toEqual({
+      value: 84,
+      method: "official_zensus2022_grid",
+    });
   });
 
   it("uses the exact year for Einwohner and the 2026 snapshot only for km²", () => {

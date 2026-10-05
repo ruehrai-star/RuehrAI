@@ -1184,13 +1184,15 @@ export interface components {
         SeriesBaseline: "per_1000_inhabitants" | "per_km2" | "per_household";
         /**
          * @description Method of the Bezugsgröße from Brain `geo.area_baseline`.
-         *     Einwohner: `official` | `estimate_lor_sum` | `estimate_address` |
-         *     `missing` (never a silent NULL). Fläche: `geom` | `official` |
-         *     `fixed_grid`. `missing` means `normalizedValue` is absent; never
-         *     divide by 1.
+         *     Einwohner: `official` | `official_zensus2022_grid` |
+         *     `estimate_lor_sum` | `estimate_zensus2022_grid_sum` |
+         *     `estimate_address` | `missing` (never a silent NULL). Fläche:
+         *     `geom` | `official` | `fixed_grid`. `missing` means
+         *     `normalizedValue` is absent; never divide by 1. Zensus methods
+         *     are not remapped to `estimate_address`.
          * @enum {string}
          */
-        BaselineMethod: "official" | "estimate_lor_sum" | "estimate_address" | "missing" | "geom" | "fixed_grid";
+        BaselineMethod: "official" | "official_zensus2022_grid" | "estimate_lor_sum" | "estimate_zensus2022_grid_sum" | "estimate_address" | "missing" | "geom" | "fixed_grid";
         /**
          * @description One topic on one Zielregion over the last three UTC calendar years
          *     (`year`) or the last 36 UTC months (`month`). When the newest Brain

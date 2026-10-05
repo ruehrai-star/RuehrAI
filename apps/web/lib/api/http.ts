@@ -460,7 +460,9 @@ const EVIDENCE_SCOPES = new Set(["local", "inherited"] as const);
 const SERIES_BASELINES = new Set<string>(["per_1000_inhabitants", "per_km2", "per_household"]);
 const BASELINE_METHODS = new Set<string>([
   "official",
+  "official_zensus2022_grid",
   "estimate_lor_sum",
+  "estimate_zensus2022_grid_sum",
   "estimate_address",
   "missing",
   "geom",

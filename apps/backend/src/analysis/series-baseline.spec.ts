@@ -235,4 +235,105 @@ describe("series-baseline", () => {
     expect(missing.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.normalizedValue).toBeUndefined();
     expect(missing.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.baselineMethod).toBe("missing");
   });
+
+  it("uses official_zensus2022_grid instead of estimate_address when preferred_ew points to Zensus", () => {
+    const catalog = new Map<string, MetricCatalogEntry>([
+      ["kba_elektro_pkw", { sourceTheme: "kba_elektro_pkw", recommendedBaseline: "einwohner", unitHint: "per_1000_einwohner" }],
+    ]);
+    const series: YearlySeries[] = [
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "grid100",
+        requestedGeoKey: "CRS3035RES100mN1",
+        sourceLevel: "grid100",
+        sourceGeoKey: "CRS3035RES100mN1",
+        granularity: "year",
+        coverage: "single",
+        points: [{ period: "2025", status: "present", value: 8 }],
+      },
+    ];
+    const normalized = attachNormalizedValues(series, {
+      catalog,
+      rows: [
+        {
+          geoKey: "CRS3035RES100mN1",
+          grain: "grid100",
+          refYear: 2022,
+          einwohner: 80,
+          flaecheKm2: 0.01,
+          haushalte: null,
+          einwohnerMethod: "official_zensus2022_grid",
+          haushalteMethod: null,
+          flaecheMethod: "fixed_grid",
+        },
+        {
+          geoKey: "CRS3035RES100mN1",
+          grain: "grid100",
+          refYear: 2026,
+          einwohner: 4,
+          flaecheKm2: 0.01,
+          haushalte: null,
+          einwohnerMethod: "estimate_address",
+          haushalteMethod: null,
+          flaecheMethod: "fixed_grid",
+          attrs: { preferred_ew: 2022 },
+        },
+      ],
+    });
+    expect(normalized[0]?.points[0]).toMatchObject({
+      normalizedValue: 100,
+      baselineMethod: "official_zensus2022_grid",
+    });
+  });
+
+  it("leaves dwd1km Einwohner missing and still divides by the 1 km² grid", () => {
+    const catalog = new Map<string, MetricCatalogEntry>([
+      ["dwd_temp_1km", { sourceTheme: "dwd_temp_1km", recommendedBaseline: "flaeche_km2", unitHint: "per_km2" }],
+      ["kba_elektro_pkw", { sourceTheme: "kba_elektro_pkw", recommendedBaseline: "einwohner", unitHint: "per_1000_einwohner" }],
+    ]);
+    const series: YearlySeries[] = [
+      {
+        metricId: "dwd_temp_1km",
+        requestedLevel: "gemeinde",
+        requestedGeoKey: "dwd1km:181:0",
+        sourceLevel: "gemeinde",
+        sourceGeoKey: "dwd1km:181:0",
+        granularity: "year",
+        coverage: "single",
+        points: [{ period: "2026", status: "present", value: 3 }],
+      },
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "gemeinde",
+        requestedGeoKey: "dwd1km:181:0",
+        sourceLevel: "gemeinde",
+        sourceGeoKey: "dwd1km:181:0",
+        granularity: "year",
+        coverage: "single",
+        points: [{ period: "2026", status: "present", value: 3 }],
+      },
+    ];
+    const normalized = attachNormalizedValues(series, {
+      catalog,
+      rows: [
+        {
+          geoKey: "dwd1km:181:0",
+          grain: "dwd1km",
+          refYear: 2026,
+          einwohner: null,
+          flaecheKm2: 1,
+          haushalte: null,
+          einwohnerMethod: "missing",
+          haushalteMethod: null,
+          flaecheMethod: "fixed_grid",
+        },
+      ],
+    });
+    expect(normalized.find((item) => item.metricId === "dwd_temp_1km")?.points[0]).toMatchObject({
+      normalizedValue: 3,
+      baselineMethod: "fixed_grid",
+    });
+    expect(normalized.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.normalizedValue).toBeUndefined();
+    expect(normalized.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.baselineMethod).toBe("missing");
+  });
 });
