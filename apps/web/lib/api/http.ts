@@ -22,6 +22,7 @@ import type {
   TargetRegionList,
   TargetRegionWrite,
   TokenResponse,
+  YearlySeries,
 } from "@ruehrai/api-contracts";
 import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
@@ -31,6 +32,7 @@ import type { AddressPairRequest, AddressPairResult } from "../addresses/types.t
 import type { RuehrApi } from "./client";
 import {
   ApiError,
+  isCatalogLevel,
   isGrain,
   type Recommendation,
   type RecommendationSet,
@@ -436,6 +438,9 @@ const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason
   "features_unavailable",
 ]);
 const PATTERN_SOURCES = new Set<AnalysisPattern["source"]>(["llm", "heuristic"]);
+const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
+const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
+const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
 
 function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"): AnalysisInput {
   if (
@@ -524,7 +529,42 @@ function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPat
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
+  if (body.yearlySeries !== undefined) {
+    if (!Array.isArray(body.yearlySeries)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    body.yearlySeries.forEach((item) => parseYearlySeries(item, route));
+  }
   return body;
+}
+
+function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
+  if (
+    !body ||
+    typeof body.metricId !== "string" ||
+    !isCatalogLevel(body.requestedLevel) ||
+    typeof body.requestedGeoKey !== "string" ||
+    !isSeriesLevel(body.sourceLevel) ||
+    typeof body.sourceGeoKey !== "string" ||
+    !SERIES_GRANULARITIES.has(body.granularity) ||
+    !SERIES_COVERAGES.has(body.coverage) ||
+    !Array.isArray(body.points)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  for (const point of body.points) {
+    if (!point || typeof point.period !== "string" || !SERIES_POINT_STATUSES.has(point.status)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (point.status === "present" && typeof point.value !== "number") {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+  }
+  return body;
+}
+
+function isSeriesLevel(value: unknown): value is YearlySeries["sourceLevel"] {
+  return isCatalogLevel(value) || value === "kreis" || value === "land";
 }
 
 function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPatternResponse {

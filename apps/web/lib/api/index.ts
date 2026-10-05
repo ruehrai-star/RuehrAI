@@ -55,6 +55,7 @@ export type {
   TargetRegion,
   TargetRegionList,
   TargetRegionWrite,
+  YearlySeries,
 } from "./types";
 export type {
   AddressInput,

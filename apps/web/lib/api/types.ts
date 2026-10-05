@@ -34,11 +34,17 @@ export type {
   RegionGeometry,
   RevenueDirection,
   LonLatBounds,
+  SeriesCoverage,
+  SeriesGranularity,
+  SeriesLevel,
+  SeriesPoint,
+  SeriesPointStatus,
   StoreLocation,
   StoreLocationWrite,
   TargetRegionList,
   TargetRegionWrite,
   TokenResponse,
+  YearlySeries,
 } from "@ruehrai/api-contracts";
 
 /** Catalog `level` follows OpenAPI `CatalogLevel` when the backend sends it. */

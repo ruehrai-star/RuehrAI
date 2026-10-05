@@ -9,9 +9,11 @@ export default function OnboardingPage() {
   return (
     <PlaceholderPage kicker="Platzhalter" title="Einstieg">
       <p>
-        Nach der Anmeldung lädt die Karte den Layer <code>demo-gemeinden</code> vom Backend. Die
-        Suche findet Adressen, PLZ und Gemeindeschlüssel über <code>GET /search</code>. Die
-        fachliche Datenbasis bleibt in <code>docs/datenbasis</code>.
+        Nach den Standorten öffnet die App den Verlauf. Die kleinere Karte daneben ist nur der
+        Beleg mit der gespeicherten Zielregion-Fläche. Der Layer <code>demo-gemeinden</code> gilt
+        nur für die Kartenseite, nicht für den Verlauf. Die Suche findet Adressen, PLZ und
+        Gemeindeschlüssel über <code>GET /search</code>. Die fachliche Datenbasis bleibt in{" "}
+        <code>docs/datenbasis</code>.
       </p>
     </PlaceholderPage>
   );

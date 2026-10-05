@@ -41,6 +41,10 @@ export const REGION_FILL = "#3d6fbf";
 export const REGION_LINE = "#1d3f73";
 export const REGION_FILL_OPACITY = 0.32;
 
+/** Verlauf proof and Karte share these shapes. Bestand is never a teardrop. */
+export const BESTAND_MARKER_SHAPE = "square" as const;
+export const EMPFEHLUNG_MARKER_SHAPE = "numbered-disk" as const;
+
 export interface Bounds {
   west: number;
   south: number;
@@ -61,6 +65,7 @@ export interface StorePin {
 export interface EmpfehlungPin {
   kind: "empfehlung";
   id: string;
+  rank: number;
   lon: number;
   lat: number;
   title: string;
@@ -146,10 +151,11 @@ export function empfehlungPins(items: Recommendation[]): EmpfehlungPin[] {
     pins.push({
       kind: "empfehlung",
       id: item.id,
+      rank: item.rank,
       lon: point.lon,
       lat: point.lat,
       title,
-      ariaLabel: `${title}, Empfehlung`,
+      ariaLabel: `${title}, Empfehlung ${item.rank}`,
     });
   }
   return pins;

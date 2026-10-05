@@ -20,6 +20,7 @@ import {
   removeRegion,
 } from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
+import { POST_STANDORTE_HREF } from "@/lib/verlauf/model";
 import { RegionSection } from "./region-section";
 import { RevenueSection } from "./revenue-section";
 import { useSession } from "./session-provider";
@@ -231,7 +232,10 @@ export function StandortePage() {
         <a href="#umsatz">Umsatz</a>
       </nav>
       <div className="auth-actions">
-        <Link href="/musteranalyse" className="button">
+        <Link href={POST_STANDORTE_HREF} className="button">
+          Verlauf
+        </Link>
+        <Link href="/musteranalyse" className="button button-quiet">
           Musteranalyse
         </Link>
       </div>

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Recommendation, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import {
+  BESTAND_MARKER_SHAPE,
   EMPFEHLUNG_COLOR,
+  EMPFEHLUNG_MARKER_SHAPE,
   FIT_PADDING_PX,
   LEGEND_LABEL,
   MISSING_AREA_LABEL,
@@ -27,6 +29,20 @@ const MUNICH_BOX = {
   ],
 };
 
+test("bounds never become a rectangle overlay", () => {
+  const model = buildKarte({
+    stores: [],
+    regions: [region({ bounds: { west: 11, south: 48, east: 12, north: 49 }, geometry: null })],
+    recommendations: [],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(model.region.features.length, 0);
+  assert.equal(model.showLegend, false);
+  for (const feature of model.region.features) {
+    assert.notEqual(feature.geometry?.type, "Polygon");
+  }
+});
+
 test("padding, legend and pin colors stay distinct and readable", () => {
   assert.ok(FIT_PADDING_PX >= 40);
   assert.equal(NO_STORES_LABEL, "Noch keine Filialadressen");
@@ -36,6 +52,9 @@ test("padding, legend and pin colors stay distinct and readable", () => {
   assert.notEqual(PIN_COLOR, EMPFEHLUNG_COLOR);
   assert.notEqual(PIN_COLOR, REGION_FILL);
   assert.notEqual(EMPFEHLUNG_COLOR, REGION_FILL);
+  assert.equal(BESTAND_MARKER_SHAPE, "square");
+  assert.equal(EMPFEHLUNG_MARKER_SHAPE, "numbered-disk");
+  assert.notEqual(BESTAND_MARKER_SHAPE, EMPFEHLUNG_MARKER_SHAPE);
   for (const label of [
     NO_STORES_LABEL,
     LEGEND_LABEL,
@@ -369,7 +388,8 @@ test("recommendation points stay off the fit and use a different kind", () => {
   });
   assert.equal(model.empfehlungen.length, 1);
   assert.equal(model.empfehlungen[0]?.kind, "empfehlung");
-  assert.equal(model.empfehlungen[0]?.ariaLabel, "Schwabing, Empfehlung");
+  assert.equal(model.empfehlungen[0]?.rank, 1);
+  assert.equal(model.empfehlungen[0]?.ariaLabel, "Schwabing, Empfehlung 1");
   assert.notEqual(model.empfehlungen[0]?.kind, model.pins[0]?.kind);
   if (model.camera.kind === "bounds") {
     assert.equal(model.camera.bounds.east, 11.5);
