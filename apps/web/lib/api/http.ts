@@ -12,6 +12,7 @@ import type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
+  PatternLevelProfile,
   RecommendationCreate,
   RecommendationEvidence,
   RevenueDirection,
@@ -442,6 +443,19 @@ const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason
   "features_unavailable",
 ]);
 const PATTERN_SOURCES = new Set<AnalysisPattern["source"]>(["llm", "heuristic"]);
+const PATTERN_LEVELS = new Set([
+  "address",
+  "grid100",
+  "lor",
+  "quartier",
+  "ortsteil",
+  "plz",
+  "bezirk",
+  "gemeinde",
+  "kreis",
+] as const);
+const PATTERN_LEVEL_ROLES = new Set(["pattern", "frame"] as const);
+const EVIDENCE_SCOPES = new Set(["local", "inherited"] as const);
 const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
 const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
 const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
@@ -530,6 +544,9 @@ function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPat
       typeof criterion.evidence !== "string" ||
       !CRITERION_DIRECTIONS.has(criterion.direction)
     ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
@@ -638,8 +655,45 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseAnalysisPattern(body.pattern, route);
+  if (body.patternByLevel !== undefined) {
+    if (!Array.isArray(body.patternByLevel)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    body.patternByLevel.forEach((profile) => parsePatternLevelProfile(profile, route));
+  }
   body.items.forEach((item) => parseRecommendation(item, route));
   return body;
+}
+
+function parsePatternLevelProfile(body: PatternLevelProfile, route: string): void {
+  if (
+    !body ||
+    !PATTERN_LEVELS.has(body.level) ||
+    !PATTERN_LEVEL_ROLES.has(body.role) ||
+    !Array.isArray(body.geoKeys) ||
+    !Array.isArray(body.yearlySeries) ||
+    !Array.isArray(body.criteria)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.geoKeys.some((key) => typeof key !== "string")) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  body.yearlySeries.forEach((item) => parseYearlySeries(item, route));
+  for (const criterion of body.criteria) {
+    if (
+      !criterion ||
+      typeof criterion.key !== "string" ||
+      typeof criterion.label !== "string" ||
+      typeof criterion.evidence !== "string" ||
+      !CRITERION_DIRECTIONS.has(criterion.direction)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+  }
 }
 
 function parseRecommendation(body: Recommendation, route: string): Recommendation {

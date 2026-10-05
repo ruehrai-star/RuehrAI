@@ -1,3 +1,4 @@
+import { criteriaForPatternLevel, PatternLevelProfile } from "../analysis/pattern-profile";
 import { PatternCriterion } from "../analysis/types";
 import {
   absentEvidence,
@@ -16,24 +17,27 @@ import { EvidenceScope, RecommendationEvidence, ScoredLocation } from "./types";
 
 /**
  * Rank every Teilfläche against the store-surroundings pattern.
- * Primary score is the share of **local** three-year trend criteria whose
- * direction matches. Inherited (parent-level) criteria are labeled and do
- * not differentiate siblings. Stichtag values are labeled, never treated as
- * month-to-month. Missing series stay absent — never 0.
+ * With `patternByLevel`, each candidate is compared to the Muster of the
+ * **same** Ebene. Primary score is the share of **local** three-year trend
+ * criteria whose direction matches. Inherited (parent-level) criteria are
+ * labeled and do not differentiate siblings. Stichtag values are labeled,
+ * never treated as month-to-month. Missing series stay absent — never 0.
  */
 export function rankTeilflaechen(
   candidates: AreaCandidate[],
   series: YearlySeries[],
   criteria: PatternCriterion[],
+  profiles?: PatternLevelProfile[],
 ): ScoredLocation[] {
   const byGeoKey = groupSeries(series);
   const scored: ScoredLocation[] = [];
 
   for (const candidate of candidates) {
     const local = byGeoKey.get(candidate.geoKey) ?? [];
-    const evidence = criteria.map((criterion) => evidenceForCandidate(criterion, local, candidate.kind));
+    const used = criteriaForPatternLevel(candidate.kind, profiles, criteria);
+    const evidence = used.map((criterion) => evidenceForCandidate(criterion, local, candidate.kind));
     const localTrend = evidence.filter(
-      (entry, index) => isTrendCriterion(criteria[index]!) && entry.scope !== "inherited",
+      (entry, index) => isTrendCriterion(used[index]!) && entry.scope !== "inherited",
     );
     const matched = localTrend.filter((entry) => entry.match).length;
     const score = localTrend.length === 0 ? 0 : roundScore(matched / localTrend.length);

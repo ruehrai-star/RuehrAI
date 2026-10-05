@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
-import { criteriaFromYearlySeries } from "../analysis/series-criteria";
+import { buildPatternByLevel, flattenedPatternCriteria } from "../analysis/pattern-profile";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
 import { AnalysisInput, AnalysisPattern, analysisRegions } from "../analysis/types";
 import { SeriesRegionInput, YearlySeries, asOfFrom } from "../analysis/yearly-series";
@@ -48,7 +48,8 @@ export class RecommendationsService {
 
     const surroundings = await this.surroundings.resolve(run.input.stores);
     const storeSeries = await this.yearlySeries.build(surroundings.regions, asOfDate);
-    const derived = criteriaFromYearlySeries(storeSeries);
+    const patternByLevel = buildPatternByLevel(surroundings.regions, storeSeries);
+    const derived = flattenedPatternCriteria(patternByLevel);
     const pattern: AnalysisPattern = {
       ...run.pattern,
       revenueDirection: run.input.revenueDirection,
@@ -58,7 +59,7 @@ export class RecommendationsService {
     const loaded = await this.areas.load(analysisRegions(run.input));
     const candidateSeries =
       loaded.items.length === 0 ? [] : await this.yearlySeries.build(loaded.items.map(toSeriesRegion), asOfDate);
-    const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria);
+    const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria, patternByLevel);
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
     const written = await this.rationales.write(pattern, window, ranked);
     const payload: RecommendationPayload = {
@@ -70,6 +71,7 @@ export class RecommendationsService {
         truncated: loaded.truncated,
       }),
       pattern,
+      patternByLevel,
       items: written.map((item, index) => ({ ...item, rank: index + 1 })),
     };
     const inserted = await this.db.query<{ id: string; created_at: Date | string }>(

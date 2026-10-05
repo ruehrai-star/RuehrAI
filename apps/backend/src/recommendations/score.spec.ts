@@ -250,6 +250,49 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.score).toBe(1);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toMatch(/übernommen/i);
   });
+
+  it("compares each candidate to the store pattern of the same Ebene only", () => {
+    const profiles = [
+      {
+        level: "plz" as const,
+        role: "pattern" as const,
+        geoKeys: ["80331"],
+        yearlySeries: [],
+        criteria: [trendUp],
+      },
+    ];
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:down", kind: "ortsteil", title: "Falling" }),
+        candidate({ geoKey: "80801", kind: "plz", grain: "plz5", title: "PLZ 80801" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:down",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "80801",
+          requestedLevel: "plz",
+          sourceLevel: "plz",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+      ],
+      [trendUp],
+      profiles,
+    );
+    expect(ranked.find((item) => item.kind === "ortsteil")?.score).toBe(0);
+    expect(ranked.find((item) => item.kind === "ortsteil")?.criteriaEvidence).toEqual([]);
+    expect(ranked.find((item) => item.kind === "plz")?.score).toBe(1);
+  });
 });
 
 describe("recommendationReason", () => {

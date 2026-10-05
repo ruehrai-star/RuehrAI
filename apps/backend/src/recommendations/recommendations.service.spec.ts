@@ -67,12 +67,17 @@ function area(geoKey: string, title: string, kind: AreaCandidate["kind"] = "orts
   };
 }
 
-function trend(requestedGeoKey: string, first: number, last: number): YearlySeries {
+function trend(
+  requestedGeoKey: string,
+  first: number,
+  last: number,
+  requestedLevel: YearlySeries["requestedLevel"] = "ortsteil",
+): YearlySeries {
   return {
     metricId: "unfallatlas",
-    requestedLevel: "ortsteil",
+    requestedLevel,
     requestedGeoKey,
-    sourceLevel: "ortsteil",
+    sourceLevel: requestedLevel,
     sourceGeoKey: requestedGeoKey,
     granularity: "year",
     coverage: "multi",
@@ -104,7 +109,13 @@ describe("RecommendationsService", () => {
     resolve.mockReset();
     build.mockReset();
     write.mockReset();
-    resolve.mockResolvedValue({ regions: [{ grain: "plz5", geoKey: "80331", plz: "80331" }], keys: ["80331"] });
+    resolve.mockResolvedValue({
+      regions: [
+        { grain: "other", geoKey: "ortsteil:osm:store", level: "ortsteil" },
+        { grain: "plz5", geoKey: "80331", plz: "80331", level: "plz" },
+      ],
+      keys: ["ortsteil:osm:store", "80331"],
+    });
     write.mockImplementation(async (_pattern: AnalysisPattern, _window: unknown, items: unknown[]) =>
       (items as { id: string }[]).map((item) => ({
         ...item,
@@ -145,7 +156,10 @@ describe("RecommendationsService", () => {
       truncated: false,
     });
     build
-      .mockResolvedValueOnce([trend("80331", 20, 8)])
+      .mockResolvedValueOnce([
+        trend("ortsteil:osm:store", 20, 8, "ortsteil"),
+        trend("80331", 20, 8, "plz"),
+      ])
       .mockResolvedValueOnce([
         trend("ortsteil:osm:1", 20, 8),
         trend("ortsteil:osm:2", 18, 9),
@@ -162,11 +176,38 @@ describe("RecommendationsService", () => {
     expect(set.items.map((item) => item.title)).toEqual(["Schwabing", "Sendling", "Giesing"]);
     expect(set.items.map((item) => item.location.geoKey)).not.toContain("09162000");
     expect(set.pattern.criteria[0]?.kind).toBe("trend");
+    expect(set.patternByLevel?.map((item) => item.level)).toEqual(["ortsteil", "plz"]);
+    expect(set.patternByLevel?.find((item) => item.level === "ortsteil")?.criteria[0]?.scope).toBe("local");
+    expect(set.patternByLevel?.find((item) => item.level === "plz")?.geoKeys).toEqual(["80331"]);
 
     const insert = query.mock.calls[1] as [string, unknown[]];
     expect(insert[0]).toContain("INSERT INTO app.recommendation_sets");
     expect(resolve).toHaveBeenCalled();
     expect(load.mock.calls[0]?.[0]?.[0]?.geoKey).toBe("09162000");
+  });
+
+  it("does not score Ortsteil candidates from a PLZ-only store pattern", async () => {
+    resolve.mockResolvedValue({
+      regions: [{ grain: "plz5", geoKey: "80331", plz: "80331", level: "plz" }],
+      keys: ["80331"],
+    });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "5", created_at: new Date("2026-09-29T12:00:00.000Z") }],
+      });
+    load.mockResolvedValue({
+      items: [area("ortsteil:osm:1", "Schwabing"), area("ortsteil:osm:2", "Sendling")],
+      truncated: false,
+    });
+    build
+      .mockResolvedValueOnce([trend("80331", 20, 8, "plz")])
+      .mockResolvedValueOnce([trend("ortsteil:osm:1", 20, 8), trend("ortsteil:osm:2", 10, 30)]);
+
+    const set = await service.create("4", undefined, asOf);
+    expect(set.items.every((item) => item.score === 0)).toBe(true);
+    expect(set.patternByLevel?.map((item) => item.level)).toEqual(["plz"]);
+    expect(set.items.map((item) => item.criteriaEvidence)).toEqual([[], []]);
   });
 
   it("returns an empty list only when no sub-area exists", async () => {

@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.13.0");
+  assert.equal(doc.info.version, "0.14.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -87,6 +87,8 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.12.0"));
   assert.ok(doc.info.description.includes("0.12.1"));
   assert.ok(doc.info.description.includes("0.13.0"));
+  assert.ok(doc.info.description.includes("0.14.0"));
+  assert.ok(doc.info.description.includes("patternByLevel"));
   assert.ok(doc.info.description.includes("lor:plr"));
   assert.ok(doc.info.description.includes("koeln:sq"));
   assert.ok(doc.info.description.includes("geo.geo_ref_address"));
@@ -118,6 +120,31 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(recommendation.properties.rank.maximum, 200);
   assert.equal(doc.components.schemas.RecommendationSet.properties.reason.nullable, true);
   assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 200);
+  assert.equal(
+    doc.components.schemas.RecommendationSet.properties.patternByLevel.items.$ref,
+    "#/components/schemas/PatternLevelProfile",
+  );
+  assert.equal(doc.components.schemas.RecommendationSet.required.includes("patternByLevel"), false);
+  assert.deepEqual(doc.components.schemas.PatternLevel.enum, [
+    "address",
+    "grid100",
+    "lor",
+    "quartier",
+    "ortsteil",
+    "plz",
+    "bezirk",
+    "gemeinde",
+    "kreis",
+  ]);
+  assert.deepEqual(doc.components.schemas.PatternLevelRole.enum, ["pattern", "frame"]);
+  assert.deepEqual(doc.components.schemas.PatternLevelProfile.required, [
+    "level",
+    "role",
+    "geoKeys",
+    "yearlySeries",
+    "criteria",
+  ]);
+  assert.equal(doc.components.schemas.PatternCriterion.properties.scope.$ref, "#/components/schemas/EvidenceScope");
   assert.deepEqual(doc.components.schemas.AreaKind.enum, [
     "address",
     "grid100",

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.13.0
+  version: 0.14.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -94,6 +94,15 @@ info:
     `geo.geo_ref_address` (Berlin, Hamburg, NRW) when rows exist; an
     empty or missing table is skipped and finest-only continues. Addresses
     are never invented. Membership prefers `geo.geo_ref_zielregion_teil`.
+    `0.14.0` builds the store-surroundings Muster spiegelbildlich on every
+    Ebene (Adresse → 100-m-Raster → LOR/Quartier → Ortsteil → PLZ5 →
+    Bezirk → Gemeinde; Kreis as `role: frame` only). Zielregion candidates
+    are compared to the store pattern of the **same** Ebene. Inherited
+    criteria still do not differentiate siblings; the score uses local
+    trends of that Ebene only. `RecommendationSet.patternByLevel` exposes
+    that Musterprofil (geoKeys, yearlySeries, criteria with
+    `scope: local|inherited`) on POST 201 and GET 200. Additive; older
+    stored sets may omit the field. `PatternCriterion.scope` is optional.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -2166,12 +2175,13 @@ components:
           maxItems: 5
           description: |
             At most five grounded criteria. Heuristic values come from
-            Bestandstandort surroundings (store PLZ / Ortsteil plus Gemeinde-
-            and Kreis-series such as Köln ags5 `05315`), never from clipping
-            Brain facts to the Zielregion. Destatis `bev_insgesamt` at ags5
-            is preferred for Einwohner over Zensus `ewz`. A Kreis or Land
-            fallback is labeled as such. Missing values are absent
-            (liegt nicht vor), never invented.
+            Bestandstandort surroundings (Adresse → Raster → LOR/Quartier →
+            Ortsteil → PLZ5 → Bezirk → Gemeinde; Kreis is Rahmen only, e.g.
+            Köln ags5 `05315`), never from clipping Brain facts to the
+            Zielregion. Destatis `bev_insgesamt` at ags5 is preferred for
+            Einwohner over Zensus `ewz`. A Kreis or Land fallback is labeled
+            as such. Missing values are absent (liegt nicht vor), never
+            invented.
           items:
             $ref: "#/components/schemas/PatternCriterion"
         yearlySeries:
@@ -2208,6 +2218,54 @@ components:
           $ref: "#/components/schemas/SeriesLevel"
         sourceGeoKey:
           type: string
+        scope:
+          $ref: "#/components/schemas/EvidenceScope"
+          description: |
+            Present on `patternByLevel` criteria. `local` is native to that
+            Ebene. `inherited` was taken from a coarser parent and does not
+            differentiate siblings. Omitted on older `pattern.criteria`.
+    PatternLevel:
+      type: string
+      description: |
+        Canonical Ebene of a store-surroundings Musterprofil.
+        `stadtteil` folds into `ortsteil`; `stadtbezirk` into `bezirk`.
+        `kreis` is Rahmen only (`role: frame`).
+      enum: [address, grid100, lor, quartier, ortsteil, plz, bezirk, gemeinde, kreis]
+    PatternLevelRole:
+      type: string
+      enum: [pattern, frame]
+      description: |
+        `pattern` is compared Ebene-für-Ebene with Zielregion candidates
+        of the same Ebene. `frame` (Kreis) is context only and does not
+        differentiate siblings.
+    PatternLevelProfile:
+      type: object
+      additionalProperties: false
+      required: [level, role, geoKeys, yearlySeries, criteria]
+      description: |
+        Store-surroundings pattern at one Ebene. `yearlySeries` are the
+        last three available years for that Ebene. Missing years are
+        `absent` (liegt nicht vor), never `0`. `criteria` are derived
+        from those series (max 5) with `scope` `local` or `inherited`.
+      properties:
+        level:
+          $ref: "#/components/schemas/PatternLevel"
+        role:
+          $ref: "#/components/schemas/PatternLevelRole"
+        geoKeys:
+          type: array
+          items:
+            type: string
+          description: Bestandstandort geo keys aggregated at this Ebene.
+        yearlySeries:
+          type: array
+          items:
+            $ref: "#/components/schemas/YearlySeries"
+        criteria:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/PatternCriterion"
     AnalysisPatternRegion:
       type: object
       additionalProperties: false
@@ -2271,9 +2329,11 @@ components:
         Ranked finest Teilflächen the web client binds to. `count` is
         `items.length`. `reason` is null when at least one finer sub-area
         exists and the catalog read was not truncated. `pattern` is the
-        store-surroundings snapshot used for this ranking. Empty `items`
-        only when no finer sub-area exists inside the Zielregion. Parent
-        areas are omitted when a child at a finer Ebene matches.
+        flattened store-surroundings snapshot (older clients).
+        `patternByLevel` is the Musterprofil je Ebene used for Ebene-für-Ebene
+        ranking. Empty `items` only when no finer sub-area exists inside
+        the Zielregion. Parent areas are omitted when a child at a finer
+        Ebene matches.
       properties:
         id:
           type: string
@@ -2299,6 +2359,17 @@ components:
             finest sub-areas were ranked without truncation.
         pattern:
           $ref: "#/components/schemas/AnalysisPattern"
+        patternByLevel:
+          type: array
+          description: |
+            Store-surroundings Musterprofil je Ebene, finest → coarse.
+            New `POST /recommendations` always includes the Ebenen that
+            were resolved for the Bestandstandorte. Older stored sets may
+            omit this field. Candidates are compared to the profile of the
+            **same** Ebene. Kreis is `role: frame` and does not
+            differentiate siblings.
+          items:
+            $ref: "#/components/schemas/PatternLevelProfile"
         items:
           type: array
           maxItems: 200
@@ -2352,9 +2423,10 @@ components:
           maximum: 1
           description: |
             Share of **local** three-year trend criteria whose direction
-            matches the store-surroundings pattern. Inherited parent-level
-            trends do not change this score. Stichtag criteria are labeled
-            and do not drive this score. 1 is a full local trend fit.
+            matches the store-surroundings pattern of the **same** Ebene.
+            Inherited parent-level trends and Kreis-frame series do not
+            change this score. Stichtag criteria are labeled and do not
+            drive this score. 1 is a full local trend fit.
         rationale:
           type: string
           description: |

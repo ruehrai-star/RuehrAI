@@ -1,4 +1,5 @@
 import { Grain } from "../target-region/dto";
+import { PatternLevelProfile } from "../analysis/pattern-profile";
 import { AnalysisPattern, CriterionDirection, PatternSource } from "../analysis/types";
 import { SeriesCoverage, SeriesPoint, SeriesPointStatus } from "../analysis/yearly-series";
 import { AreaKind } from "./area-candidates";
@@ -56,6 +57,8 @@ export interface RecommendationPayload {
   count: number;
   reason: string | null;
   pattern: AnalysisPattern;
+  /** Store-surroundings Musterprofil je Ebene. Omitted on older stored sets. */
+  patternByLevel?: PatternLevelProfile[];
   items: RecommendationItem[];
 }
 

@@ -1222,12 +1222,13 @@ export interface components {
             revenueDirection: components["schemas"]["RevenueDirection"];
             /**
              * @description At most five grounded criteria. Heuristic values come from
-             *     Bestandstandort surroundings (store PLZ / Ortsteil plus Gemeinde-
-             *     and Kreis-series such as Köln ags5 `05315`), never from clipping
-             *     Brain facts to the Zielregion. Destatis `bev_insgesamt` at ags5
-             *     is preferred for Einwohner over Zensus `ewz`. A Kreis or Land
-             *     fallback is labeled as such. Missing values are absent
-             *     (liegt nicht vor), never invented.
+             *     Bestandstandort surroundings (Adresse → Raster → LOR/Quartier →
+             *     Ortsteil → PLZ5 → Bezirk → Gemeinde; Kreis is Rahmen only, e.g.
+             *     Köln ags5 `05315`), never from clipping Brain facts to the
+             *     Zielregion. Destatis `bev_insgesamt` at ags5 is preferred for
+             *     Einwohner over Zensus `ewz`. A Kreis or Land fallback is labeled
+             *     as such. Missing values are absent (liegt nicht vor), never
+             *     invented.
              */
             criteria: components["schemas"]["PatternCriterion"][];
             yearlySeries?: components["schemas"]["YearlySeries"][];
@@ -1250,6 +1251,40 @@ export interface components {
             coverage?: components["schemas"]["SeriesCoverage"];
             sourceLevel?: components["schemas"]["SeriesLevel"];
             sourceGeoKey?: string;
+            /**
+             * @description Present on `patternByLevel` criteria. `local` is native to that
+             *     Ebene. `inherited` was taken from a coarser parent and does not
+             *     differentiate siblings. Omitted on older `pattern.criteria`.
+             */
+            scope?: components["schemas"]["EvidenceScope"];
+        };
+        /**
+         * @description Canonical Ebene of a store-surroundings Musterprofil.
+         *     `stadtteil` folds into `ortsteil`; `stadtbezirk` into `bezirk`.
+         *     `kreis` is Rahmen only (`role: frame`).
+         * @enum {string}
+         */
+        PatternLevel: "address" | "grid100" | "lor" | "quartier" | "ortsteil" | "plz" | "bezirk" | "gemeinde" | "kreis";
+        /**
+         * @description `pattern` is compared Ebene-für-Ebene with Zielregion candidates
+         *     of the same Ebene. `frame` (Kreis) is context only and does not
+         *     differentiate siblings.
+         * @enum {string}
+         */
+        PatternLevelRole: "pattern" | "frame";
+        /**
+         * @description Store-surroundings pattern at one Ebene. `yearlySeries` are the
+         *     last three available years for that Ebene. Missing years are
+         *     `absent` (liegt nicht vor), never `0`. `criteria` are derived
+         *     from those series (max 5) with `scope` `local` or `inherited`.
+         */
+        PatternLevelProfile: {
+            level: components["schemas"]["PatternLevel"];
+            role: components["schemas"]["PatternLevelRole"];
+            /** @description Bestandstandort geo keys aggregated at this Ebene. */
+            geoKeys: string[];
+            yearlySeries: components["schemas"]["YearlySeries"][];
+            criteria: components["schemas"]["PatternCriterion"][];
         };
         /**
          * @description Snapshot place this pattern belongs to, for the Stand line
@@ -1285,9 +1320,11 @@ export interface components {
          * @description Ranked finest Teilflächen the web client binds to. `count` is
          *     `items.length`. `reason` is null when at least one finer sub-area
          *     exists and the catalog read was not truncated. `pattern` is the
-         *     store-surroundings snapshot used for this ranking. Empty `items`
-         *     only when no finer sub-area exists inside the Zielregion. Parent
-         *     areas are omitted when a child at a finer Ebene matches.
+         *     flattened store-surroundings snapshot (older clients).
+         *     `patternByLevel` is the Musterprofil je Ebene used for Ebene-für-Ebene
+         *     ranking. Empty `items` only when no finer sub-area exists inside
+         *     the Zielregion. Parent areas are omitted when a child at a finer
+         *     Ebene matches.
          */
         RecommendationSet: {
             /** @description Recommendation set id as a decimal string. */
@@ -1305,6 +1342,15 @@ export interface components {
              */
             reason: string | null;
             pattern: components["schemas"]["AnalysisPattern"];
+            /**
+             * @description Store-surroundings Musterprofil je Ebene, finest → coarse.
+             *     New `POST /recommendations` always includes the Ebenen that
+             *     were resolved for the Bestandstandorte. Older stored sets may
+             *     omit this field. Candidates are compared to the profile of the
+             *     **same** Ebene. Kreis is `role: frame` and does not
+             *     differentiate siblings.
+             */
+            patternByLevel?: components["schemas"]["PatternLevelProfile"][];
             items: components["schemas"]["Recommendation"][];
         };
         /**
@@ -1341,9 +1387,10 @@ export interface components {
             /**
              * Format: double
              * @description Share of **local** three-year trend criteria whose direction
-             *     matches the store-surroundings pattern. Inherited parent-level
-             *     trends do not change this score. Stichtag criteria are labeled
-             *     and do not drive this score. 1 is a full local trend fit.
+             *     matches the store-surroundings pattern of the **same** Ebene.
+             *     Inherited parent-level trends and Kreis-frame series do not
+             *     change this score. Stichtag criteria are labeled and do not
+             *     drive this score. 1 is a full local trend fit.
              */
             score: number;
             /**

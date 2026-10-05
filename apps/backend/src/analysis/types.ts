@@ -105,6 +105,8 @@ export interface AnalysisBrain {
 
 export type CriterionKind = "trend" | "stichtag";
 
+export type CriterionScope = "local" | "inherited";
+
 export interface PatternCriterion {
   key: string;
   label: string;
@@ -115,6 +117,8 @@ export interface PatternCriterion {
   coverage?: SeriesCoverage;
   sourceLevel?: SeriesLevel;
   sourceGeoKey?: string;
+  /** On `patternByLevel` criteria: native to that Ebene, or taken from a parent. */
+  scope?: CriterionScope;
 }
 
 export interface AnalysisPattern {
