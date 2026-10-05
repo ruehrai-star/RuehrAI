@@ -26,6 +26,8 @@ export const ABSENT_LABEL = ADDRESS_COPY.absent;
 const STORE_REVENUE_METRIC = /^(umsatz|app\.store_monthly_revenue)$/;
 
 const SERIES_LEVEL_LABELS: Record<SeriesLevel, string> = {
+  address: "Adresse",
+  grid100: "100-m-Raster",
   plz: "PLZ",
   bezirk: "Bezirk",
   stadtbezirk: "Stadtbezirk",

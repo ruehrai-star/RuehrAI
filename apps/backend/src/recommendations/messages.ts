@@ -5,7 +5,7 @@ export const RECOMMENDATIONS_NOT_STORED =
   "Die Empfehlungen konnten nicht gespeichert werden.";
 
 const NO_SUBAREAS =
-  "In der Zielregion liegt keine Teilfläche (Ortsteil, Bezirk, PLZ oder Gemeinde) vor.";
+  "In der Zielregion liegt keine feinere Teilfläche (Adresse, 100-m-Raster, Ortsteil, PLZ, Bezirk oder Gemeinde) vor.";
 
 const TRUNCATED =
   "Die Flächenabfrage hat das Zeilenlimit erreicht. Die Rangliste kann unvollständig sein.";

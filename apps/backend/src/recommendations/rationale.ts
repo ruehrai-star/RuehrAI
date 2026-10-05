@@ -51,10 +51,11 @@ export function buildHeuristicRationale(item: ScoredLocation): string {
     if (entry.kind === "absent" || entry.status === "absent") {
       return `${entry.label} liegt nicht vor`;
     }
+    const inherited = entry.scope === "inherited" ? ", übernommen, unterscheidet Geschwister nicht" : "";
     if (entry.kind === "stichtag") {
-      return `${entry.label} (Stichtag: ${entry.evidence})`;
+      return `${entry.label} (Stichtag: ${entry.evidence}${inherited})`;
     }
-    return `${entry.label} (${entry.evidence})`;
+    return `${entry.label} (${entry.evidence}${inherited})`;
   });
   const body = parts.length > 0 ? parts.join(" ") : "ohne einzelne Kennzahl";
   return `Die Teilfläche ${item.title} (${item.location.geoKey}) im Vergleich zum Filialmuster: ${body} Quelle: Heuristik, ohne Sprachmodell.`;

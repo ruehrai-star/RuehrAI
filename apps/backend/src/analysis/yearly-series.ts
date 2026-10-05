@@ -29,7 +29,7 @@ export interface SeriesRegionInput {
   plz?: string | null;
 }
 
-export type SeriesLevel = CatalogLevel | "kreis" | "land";
+export type SeriesLevel = CatalogLevel | "kreis" | "land" | "grid100" | "address";
 export type SeriesGranularity = "month" | "year";
 export type SeriesCoverage = "none" | "single" | "multi";
 export type SeriesPointStatus = "present" | "absent";
@@ -186,7 +186,7 @@ export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: Topi
 ];
 
 export function isSeriesLevel(value: unknown): value is SeriesLevel {
-  return isCatalogLevel(value) || value === "kreis" || value === "land";
+  return isCatalogLevel(value) || value === "kreis" || value === "land" || value === "grid100" || value === "address";
 }
 
 /**
@@ -195,7 +195,9 @@ export function isSeriesLevel(value: unknown): value is SeriesLevel {
  */
 export function isKreisPlace(region: SeriesRegionInput): boolean {
   const grain = region.grain ?? null;
-  if (grain === "plz5" || grain === "plz8" || grain === "other") return false;
+  if (grain === "plz5" || grain === "plz8" || grain === "other" || grain === "grid100" || grain === "address") {
+    return false;
+  }
   const rawKey = region.geoKey ?? region.ags ?? "";
   if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk):/i.test(rawKey.trim())) return false;
   if (grain === "ags5") return true;
@@ -203,6 +205,8 @@ export function isKreisPlace(region: SeriesRegionInput): boolean {
 }
 
 export function requestedLevelOf(region: SeriesRegionInput): SeriesLevel | null {
+  if (region.grain === "grid100") return "grid100";
+  if (region.grain === "address") return "address";
   if (isSeriesLevel(region.level)) return region.level;
   const catalog = catalogLevelForPlace({
     grain: region.grain,
@@ -400,6 +404,9 @@ export function keysForResolvedPlace(
 }
 
 export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string[] {
+  if (level === "grid100" || level === "address") {
+    return unique([geoKey, stripPrefixedKey(geoKey)]);
+  }
   if (level === "plz") {
     const plz = geoKey.replace(/^(?:plz5|plz8):/i, "");
     return unique([plz, `plz5:${plz}`, geoKey]);
@@ -563,7 +570,9 @@ function rowMatches(
   const theme = row.source_theme?.trim() ?? "";
   if (!theme || !themeMatchesTopic(theme, metricId)) return false;
   if (attempt.match === "requested") {
-    if (isExcludedGrain(row.grain)) return false;
+    if (attempt.level !== "grid100" && attempt.level !== "address" && isExcludedGrain(row.grain)) {
+      return false;
+    }
     if (row.grain === "ags" || row.grain === "ags5") return false;
     return rowKeyHits(row, attempt.keys);
   }
@@ -632,7 +641,15 @@ function comparePeriod(left: string | null, right: string | null): number {
 }
 
 function isSmallArea(level: SeriesLevel): boolean {
-  return level === "plz" || level === "bezirk" || level === "stadtbezirk" || level === "stadtteil" || level === "ortsteil";
+  return (
+    level === "plz" ||
+    level === "bezirk" ||
+    level === "stadtbezirk" ||
+    level === "stadtteil" ||
+    level === "ortsteil" ||
+    level === "grid100" ||
+    level === "address"
+  );
 }
 
 function isExcludedGrain(grain: string | null): boolean {

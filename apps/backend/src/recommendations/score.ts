@@ -2,22 +2,24 @@ import { PatternCriterion } from "../analysis/types";
 import {
   absentEvidence,
   directionFromPoints,
+  frameNoun,
   kindFromCoverage,
   metricIdsForCriterion,
   metricLabel,
   presentPoints,
   seriesEvidence,
+  seriesLevelRank,
 } from "../analysis/series-criteria";
 import { SeriesPoint, YearlySeries } from "../analysis/yearly-series";
-import { AreaCandidate, areaKindRank } from "./area-candidates";
-import { RecommendationEvidence, ScoredLocation } from "./types";
+import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
+import { EvidenceScope, RecommendationEvidence, ScoredLocation } from "./types";
 
 /**
  * Rank every Teilfläche against the store-surroundings pattern.
- * Primary score is the share of three-year trend criteria whose direction
- * matches. Stichtag values are labeled, never treated as month-to-month.
- * Missing series stay absent — never 0. Candidates without a match still
- * remain on the list; empty is only "no sub-area".
+ * Primary score is the share of **local** three-year trend criteria whose
+ * direction matches. Inherited (parent-level) criteria are labeled and do
+ * not differentiate siblings. Stichtag values are labeled, never treated as
+ * month-to-month. Missing series stay absent — never 0.
  */
 export function rankTeilflaechen(
   candidates: AreaCandidate[],
@@ -25,15 +27,16 @@ export function rankTeilflaechen(
   criteria: PatternCriterion[],
 ): ScoredLocation[] {
   const byGeoKey = groupSeries(series);
-  const trendCriteria = criteria.filter((criterion) => isTrendCriterion(criterion));
   const scored: ScoredLocation[] = [];
 
   for (const candidate of candidates) {
     const local = byGeoKey.get(candidate.geoKey) ?? [];
-    const evidence = criteria.map((criterion) => evidenceForCandidate(criterion, local));
-    const trendEvidence = evidence.filter((_, index) => isTrendCriterion(criteria[index]!));
-    const matched = trendEvidence.filter((entry) => entry.match).length;
-    const score = trendCriteria.length === 0 ? 0 : roundScore(matched / trendCriteria.length);
+    const evidence = criteria.map((criterion) => evidenceForCandidate(criterion, local, candidate.kind));
+    const localTrend = evidence.filter(
+      (entry, index) => isTrendCriterion(criteria[index]!) && entry.scope !== "inherited",
+    );
+    const matched = localTrend.filter((entry) => entry.match).length;
+    const score = localTrend.length === 0 ? 0 : roundScore(matched / localTrend.length);
     scored.push({
       id: candidate.id,
       title: candidate.title,
@@ -52,8 +55,8 @@ export function rankTeilflaechen(
 
   scored.sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
-    const leftKind = areaKindRank(left.kind ?? "gemeinde");
-    const rightKind = areaKindRank(right.kind ?? "gemeinde");
+    const leftKind = areaKindRank(left.kind);
+    const rightKind = areaKindRank(right.kind);
     if (leftKind !== rightKind) return leftKind - rightKind;
     const leftPresent = presentEvidenceCount(left.criteriaEvidence);
     const rightPresent = presentEvidenceCount(right.criteriaEvidence);
@@ -71,7 +74,16 @@ export function isTrendCriterion(criterion: PatternCriterion): boolean {
   return criterion.direction === "up" || criterion.direction === "down" || criterion.direction === "flat";
 }
 
-function evidenceForCandidate(criterion: PatternCriterion, local: YearlySeries[]): RecommendationEvidence {
+export function evidenceScope(candidateKind: AreaKind, sourceLevel?: string | null): EvidenceScope {
+  if (!sourceLevel) return "local";
+  return seriesLevelRank(sourceLevel) > seriesLevelRank(candidateKind) ? "inherited" : "local";
+}
+
+function evidenceForCandidate(
+  criterion: PatternCriterion,
+  local: YearlySeries[],
+  candidateKind: AreaKind,
+): RecommendationEvidence {
   const series = findSeries(criterion, local);
   const label = criterion.label || metricLabel(criterion.key);
   if (!series) {
@@ -85,10 +97,12 @@ function evidenceForCandidate(criterion: PatternCriterion, local: YearlySeries[]
       status: "absent",
       match: false,
       coverage: "none",
+      scope: "local",
       points: [],
     };
   }
 
+  const scope = evidenceScope(candidateKind, series.sourceLevel);
   const present = presentPoints(series.points);
   if (present.length === 0) {
     return {
@@ -96,11 +110,14 @@ function evidenceForCandidate(criterion: PatternCriterion, local: YearlySeries[]
       label: metricLabel(series.metricId, series.sourceLevel),
       direction: "unknown",
       patternDirection: criterion.direction,
-      evidence: absentEvidence(criterion.key, label),
+      evidence: withScopeNote(absentEvidence(criterion.key, label), scope, series.sourceLevel),
       kind: "absent",
       status: "absent",
       match: false,
       coverage: series.coverage,
+      scope,
+      sourceLevel: series.sourceLevel,
+      sourceGeoKey: series.sourceGeoKey,
       points: withoutInventedZero(series.points),
     };
   }
@@ -118,13 +135,25 @@ function evidenceForCandidate(criterion: PatternCriterion, local: YearlySeries[]
     label: metricLabel(series.metricId, series.sourceLevel),
     direction,
     patternDirection: criterion.direction,
-    evidence: seriesEvidence(series, direction),
+    evidence: withScopeNote(seriesEvidence(series, direction), scope, series.sourceLevel),
     kind,
     status: "present",
     match,
     coverage: series.coverage,
+    scope,
+    sourceLevel: series.sourceLevel,
+    sourceGeoKey: series.sourceGeoKey,
     points: withoutInventedZero(series.points),
   };
+}
+
+function withScopeNote(evidence: string, scope: EvidenceScope, sourceLevel?: string): string {
+  if (scope !== "inherited") return evidence;
+  const noun = frameNoun(sourceLevel);
+  const suffix = noun
+    ? ` Übernommen von ${noun} — unterscheidet Geschwisterflächen nicht.`
+    : " Übernommen von einer übergeordneten Ebene — unterscheidet Geschwisterflächen nicht.";
+  return `${evidence.replace(/\s+$/, "")}${suffix}`;
 }
 
 function findSeries(criterion: PatternCriterion, local: YearlySeries[]): YearlySeries | null {

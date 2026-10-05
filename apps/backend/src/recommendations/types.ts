@@ -17,6 +17,7 @@ export interface RecommendationLocation {
 }
 
 export type EvidenceKind = "trend" | "stichtag" | "absent";
+export type EvidenceScope = "local" | "inherited";
 
 export interface RecommendationEvidence {
   key: string;
@@ -28,13 +29,16 @@ export interface RecommendationEvidence {
   status?: SeriesPointStatus;
   match?: boolean;
   coverage?: SeriesCoverage;
+  scope?: EvidenceScope;
+  sourceLevel?: string;
+  sourceGeoKey?: string;
   points?: SeriesPoint[];
 }
 
 export interface ScoredLocation {
   id: string;
   title: string;
-  kind?: AreaKind;
+  kind: AreaKind;
   location: RecommendationLocation;
   score: number;
   criteriaEvidence: RecommendationEvidence[];

@@ -181,7 +181,7 @@ describe("RecommendationsService", () => {
     const set = await service.create("4", "15", asOf);
     expect(set.count).toBe(0);
     expect(set.items).toEqual([]);
-    expect(set.reason).toContain("keine Teilfläche");
+    expect(set.reason).toContain("keine feinere Teilfläche");
   });
 
   it("reads only the caller's latest set", async () => {

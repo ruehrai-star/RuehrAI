@@ -70,14 +70,16 @@ const METRIC_LABELS: Record<string, string> = {
 };
 
 const LEVEL_RANK: Record<string, number> = {
-  ortsteil: 0,
-  stadtteil: 0,
-  plz: 1,
-  bezirk: 2,
-  stadtbezirk: 2,
-  gemeinde: 3,
-  kreis: 4,
-  land: 5,
+  address: 0,
+  grid100: 1,
+  ortsteil: 2,
+  stadtteil: 2,
+  plz: 3,
+  bezirk: 4,
+  stadtbezirk: 4,
+  gemeinde: 5,
+  kreis: 6,
+  land: 7,
 };
 
 /** Signal keys from older heuristic runs → yearlySeries metricId. */
@@ -138,6 +140,8 @@ export function frameNoun(level: SeriesLevel | string | undefined): string | nul
   if (level === "plz") return "PLZ";
   if (level === "ortsteil" || level === "stadtteil") return "Ortsteil";
   if (level === "bezirk" || level === "stadtbezirk") return "Bezirk";
+  if (level === "grid100") return "100-m-Raster";
+  if (level === "address") return "Adresse";
   return null;
 }
 
@@ -176,7 +180,7 @@ function pickSeriesForPattern(series: YearlySeries[]): YearlySeries[] {
   for (const item of usable) {
     if (item.sourceLevel === "land") continue;
     const current = finest.get(item.metricId);
-    if (!current || levelRank(item.sourceLevel) < levelRank(current.sourceLevel)) {
+    if (!current || seriesLevelRank(item.sourceLevel) < seriesLevelRank(current.sourceLevel)) {
       finest.set(item.metricId, item);
     }
   }
@@ -230,11 +234,11 @@ function toCriterion(series: YearlySeries): PatternCriterion {
 }
 
 function compareSeries(left: YearlySeries, right: YearlySeries): number {
-  const byLevel = levelRank(left.sourceLevel) - levelRank(right.sourceLevel);
+  const byLevel = seriesLevelRank(left.sourceLevel) - seriesLevelRank(right.sourceLevel);
   if (byLevel !== 0) return byLevel;
   return left.metricId.localeCompare(right.metricId);
 }
 
-function levelRank(level: SeriesLevel | string): number {
+export function seriesLevelRank(level: SeriesLevel | string): number {
   return LEVEL_RANK[level] ?? 9;
 }

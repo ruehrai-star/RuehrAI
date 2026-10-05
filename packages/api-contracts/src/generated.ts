@@ -532,24 +532,32 @@ export interface paths {
          * @description Reads a completed Musteranalyse for this user (the newest run, or
          *     `runId` when set) and rebuilds pattern criteria from the
          *     Bestandstandort surroundings (Ortsteil/PLZ near each store plus
-         *     three-year Gemeinde-/Kreis series). It then lists every Teilfläche
-         *     inside the Zielregion:
+         *     three-year Gemeinde-/Kreis series). It then lists only the
+         *     **finest** Teilflächen inside the Zielregion (never the region
+         *     itself), evaluating small → large:
          *
-         *     - Ortsteile (`geo.geo_ref_ortsteil`)
-         *     - Stadtbezirke (`geo.geo_ref_bezirk`)
+         *     - Adresse (`grain=address`) when Brain has docs (currently 0 — skipped)
+         *     - 100-m Raster (`grid100` / `breitband_gitter`)
+         *     - Ortsteil / Stadtteil (`geo.geo_ref_ortsteil`)
          *     - PLZ5 (`geo.geo_ref_plz`)
-         *     - Gemeinden when the Zielregion is a Kreis (`geo.geo_ref_admin`
-         *       via AGS prefix; admin polygons may be empty)
+         *     - Stadtbezirk / Bezirk (`geo.geo_ref_bezirk`)
+         *     - Gemeinde (`geo.geo_ref_admin`) when no finer child exists
          *
-         *     Geometry intersection uses `app.target_regions.geometry`. The
-         *     Zielregion geoKey itself is never a hit. Address grain is empty
-         *     in Brain; Stage 1 does not return street addresses.
+         *     Parent→child membership prefers `geo.geo_ref_zielregion_teil`
+         *     (`within` / `partial`). Geometry fallback uses
+         *     `app.target_regions.geometry` and `geom_4326` / `geom_display`
+         *     on admin rows (`geom` is EPSG:3035, not WGS84).
          *
-         *     Ranking uses the three-year trend where a series exists
-         *     (`unfallatlas_gebiet` on Ortsteil/Bezirk/PLZ; Gemeinde-/Kreis
-         *     series as Rahmen). Snapshot values (Zensus, Breitband, …) are
-         *     labeled `stichtag` and are not month-to-month direction. Missing
-         *     cells are `absent` (`liegt nicht vor`), never `0`.
+         *     A parent/ancestor is omitted when a finer child matches.
+         *     `items[].kind` is the Ebene. Criteria available only on a coarser
+         *     admin level have `criteriaEvidence[].scope: inherited` and do not
+         *     differentiate sibling Teilflächen. `scope: local` is native to
+         *     that hit.
+         *
+         *     Ranking uses the three-year trend where a **local** series exists
+         *     (`unfallatlas_gebiet` on Ortsteil/Bezirk/PLZ). Snapshot values
+         *     are labeled `stichtag`. Missing cells are `absent`
+         *     (`liegt nicht vor`), never `0`.
          *
          *     An empty `items` array is success only when no sub-area exists
          *     inside the region (`reason` explains that). `404` when this user
@@ -1007,16 +1015,27 @@ export interface components {
          */
         CriterionKind: "trend" | "stichtag";
         /**
-         * @description Teilfläche kind inside the Zielregion. Never the region itself.
+         * @description Ebene of a Teilfläche inside the Zielregion. Never the region itself.
+         *     Only the finest matching Ebene is returned (Adresse → Raster →
+         *     Ortsteil → PLZ5 → Bezirk → Gemeinde). `address` is skipped when
+         *     Brain has no address docs.
          * @enum {string}
          */
-        AreaKind: "ortsteil" | "stadtteil" | "bezirk" | "stadtbezirk" | "plz" | "gemeinde";
+        AreaKind: "address" | "grid100" | "ortsteil" | "stadtteil" | "bezirk" | "stadtbezirk" | "plz" | "gemeinde";
         /**
          * @description How this criterion was observed on the Teilfläche. `absent` means
          *     the value liegt nicht vor (never invented as 0).
          * @enum {string}
          */
         EvidenceKind: "trend" | "stichtag" | "absent";
+        /**
+         * @description `local` — the value is native to this Teilfläche's Ebene.
+         *     `inherited` — the value comes from a coarser parent (Gemeinde,
+         *     Kreis, …) and is the same for sibling hits; it does not
+         *     differentiate them.
+         * @enum {string}
+         */
+        EvidenceScope: "local" | "inherited";
         AnalysisRun: {
             /** @description Run id as a decimal string. */
             id: string;
@@ -1080,13 +1099,14 @@ export interface components {
         };
         /**
          * @description Geographic level of a yearlySeries row. `sourceLevel` is the stored
-         *     Brain row. `requestedLevel` is the Zielregion. Grain `ags5` and a
-         *     5-digit AGS (Köln `05315`) are `kreis`, never `gemeinde`. Gemeinde
-         *     or Kreis numbers are never labeled as Stadtteil, Ortsteil, PLZ, or
-         *     Stadtbezirk.
+         *     Brain row. `requestedLevel` is the Zielregion or Teilfläche.
+         *     Grain `ags5` and a 5-digit AGS (Köln `05315`) are `kreis`, never
+         *     `gemeinde`. `grid100` and `address` are Stage-1 hit Ebenen.
+         *     Gemeinde or Kreis numbers are never labeled as Stadtteil, Ortsteil,
+         *     PLZ, or Stadtbezirk.
          * @enum {string}
          */
-        SeriesLevel: "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
+        SeriesLevel: "address" | "grid100" | "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
         /** @enum {string} */
         SeriesGranularity: "month" | "year";
         /**
@@ -1236,11 +1256,12 @@ export interface components {
             runId?: string;
         };
         /**
-         * @description Ranked Teilflächen the web client binds to. `count` is `items.length`.
-         *     `reason` is null when at least one sub-area exists and the geo_ref
-         *     read was not truncated. `pattern` is the store-surroundings snapshot
-         *     used for this ranking. Empty `items` only when no sub-area exists
-         *     inside the Zielregion.
+         * @description Ranked finest Teilflächen the web client binds to. `count` is
+         *     `items.length`. `reason` is null when at least one finer sub-area
+         *     exists and the catalog read was not truncated. `pattern` is the
+         *     store-surroundings snapshot used for this ranking. Empty `items`
+         *     only when no finer sub-area exists inside the Zielregion. Parent
+         *     areas are omitted when a child at a finer Ebene matches.
          */
         RecommendationSet: {
             /** @description Recommendation set id as a decimal string. */
@@ -1252,9 +1273,9 @@ export interface components {
             window: components["schemas"]["RecommendationWindow"];
             count: number;
             /**
-             * @description German explanation when no Teilfläche exists inside the region,
-             *     or when the geo_ref read hit its row limit. Null when sub-areas
-             *     were ranked without truncation.
+             * @description German explanation when no finer Teilfläche exists inside the
+             *     region, or when the catalog read hit its row limit. Null when
+             *     finest sub-areas were ranked without truncation.
              */
             reason: string | null;
             pattern: components["schemas"]["AnalysisPattern"];
@@ -1285,13 +1306,18 @@ export interface components {
             rank: number;
             /** @description Card title. Place name or geo key from geo_ref. */
             title: string;
-            kind?: components["schemas"]["AreaKind"];
+            /**
+             * @description Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, PLZ,
+             *     Bezirk, Gemeinde). Required on new sets.
+             */
+            kind: components["schemas"]["AreaKind"];
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
-             * @description Share of three-year trend criteria whose direction matches the
-             *     store-surroundings pattern. Stichtag criteria are labeled and
-             *     do not drive this score. 1 is a full trend fit.
+             * @description Share of **local** three-year trend criteria whose direction
+             *     matches the store-surroundings pattern. Inherited parent-level
+             *     trends do not change this score. Stichtag criteria are labeled
+             *     and do not drive this score. 1 is a full local trend fit.
              */
             score: number;
             /**
@@ -1323,6 +1349,8 @@ export interface components {
          *     `kind` is `trend`, `stichtag`, or `absent`. `status` is `present`
          *     or `absent`. Missing values omit `value` and are never `0`.
          *     `patternDirection` is the stored Musteranalyse direction.
+         *     `scope` is `local` when the series is native to this Ebene, or
+         *     `inherited` when it was taken from a coarser parent.
          */
         RecommendationEvidence: {
             key: string;
@@ -1340,6 +1368,10 @@ export interface components {
             /** @description True when a trend criterion moved in the pattern direction. */
             match?: boolean;
             coverage?: components["schemas"]["SeriesCoverage"];
+            scope?: components["schemas"]["EvidenceScope"];
+            sourceLevel?: components["schemas"]["SeriesLevel"];
+            /** @description Geo key of the Brain row when `scope` is inherited. */
+            sourceGeoKey?: string;
             points?: components["schemas"]["SeriesPoint"][];
         };
         AddressPairRequest: {
@@ -2413,6 +2445,7 @@ export interface operations {
                      *               "kind": "trend",
                      *               "status": "present",
                      *               "match": true,
+                     *               "scope": "local",
                      *               "coverage": "multi",
                      *               "evidence": "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8).",
                      *               "points": [

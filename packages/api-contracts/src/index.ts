@@ -38,6 +38,7 @@ export type CriterionDirection = Schemas["CriterionDirection"];
 export type CriterionKind = Schemas["CriterionKind"];
 export type AreaKind = Schemas["AreaKind"];
 export type EvidenceKind = Schemas["EvidenceKind"];
+export type EvidenceScope = Schemas["EvidenceScope"];
 export type AnalysisRun = Schemas["AnalysisRun"];
 export type AnalysisBrain = Schemas["AnalysisBrain"];
 export type BrainFact = Schemas["BrainFact"];

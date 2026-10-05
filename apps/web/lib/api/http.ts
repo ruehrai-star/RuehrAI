@@ -568,7 +568,7 @@ function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
 }
 
 function isSeriesLevel(value: unknown): value is YearlySeries["sourceLevel"] {
-  return isCatalogLevel(value) || value === "kreis" || value === "land";
+  return isCatalogLevel(value) || value === "kreis" || value === "land" || value === "grid100" || value === "address";
 }
 
 function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPatternResponse {

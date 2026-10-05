@@ -14,12 +14,17 @@ import {
   AreaCandidateSqlRow,
   AreaKind,
   areaCandidateParams,
+  buildAddressCandidateSql,
   buildAreaCandidateSql,
-  isRegionAnchor,
+  buildGrid100CandidateSql,
+  buildTeilCatalogSql,
+  featureCandidateParams,
+  isAreaKind,
+  parentMemberships,
+  selectFinestHits,
 } from "./area-candidates";
 
 const GRAIN_SET = new Set<string>(["address", "grid100", "plz8", "plz5", "ags", "ags5", "other"]);
-const KIND_SET = new Set<string>(["ortsteil", "stadtteil", "bezirk", "stadtbezirk", "plz", "gemeinde"]);
 
 export interface AreaCandidateLoad {
   items: AreaCandidate[];
@@ -33,31 +38,27 @@ export class AreaCandidateService {
   constructor(private readonly db: DatabaseService) {}
 
   /**
-   * Sub-areas inside the Zielregionen. Never the region geoKey itself.
+   * Finest Teilflächen inside the Zielregion. Never the region geoKey itself.
+   * Address is skipped when Brain has no docs; grid100 is tried next.
    */
   async load(regions: AnalysisRegion[]): Promise<AreaCandidateLoad> {
     if (regions.length === 0) return { items: [], truncated: false };
     const seen = new Set<string>();
-    const items: AreaCandidate[] = [];
+    const collected: AreaCandidate[] = [];
     let truncated = false;
     try {
       for (const region of regions) {
-        const result = await this.db.queryReadingFeatures<AreaCandidateSqlRow>(
-          buildAreaCandidateSql(),
-          areaCandidateParams(region),
-        );
-        if (result.rows.length >= AREA_CANDIDATE_LIMIT) truncated = true;
-        for (const row of result.rows) {
-          const candidate = toCandidate(row);
-          if (!candidate) continue;
-          if (isRegionAnchor(candidate, region)) continue;
-          if (regions.some((item) => isRegionAnchor(candidate, item))) continue;
-          if (seen.has(candidate.id)) continue;
-          seen.add(candidate.id);
-          items.push(candidate);
-        }
+        const loaded = await this.loadRegion(region);
+        if (loaded.truncated) truncated = true;
+        collected.push(...selectFinestHits(loaded.items, [region, ...regions]));
       }
-      return { items, truncated };
+      const out: AreaCandidate[] = [];
+      for (const candidate of collected) {
+        if (seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        out.push(candidate);
+      }
+      return { items: out, truncated };
     } catch (error) {
       if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
         this.logger.log(`Area-candidate catalog read missed (${messageOf(error)}).`);
@@ -65,6 +66,89 @@ export class AreaCandidateService {
       }
       throw error;
     }
+  }
+
+  private async loadRegion(region: AnalysisRegion): Promise<AreaCandidateLoad> {
+    const address = await this.readOptional(buildAddressCandidateSql(), featureCandidateParams(region));
+    const grid = await this.readOptional(buildGrid100CandidateSql(), featureCandidateParams(region));
+    const catalog = await this.readCatalog(region);
+    const combined = [...address.items, ...grid.items, ...catalog.items];
+    const truncated =
+      address.truncated ||
+      grid.truncated ||
+      catalog.truncated ||
+      address.items.length >= AREA_CANDIDATE_LIMIT ||
+      grid.items.length >= AREA_CANDIDATE_LIMIT ||
+      catalog.items.length >= AREA_CANDIDATE_LIMIT;
+    return { items: combined, truncated };
+  }
+
+  private async readCatalog(region: AnalysisRegion): Promise<AreaCandidateLoad> {
+    const membership = parentMemberships(region);
+    if (membership.grains.length > 0) {
+      const teil = await this.readTeil(region, membership.grains, membership.ids);
+      if (teil) return teil;
+    }
+    return this.readIntersectFallback(region);
+  }
+
+  private async readTeil(
+    region: AnalysisRegion,
+    grains: string[],
+    ids: string[],
+  ): Promise<AreaCandidateLoad | null> {
+    const exclude = [
+      region.geoKey?.trim(),
+      region.ags?.trim(),
+      region.plz?.trim(),
+    ].filter((value): value is string => Boolean(value));
+    try {
+      return await this.readSql(buildTeilCatalogSql("prefer"), [grains, ids, exclude]);
+    } catch (error) {
+      if (isUndefinedColumn(error)) {
+        try {
+          return await this.readSql(buildTeilCatalogSql("legacy"), [grains, ids, exclude]);
+        } catch (legacyError) {
+          if (isMissingTeilCatalog(legacyError)) return null;
+          throw legacyError;
+        }
+      }
+      if (isMissingTeilCatalog(error)) return null;
+      throw error;
+    }
+  }
+
+  private async readIntersectFallback(region: AnalysisRegion): Promise<AreaCandidateLoad> {
+    try {
+      return await this.readSql(buildAreaCandidateSql("prefer"), areaCandidateParams(region));
+    } catch (error) {
+      if (isUndefinedColumn(error)) {
+        return this.readSql(buildAreaCandidateSql("legacy"), areaCandidateParams(region));
+      }
+      throw error;
+    }
+  }
+
+  private async readOptional(sql: string, params: unknown[]): Promise<AreaCandidateLoad> {
+    try {
+      return await this.readSql(sql, params);
+    } catch (error) {
+      if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
+        this.logger.log(`Optional area-candidate read missed (${messageOf(error)}).`);
+        return { items: [], truncated: false };
+      }
+      throw error;
+    }
+  }
+
+  private async readSql(sql: string, params: unknown[]): Promise<AreaCandidateLoad> {
+    const result = await this.db.queryReadingFeatures<AreaCandidateSqlRow>(sql, params);
+    const items: AreaCandidate[] = [];
+    for (const row of result.rows) {
+      const candidate = toCandidate(row);
+      if (candidate) items.push(candidate);
+    }
+    return { items, truncated: result.rows.length >= AREA_CANDIDATE_LIMIT };
   }
 }
 
@@ -94,8 +178,17 @@ function asGrain(value: string | null): Grain | null {
 }
 
 function asKind(value: string | null): AreaKind | null {
-  if (!value || !KIND_SET.has(value)) return null;
-  return value as AreaKind;
+  return isAreaKind(value) ? value : null;
+}
+
+function isMissingTeilCatalog(error: unknown): boolean {
+  if (!isMissingFeaturesRelation(error) && !isGeoCatalogUnavailable(error)) return false;
+  return /zielregion_teil/i.test(messageOf(error));
+}
+
+function isUndefinedColumn(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return (error as { code?: unknown }).code === "42703";
 }
 
 function messageOf(error: unknown): string {
