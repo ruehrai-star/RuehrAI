@@ -127,6 +127,30 @@ describe("rankCandidates", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain(",33");
   });
 
+  it("formats age-band evidence as whole numbers", () => {
+    const ranked = rankCandidates(
+      [
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-04",
+          metadata: { "alter.40.59": 206273.67 },
+        }),
+        row({
+          geoKey: "80801",
+          title: "Schwabing",
+          refPeriod: "2026-09",
+          metadata: { "alter.40.59": 210000.4 },
+        }),
+      ],
+      [{ key: "alter.40.59", label: "alter 40 59", direction: "up", evidence: "steigt" }],
+      months,
+    );
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("206.274");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("210.000");
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain(",67");
+  });
+
   it("returns nothing when the pattern has no direction", () => {
     const ranked = rankCandidates(
       [

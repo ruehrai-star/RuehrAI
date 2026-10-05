@@ -279,7 +279,7 @@ export function coverageOf(points: SeriesPoint[]): SeriesCoverage {
  * One stored numeric cell. A real 0 is a value. Missing, unreadable, or
  * placeholder cells are null — never coerced to 0 or {}. Geo identifiers
  * (`ba_schluessel`, `geo_ags`, …) are not metric numbers. Count-like keys
- * (wohnungen, ewz, SGB2 BG/PERS, …) are rounded; rates stay fractional.
+ * (wohnungen, ewz, age bands, SGB2 BG/PERS, …) are rounded; rates stay fractional.
  */
 export function seriesNumber(metadata: unknown, metricId?: string): { value: number; key?: string } | null {
   if (typeof metadata === "number" && Number.isFinite(metadata)) {
