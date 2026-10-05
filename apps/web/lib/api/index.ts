@@ -28,6 +28,8 @@ export type {
   AnalysisBrain,
   AnalysisInput,
   AnalysisPattern,
+  AnalysisPatternQuery,
+  AnalysisPatternRegion,
   AnalysisPatternResponse,
   AnalysisRun,
   Credentials,

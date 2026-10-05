@@ -2,16 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CatalogParentName } from "@/components/catalog-parent-name";
-import { ApiError, getApi, type AnalysisPattern, type SearchHit, type TargetRegion } from "@/lib/api";
-import { revenueDirectionLabel } from "@/lib/analysis/model";
+import { getApi, ApiError, type SearchHit, type TargetRegion } from "@/lib/api";
 import { catalogBadge, catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
 import { regionHasDrawableArea } from "@/lib/map/karte";
 import {
   REGION_LIST_COPY,
   isHitInList,
+  markedRegion,
   regionListKey,
 } from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
+import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
+import { VERLAUF_COPY } from "@/lib/verlauf/model";
 
 interface RegionSectionProps {
   items: TargetRegion[];
@@ -41,7 +43,8 @@ export function RegionSection({
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [resultQuery, setResultQuery] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [pattern, setPattern] = useState<AnalysisPattern | null>(null);
+  const [pattern, setPattern] = useState<string | null>(null);
+  const [patternKey, setPatternKey] = useState<string | null>(null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -72,22 +75,25 @@ export function RegionSection({
   }, [query]);
 
   useEffect(() => {
-    if (!markedKey) return;
+    const marked = markedRegion(items, markedKey);
+    if (!marked) return;
+    const key = regionListKey(marked);
     let cancelled = false;
-    getApi()
-      .getAnalysisPattern()
-      .then((latest) => {
+    loadPatternForMarkedRegion(getApi(), marked)
+      .then((bound) => {
         if (cancelled) return;
-        setPattern(latest?.pattern ?? null);
+        setPattern(bound?.pattern.summary ?? null);
+        setPatternKey(key);
       })
       .catch(() => {
         if (cancelled) return;
         setPattern(null);
+        setPatternKey(key);
       });
     return () => {
       cancelled = true;
     };
-  }, [markedKey]);
+  }, [items, markedKey]);
 
   const trimmed = query.trim();
   const searching = trimmed.length >= 2 && resultQuery !== trimmed;
@@ -146,7 +152,12 @@ export function RegionSection({
                   </button>
                 </div>
                 {missing ? <p className="message">{REGION_LIST_COPY.missingArea}</p> : null}
-                {marked ? <Verlauf pattern={pattern} /> : null}
+                {marked ? (
+                  <Verlauf
+                    summary={patternKey === key ? pattern : null}
+                    loaded={patternKey === key}
+                  />
+                ) : null}
               </li>
             );
           })}
@@ -226,16 +237,11 @@ export function RegionSection({
   );
 }
 
-function Verlauf({ pattern }: { pattern: AnalysisPattern | null }) {
+function Verlauf({ summary, loaded }: { summary: string | null; loaded: boolean }) {
   return (
     <div className="verlauf">
       <h3>{REGION_LIST_COPY.verlauf}</h3>
-      {pattern ? (
-        <>
-          <p className="summary-line">{pattern.summary}</p>
-          <p className="hint">Umsatzrichtung: {revenueDirectionLabel(pattern.revenueDirection)}</p>
-        </>
-      ) : null}
+      {summary ? <p className="summary-line">{summary}</p> : loaded ? <p className="message">{VERLAUF_COPY.missingRun}</p> : null}
     </div>
   );
 }

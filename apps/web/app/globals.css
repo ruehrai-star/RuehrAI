@@ -905,6 +905,36 @@ input {
   margin: 0;
 }
 
+.verlauf-page .verlauf-region .hit {
+  color: inherit;
+  border-color: #2a3f3c;
+  background: transparent;
+}
+
+.verlauf-page .verlauf-region .hit:hover,
+.verlauf-page .verlauf-region .hit.is-active,
+.verlauf-region.is-marked .hit {
+  border-color: var(--clay);
+  background: #1a2c2a;
+}
+
+.verlauf-page .hit-parent {
+  color: #b7c4c2;
+}
+
+.verlauf-stand {
+  margin: 0;
+  color: #f3efe6;
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.verlauf-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .verlauf-levels {
   margin: 0;
   color: #b7c4c2;

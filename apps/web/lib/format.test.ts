@@ -224,8 +224,9 @@ test("Zielregion and search markup never interpolate catalog id or geoKey as vis
   const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
   const search = readFileSync(new URL("../components/search-panel.tsx", import.meta.url), "utf8");
   const recommendations = readFileSync(new URL("../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  const verlauf = readFileSync(new URL("../components/verlauf-page.tsx", import.meta.url), "utf8");
   const recModel = readFileSync(new URL("./recommendations/model.ts", import.meta.url), "utf8");
-  for (const source of [region, search, recommendations]) {
+  for (const source of [region, search, recommendations, verlauf]) {
     assert.equal(source.includes("hit-id"), false);
     assert.equal(source.includes("{hit.geoKey ?? hit.id}"), false);
     assert.equal(source.includes("<span className=\"hit-id\">"), false);

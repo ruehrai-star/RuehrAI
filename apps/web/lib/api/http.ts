@@ -3,7 +3,6 @@ import type {
   AnalysisBrain,
   AnalysisInput,
   AnalysisPattern,
-  AnalysisPatternResponse,
   AnalysisRun,
   Credentials,
   CriterionDirection,
@@ -34,6 +33,9 @@ import {
   ApiError,
   isCatalogLevel,
   isGrain,
+  type AnalysisPatternQuery,
+  type AnalysisPatternRegion,
+  type AnalysisPatternResponse,
   type Recommendation,
   type RecommendationSet,
   type SearchHit,
@@ -237,10 +239,12 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return parseAnalysisRun(body);
     },
 
-    async getAnalysisPattern(): Promise<AnalysisPatternResponse | null> {
+    async getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null> {
+      const geoKey = trimQueryValue(query?.geoKey);
       const body = await request<AnalysisPatternResponse | null>("/analysis/pattern", {
         auth: true,
         nullOn404: true,
+        query: geoKey ? { geoKey } : undefined,
       });
       return body ? parseAnalysisPatternResponse(body) : null;
     },
@@ -572,7 +576,37 @@ function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPa
     throw new ApiError("Antwort von GET /analysis/pattern ist ungültig.", 502);
   }
   parseAnalysisPattern(body.pattern, "GET /analysis/pattern");
-  return body;
+  const region = parseOptionalPatternRegion(body.region);
+  return region ? { ...body, region } : { ...body, region: undefined };
+}
+
+/**
+ * Planned Backend field on `GET /analysis/pattern?geoKey=`. A missing or
+ * partial `region` is ignored so the client can still match via the run.
+ */
+function parseOptionalPatternRegion(value: unknown): AnalysisPatternRegion | undefined {
+  if (value == null || typeof value !== "object") return undefined;
+  const raw = value as {
+    label?: unknown;
+    geoKey?: unknown;
+    level?: unknown;
+    parentLabel?: unknown;
+    grain?: unknown;
+  };
+  if (typeof raw.label !== "string" || raw.label.trim().length === 0) return undefined;
+  return {
+    label: raw.label,
+    geoKey: typeof raw.geoKey === "string" ? raw.geoKey : raw.geoKey === null ? null : undefined,
+    level: catalogLevelOf(raw.level),
+    parentLabel: catalogParentName(raw),
+    grain: isGrain(raw.grain) ? raw.grain : raw.grain === null ? null : undefined,
+  };
+}
+
+function trimQueryValue(value: string | null | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 const MONTH_STAMP = /^[0-9]{4}-[0-9]{2}$/;

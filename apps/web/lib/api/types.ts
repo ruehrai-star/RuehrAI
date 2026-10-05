@@ -1,4 +1,5 @@
 import type {
+  AnalysisPatternResponse as ContractAnalysisPatternResponse,
   Grain,
   Recommendation as ContractRecommendation,
   RecommendationLocation as ContractRecommendationLocation,
@@ -16,7 +17,6 @@ export type {
   AnalysisBrain,
   AnalysisInput,
   AnalysisPattern,
-  AnalysisPatternResponse,
   AnalysisRun,
   Credentials,
   CriterionDirection,
@@ -66,6 +66,31 @@ export type Recommendation = Omit<ContractRecommendation, "location"> & {
 };
 export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
   items: Recommendation[];
+};
+
+/**
+ * Query for `GET /analysis/pattern`. `geoKey` is the marked Zielregion.
+ * OpenAPI on main does not list this parameter yet; the Web client tracks the
+ * Backend Draft-PR. Omit it to keep the latest-pattern behaviour.
+ */
+export interface AnalysisPatternQuery {
+  geoKey?: string | null;
+}
+
+/**
+ * Region stamp on a pattern response. Planned Backend body field; optional so
+ * older payloads without `region` still parse.
+ */
+export interface AnalysisPatternRegion {
+  label: string;
+  geoKey?: string | null;
+  level?: CatalogLevel | null;
+  parentLabel?: string | null;
+  grain?: Grain | null;
+}
+
+export type AnalysisPatternResponse = ContractAnalysisPatternResponse & {
+  region?: AnalysisPatternRegion | null;
 };
 
 /**

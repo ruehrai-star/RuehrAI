@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AnalysisPattern, MonthlyRevenuePoint, RecommendationSet, StoreLocation, TargetRegion } from "@/lib/api";
+import type { MonthlyRevenuePoint, RecommendationSet, StoreLocation, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { ensureMarkedKey } from "@/lib/locations/regions";
+import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildKarte } from "@/lib/map/karte";
 import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
+import { formatStandLine, loadPatternForMarkedRegion, type BoundVerlauf } from "@/lib/verlauf/bind";
 import {
   POST_STANDORTE_HREF,
   SELECTABLE_AREA_LEVELS,
@@ -18,19 +19,24 @@ import {
   optionalRevenueCount,
   regionView,
 } from "@/lib/verlauf/model";
+import { CatalogParentName } from "./catalog-parent-name";
 import { ProofMap } from "./proof-map";
 import { useSession } from "./session-provider";
 
-type Phase = "loading" | "idle" | "running" | "failed";
+type PagePhase = "loading" | "idle" | "failed";
+type RecPhase = "idle" | "running" | "failed";
 
 export function VerlaufPage() {
   const { session } = useSession();
   const analysisApi = getAnalysisApi();
   const recommendationApi = getRecommendationApi();
   const locationApi = getLocationApi();
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [pagePhase, setPagePhase] = useState<PagePhase>("loading");
+  const [recPhase, setRecPhase] = useState<RecPhase>("idle");
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
-  const [pattern, setPattern] = useState<AnalysisPattern | null>(null);
+  const [bound, setBound] = useState<BoundVerlauf | null>(null);
+  const [boundKey, setBoundKey] = useState<string | null>(null);
+  const [bindFailed, setBindFailed] = useState(false);
   const [recommendationSet, setRecommendationSet] = useState<RecommendationSet | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
   const [markedKey, setMarkedKey] = useState<string | null>(null);
@@ -39,12 +45,33 @@ export function VerlaufPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const request = useRef(0);
+  const bindRequest = useRef(0);
 
-  const visible = Boolean(session && loadedEmail === session.email && phase !== "loading");
-  const hero = visible ? buildVerlaufHero({ pattern, recommendations: recommendationSet, revenue }) : null;
-  const status = visible && recommendationSet && phase !== "running" ? recommendationStatus(recommendationSet) : null;
+  const visible = Boolean(session && loadedEmail === session.email && pagePhase !== "loading");
   const visibleRegions = visible ? regions : [];
+  const marked = visible ? markedRegion(visibleRegions, markedKey) : null;
+  const currentKey = marked ? regionListKey(marked) : null;
+  const bindReady = visible && pagePhase === "idle" && boundKey === currentKey;
+  const bindPhase: "loading" | "ready" | "empty" | "failed" = !bindReady
+    ? "loading"
+    : bindFailed
+      ? "failed"
+      : bound
+        ? "ready"
+        : "empty";
+  const boundPattern = bindPhase === "ready" ? (bound?.pattern ?? null) : null;
+  const boundRecommendations =
+    bindPhase === "ready" && bound && recommendationSet && recommendationSet.runId === bound.runId
+      ? recommendationSet
+      : null;
+  const hero = visible ? buildVerlaufHero({ pattern: boundPattern, recommendations: boundRecommendations, revenue }) : null;
+  const status =
+    visible && boundRecommendations && recPhase !== "running" && bindPhase === "ready"
+      ? recommendationStatus(boundRecommendations)
+      : null;
   const revenueCount = optionalRevenueCount(revenue);
+  const standLine = bindPhase === "ready" && bound ? formatStandLine(bound.createdAt, bound.region) : null;
+  const showEmpty = visible && pagePhase === "idle" && bindPhase === "empty" && visibleRegions.length > 0;
 
   useEffect(() => {
     if (!session) return;
@@ -52,8 +79,10 @@ export function VerlaufPage() {
     let cancelled = false;
 
     void (async () => {
-      setPhase("loading");
-      setPattern(null);
+      setPagePhase("loading");
+      setBound(null);
+      setBoundKey(null);
+      setBindFailed(false);
       setRecommendationSet(null);
       setRegions([]);
       setMarkedKey(null);
@@ -62,20 +91,18 @@ export function VerlaufPage() {
       setLoadError(null);
       setActionError(null);
       try {
-        const [nextPattern, nextSet, nextRegions, nextStores] = await Promise.all([
-          analysisApi.getAnalysisPattern(),
+        const [nextSet, nextRegions, nextStores] = await Promise.all([
           recommendationApi.getRecommendations(),
           locationApi.listTargetRegions(),
           locationApi.listStores(),
         ]);
         if (cancelled) return;
-        setPattern(nextPattern?.pattern ?? null);
         setRecommendationSet(nextSet);
         setRegions(nextRegions);
         setMarkedKey(ensureMarkedKey(nextRegions, null));
         setStores(nextStores);
         setLoadedEmail(email);
-        setPhase("idle");
+        setPagePhase("idle");
         const first = nextStores[0];
         if (first) {
           try {
@@ -89,31 +116,55 @@ export function VerlaufPage() {
         if (cancelled) return;
         setLoadError(errorText(caught, "Der Verlauf konnte nicht geladen werden."));
         setLoadedEmail(email);
-        setPhase("failed");
+        setPagePhase("failed");
       }
     })();
 
     return () => {
       cancelled = true;
       request.current += 1;
+      bindRequest.current += 1;
     };
-  }, [session, analysisApi, recommendationApi, locationApi]);
+  }, [session, recommendationApi, locationApi]);
+
+  useEffect(() => {
+    if (!session || pagePhase !== "idle") return;
+    const current = markedRegion(regions, markedKey);
+    const key = current ? regionListKey(current) : null;
+    const token = bindRequest.current + 1;
+    bindRequest.current = token;
+
+    void (async () => {
+      try {
+        const next = await loadPatternForMarkedRegion(analysisApi, current);
+        if (bindRequest.current !== token) return;
+        setBound(next);
+        setBoundKey(key);
+        setBindFailed(false);
+      } catch {
+        if (bindRequest.current !== token) return;
+        setBound(null);
+        setBoundKey(key);
+        setBindFailed(true);
+      }
+    })();
+  }, [session, pagePhase, regions, markedKey, analysisApi]);
 
   async function onCreate() {
+    if (!bound || bindPhase !== "ready") return;
     const token = request.current + 1;
     request.current = token;
-    setPhase("running");
+    setRecPhase("running");
     setActionError(null);
     try {
-      const created = await recommendationApi.createRecommendations();
+      const created = await recommendationApi.createRecommendations({ runId: bound.runId });
       if (request.current !== token) return;
       setRecommendationSet(created);
-      setPattern(created.pattern);
-      setPhase("idle");
+      setRecPhase("idle");
     } catch (caught) {
       if (request.current !== token) return;
       setActionError(errorText(caught, "Empfehlungen konnten nicht ermittelt werden."));
-      setPhase("failed");
+      setRecPhase("failed");
     }
   }
 
@@ -123,12 +174,12 @@ export function VerlaufPage() {
         stores: visible ? (stores ?? []) : [],
         regions: visible ? regions : [],
         markedKey: visible ? markedKey : null,
-        recommendations: visible ? (recommendationSet?.items ?? []) : [],
+        recommendations: visible ? (boundRecommendations?.items ?? []) : [],
         addressesKnownEmpty: Boolean(visible && stores && stores.length === 0),
       }),
-    [visible, stores, regions, markedKey, recommendationSet],
+    [visible, stores, regions, markedKey, boundRecommendations],
   );
-  const cameraKey = !session || (visible && phase !== "loading") ? karte.cameraKey : null;
+  const cameraKey = !session || (visible && pagePhase !== "loading") ? karte.cameraKey : null;
 
   if (!session) {
     return (
@@ -153,7 +204,7 @@ export function VerlaufPage() {
       className="verlauf-page"
       id="inhalt"
       data-post-standorte={POST_STANDORTE_HREF}
-      aria-busy={phase === "running" || phase === "loading"}
+      aria-busy={recPhase === "running" || pagePhase === "loading" || bindPhase === "loading"}
     >
       <div className="verlauf-hero">
         <p className="verlauf-kicker">{VERLAUF_COPY.kicker}</p>
@@ -161,10 +212,22 @@ export function VerlaufPage() {
           <ul className="verlauf-region-list">
             {visibleRegions.map((region) => {
               const view = regionView(region);
+              const key = regionListKey(region);
+              const selected = marked != null && key === regionListKey(marked);
               return (
-                <li key={`${region.geoKey ?? region.label}-${region.updatedAt}`} className="verlauf-region">
-                  <span>{view.label}</span>
-                  {view.badge ? <span className="badge">{view.badge}</span> : null}
+                <li key={`${key}-${region.updatedAt}`} className={selected ? "verlauf-region is-marked" : "verlauf-region"}>
+                  <button
+                    type="button"
+                    className={selected ? "hit is-active" : "hit"}
+                    aria-pressed={selected}
+                    onClick={() => setMarkedKey(key)}
+                  >
+                    <span className="hit-label">
+                      {view.label}
+                      <CatalogParentName source={region} />
+                    </span>
+                    {view.badge ? <span className="badge">{view.badge}</span> : null}
+                  </button>
                 </li>
               );
             })}
@@ -183,8 +246,14 @@ export function VerlaufPage() {
           ))}
         </ol>
 
-        {phase === "loading" ? <p className="message">Verlauf wird geladen …</p> : null}
-        {phase === "running" ? (
+        {standLine ? (
+          <p className="verlauf-stand" role="status">
+            {standLine}
+          </p>
+        ) : null}
+
+        {pagePhase === "loading" || bindPhase === "loading" ? <p className="message">Verlauf wird geladen …</p> : null}
+        {recPhase === "running" ? (
           <p className="message" role="status" aria-live="polite">
             {VERLAUF_COPY.running}
           </p>
@@ -194,25 +263,49 @@ export function VerlaufPage() {
             {loadError}
           </p>
         ) : null}
-        {phase === "failed" && actionError ? (
+        {bindPhase === "failed" ? (
+          <p className="message message-error" role="alert">
+            {VERLAUF_COPY.analysisFailed}
+          </p>
+        ) : null}
+        {recPhase === "failed" && actionError ? (
           <p className="message message-error" role="alert">
             {actionError}
           </p>
         ) : null}
 
-        {visible && !pattern && phase === "idle" ? <p className="message">{VERLAUF_COPY.missingPattern}</p> : null}
-
-        <div className="auth-actions">
-          <button type="button" className="button" onClick={onCreate} disabled={phase === "loading" || phase === "running" || !pattern}>
-            {VERLAUF_COPY.compute}
-          </button>
-          <Link href="/standorte" className="button button-quiet">
-            {VERLAUF_COPY.toStandorte}
-          </Link>
-          <Link href="/musteranalyse" className="button button-quiet">
-            {VERLAUF_COPY.toAnalysis}
-          </Link>
-        </div>
+        {showEmpty ? (
+          <div className="verlauf-empty">
+            <p className="message" role="status">
+              {VERLAUF_COPY.missingRun}
+            </p>
+            <div className="auth-actions">
+              <Link href="/musteranalyse" className="button">
+                {VERLAUF_COPY.startAnalysis}
+              </Link>
+              <Link href="/standorte" className="button button-quiet">
+                {VERLAUF_COPY.toStandorte}
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="auth-actions">
+            <button
+              type="button"
+              className="button"
+              onClick={onCreate}
+              disabled={pagePhase === "loading" || recPhase === "running" || bindPhase !== "ready" || !bound}
+            >
+              {VERLAUF_COPY.compute}
+            </button>
+            <Link href="/standorte" className="button button-quiet">
+              {VERLAUF_COPY.toStandorte}
+            </Link>
+            <Link href="/musteranalyse" className="button button-quiet">
+              {VERLAUF_COPY.toAnalysis}
+            </Link>
+          </div>
+        )}
 
         {hero ? (
           <section className="verlauf-compare" aria-labelledby="muster-held">
@@ -270,7 +363,9 @@ export function VerlaufPage() {
           </section>
         ) : null}
 
-        {visible && !recommendationSet && phase === "idle" && pattern ? <p className="message">{VERLAUF_COPY.noneYet}</p> : null}
+        {visible && !boundRecommendations && bindPhase === "ready" && recPhase === "idle" ? (
+          <p className="message">{VERLAUF_COPY.noneYet}</p>
+        ) : null}
         {status?.thin ? <p className="banner">{VERLAUF_COPY.thin}</p> : null}
         {status?.empty ? (
           <p className="message" role="status">
