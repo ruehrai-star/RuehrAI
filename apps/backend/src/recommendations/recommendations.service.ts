@@ -1,14 +1,19 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
-import { AnalysisInput, AnalysisPattern, PatternCriterion, analysisRegions } from "../analysis/types";
+import { criteriaFromYearlySeries } from "../analysis/series-criteria";
+import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
+import { AnalysisInput, AnalysisPattern, analysisRegions } from "../analysis/types";
+import { SeriesRegionInput, YearlySeries, asOfFrom } from "../analysis/yearly-series";
+import { YearlySeriesService } from "../analysis/yearly-series.service";
 import { DatabaseService } from "../database/database.service";
 import { toIso } from "../customer/values";
-import { CandidateSearchService } from "./candidate-search.service";
+import { AreaCandidate } from "./area-candidates";
+import { AreaCandidateService } from "./area-candidate.service";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
-import { rankCandidates, withoutRegionAnchors } from "./rank";
 import { RationaleService } from "./rationale.service";
+import { rankTeilflaechen } from "./score";
 import { RecommendationPayload, RecommendationSet } from "./types";
-import { lastSixMonths } from "./window";
+import { threeYearWindow } from "./window";
 
 interface RunRow {
   id: string;
@@ -26,41 +31,45 @@ interface SetRow {
 export class RecommendationsService {
   constructor(
     private readonly db: DatabaseService,
-    private readonly candidates: CandidateSearchService,
+    private readonly areas: AreaCandidateService,
+    private readonly surroundings: StoreSurroundingsService,
+    private readonly yearlySeries: YearlySeriesService,
     private readonly rationales: RationaleService,
   ) {}
 
   /**
-   * Rank up to three locations for the caller's completed pattern and store
-   * the set. Fewer than three is a normal result with `reason` set.
+   * Rank Teilflächen inside the Zielregion against the store-surroundings
+   * pattern. Empty only when no sub-area exists.
    */
   async create(userId: string, runId?: string, asOf: Date = new Date()): Promise<RecommendationSet> {
     const run = await this.loadRun(userId, runId);
-    const months = lastSixMonths(asOf);
-    const criteria = criteriaOf(run.pattern);
-    const hasDirection = criteria.some((criterion) => criterion.direction !== "unknown");
-    const regions = analysisRegions(run.input);
-    const loaded = hasDirection
-      ? await this.candidates.loadMany(regions, months)
-      : { rows: [], truncated: false };
-    const ranked = withoutRegionAnchors(
-      rankCandidates(loaded.rows, criteria, new Set(months)),
-      regions,
-    );
-    const top = ranked.slice(0, 3);
-    const window = { from: months[0] ?? "", to: months[months.length - 1] ?? "" };
-    const written = await this.rationales.write(run.pattern, window, top);
+    const captured = asOfFrom(run.input.capturedAt);
+    const asOfDate = Number.isNaN(asOf.getTime()) ? captured : asOf;
+
+    const surroundings = await this.surroundings.resolve(run.input.stores);
+    const storeSeries = await this.yearlySeries.build(surroundings.regions, asOfDate);
+    const derived = criteriaFromYearlySeries(storeSeries);
+    const pattern: AnalysisPattern = {
+      ...run.pattern,
+      revenueDirection: run.input.revenueDirection,
+      criteria: derived.length > 0 ? derived : run.pattern.criteria ?? [],
+    };
+
+    const loaded = await this.areas.load(analysisRegions(run.input));
+    const candidateSeries =
+      loaded.items.length === 0 ? [] : await this.yearlySeries.build(loaded.items.map(toSeriesRegion), asOfDate);
+    const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria);
+    const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
+    const written = await this.rationales.write(pattern, window, ranked);
     const payload: RecommendationPayload = {
       runId: run.id,
       window,
       count: written.length,
       reason: recommendationReason({
-        hasDirection,
-        factCount: loaded.rows.length,
-        positiveCount: ranked.length,
+        candidateCount: loaded.items.length,
         truncated: loaded.truncated,
       }),
-      pattern: run.pattern,
+      pattern,
       items: written.map((item, index) => ({ ...item, rank: index + 1 })),
     };
     const inserted = await this.db.query<{ id: string; created_at: Date | string }>(
@@ -117,15 +126,30 @@ export class RecommendationsService {
   }
 }
 
-function criteriaOf(pattern: AnalysisPattern): PatternCriterion[] {
-  return Array.isArray(pattern?.criteria) ? pattern.criteria : [];
+function toSeriesRegion(candidate: AreaCandidate): SeriesRegionInput {
+  return {
+    grain: candidate.grain,
+    geoKey: candidate.geoKey,
+    level: candidate.kind === "plz" ? "plz" : candidate.kind,
+    ags: candidate.ags,
+    plz: candidate.plz,
+  };
 }
 
-function toSet(
-  id: string,
-  createdAt: Date | string,
-  payload: RecommendationPayload,
-): RecommendationSet {
+function yearsFrom(...lists: YearlySeries[][]): number[] {
+  const years: number[] = [];
+  for (const list of lists) {
+    for (const series of list) {
+      for (const point of series.points) {
+        const year = Number(point.period.slice(0, 4));
+        if (Number.isFinite(year)) years.push(year);
+      }
+    }
+  }
+  return years;
+}
+
+function toSet(id: string, createdAt: Date | string, payload: RecommendationPayload): RecommendationSet {
   return {
     id,
     createdAt: toIso(createdAt),

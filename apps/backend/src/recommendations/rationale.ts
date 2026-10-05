@@ -2,16 +2,17 @@ import { AnalysisPattern } from "../analysis/types";
 import { RecommendationEvidence, RecommendationWindow, ScoredLocation } from "./types";
 
 const SYSTEM_PROMPT = [
-  "Du schreibst die Begründung je Standortempfehlung von RuehrAI.",
+  "Du schreibst die Begründung je Teilfläche von RuehrAI.",
   "Antworte nur mit einem JSON-Objekt, ohne Markdown:",
   '{"items":[{"id":"...","rationale":"..."}]}',
   "Regeln:",
   "- Deutsch, ein bis drei Sätze je Eintrag.",
   "- Erfinde keine Kennzahlen, Orte oder Zeiträume.",
   "- Jede Zahl im Text muss in den gelieferten criteriaEvidence, im Titel oder im Fenster vorkommen.",
-  "- Erkläre nur Kriterien, die in criteriaEvidence stehen, und dass ihre Richtung zum Muster passt.",
+  "- Stichtag-Werte nicht als Monat-zu-Monat-Richtung beschreiben.",
+  "- Fehlende Werte als 'liegt nicht vor' benennen, niemals 0 erfinden.",
   "- id muss eine der gelieferten ids sein.",
-  "- Höchstens die gelieferten Einträge, keine zusätzlichen Standorte.",
+  "- Höchstens die gelieferten Einträge, keine zusätzlichen Flächen.",
 ].join("\n");
 
 export function rationaleSystemPrompt(): string {
@@ -46,11 +47,17 @@ export function rationaleUserPayload(
 }
 
 export function buildHeuristicRationale(item: ScoredLocation): string {
-  const parts = item.criteriaEvidence.map(
-    (entry) => `${entry.label} (${entry.evidence})`,
-  );
+  const parts = item.criteriaEvidence.map((entry) => {
+    if (entry.kind === "absent" || entry.status === "absent") {
+      return `${entry.label} liegt nicht vor`;
+    }
+    if (entry.kind === "stichtag") {
+      return `${entry.label} (Stichtag: ${entry.evidence})`;
+    }
+    return `${entry.label} (${entry.evidence})`;
+  });
   const body = parts.length > 0 ? parts.join(" ") : "ohne einzelne Kennzahl";
-  return `Am Standort ${item.title} (${item.location.geoKey}) passt das Muster in den letzten sechs Monaten: ${body} Quelle: Heuristik, ohne Sprachmodell.`;
+  return `Die Teilfläche ${item.title} (${item.location.geoKey}) im Vergleich zum Filialmuster: ${body} Quelle: Heuristik, ohne Sprachmodell.`;
 }
 
 /**
@@ -114,7 +121,7 @@ function corpusFor(item: ScoredLocation, window: RecommendationWindow): string {
     item.location.name ?? "",
     window.from,
     window.to,
-    "6",
+    "3",
     ...item.criteriaEvidence.flatMap((entry) => [
       entry.key,
       entry.label,

@@ -528,24 +528,35 @@ export interface paths {
         get: operations["getRecommendations"];
         put?: never;
         /**
-         * Rank up to three locations for the signed-in user
-         * @description Reads a completed Musteranalyse pattern for this user (the newest run,
-         *     or `runId` when set) and searches Brain locations in the target region.
-         *     A location ranks when at least one pattern criterion with a direction
-         *     moved the same way inside the six UTC calendar months ending in the
-         *     request month. Score is the share of those directional criteria that
-         *     match. The response has at most three items, ordered by score.
+         * Rank Teilflächen inside the Zielregion
+         * @description Reads a completed Musteranalyse for this user (the newest run, or
+         *     `runId` when set) and rebuilds pattern criteria from the
+         *     Bestandstandort surroundings (Ortsteil/PLZ near each store plus
+         *     three-year Gemeinde-/Kreis series). It then lists every Teilfläche
+         *     inside the Zielregion:
          *
-         *     One or two matches are success, not an error: `reason` explains the
-         *     thin region in German. Zero matches are also success, with `reason`
-         *     set and `items` empty. `404` when this user has no completed pattern,
-         *     or when `runId` is not one of their runs.
+         *     - Ortsteile (`geo.geo_ref_ortsteil`)
+         *     - Stadtbezirke (`geo.geo_ref_bezirk`)
+         *     - PLZ5 (`geo.geo_ref_plz`)
+         *     - Gemeinden when the Zielregion is a Kreis (`geo.geo_ref_admin`
+         *       via AGS prefix; admin polygons may be empty)
          *
-         *     The region anchor itself is omitted when a finer positive location
-         *     exists. Finer grains match when their `geo_key` is under the region
-         *     key or their metadata names the region (`geo_ags`, `ags`, `plz`,
-         *     `geo_plz`, `geo_key`). Each item's `rationale` is German and grounded
-         *     in `criteriaEvidence`. `source` is `llm` when that text came from the
+         *     Geometry intersection uses `app.target_regions.geometry`. The
+         *     Zielregion geoKey itself is never a hit. Address grain is empty
+         *     in Brain; Stage 1 does not return street addresses.
+         *
+         *     Ranking uses the three-year trend where a series exists
+         *     (`unfallatlas_gebiet` on Ortsteil/Bezirk/PLZ; Gemeinde-/Kreis
+         *     series as Rahmen). Snapshot values (Zensus, Breitband, …) are
+         *     labeled `stichtag` and are not month-to-month direction. Missing
+         *     cells are `absent` (`liegt nicht vor`), never `0`.
+         *
+         *     An empty `items` array is success only when no sub-area exists
+         *     inside the region (`reason` explains that). `404` when this user
+         *     has no completed pattern, or when `runId` is not one of their runs.
+         *
+         *     Each item's `rationale` is German and grounded in
+         *     `criteriaEvidence`. `source` is `llm` when that text came from the
          *     local model, otherwise `heuristic`.
          */
         post: operations["createRecommendations"];
@@ -985,10 +996,27 @@ export interface components {
         RevenueDirection: "up" | "down" | "flat";
         /**
          * @description Direction of one Brain criterion. `unknown` means the facts do not
-         *     show a change over time (often a single reference period).
+         *     show a change over time (a Stichtag, or the series is absent).
          * @enum {string}
          */
         CriterionDirection: "up" | "down" | "flat" | "unknown";
+        /**
+         * @description `trend` is a multi-year / multi-period series. `stichtag` is a single
+         *     snapshot and must not be treated as month-to-month direction.
+         * @enum {string}
+         */
+        CriterionKind: "trend" | "stichtag";
+        /**
+         * @description Teilfläche kind inside the Zielregion. Never the region itself.
+         * @enum {string}
+         */
+        AreaKind: "ortsteil" | "stadtteil" | "bezirk" | "stadtbezirk" | "plz" | "gemeinde";
+        /**
+         * @description How this criterion was observed on the Teilfläche. `absent` means
+         *     the value liegt nicht vor (never invented as 0).
+         * @enum {string}
+         */
+        EvidenceKind: "trend" | "stichtag" | "absent";
         AnalysisRun: {
             /** @description Run id as a decimal string. */
             id: string;
@@ -1134,11 +1162,12 @@ export interface components {
             points: components["schemas"]["SeriesPoint"][];
         };
         /**
-         * @description Persisted pattern for a later Top-3 step. `source` is `llm` when the
+         * @description Persisted pattern for recommendations. `source` is `llm` when the
          *     criteria were taken from the language model and checked against the
-         *     retrieved facts, otherwise `heuristic`. `yearlySeries` is the
-         *     three-year small-area Brain history for the user's Zielregionen.
-         *     It is not store revenue. A `coverage` of `single` is not a trend.
+         *     store-surrounding facts, otherwise `heuristic`. `yearlySeries` is the
+         *     three-year small-area Brain history for the user's Zielregionen
+         *     (Verlauf). Pattern `criteria` come from Bestandstandort surroundings.
+         *     A `coverage` of `single` is a Stichtag, not a trend.
          */
         AnalysisPattern: {
             /** @enum {string} */
@@ -1146,13 +1175,13 @@ export interface components {
             summary: string;
             revenueDirection: components["schemas"]["RevenueDirection"];
             /**
-             * @description At most five grounded criteria. Heuristic values (counts and rates)
-             *     are taken only from Brain facts whose geoKey belongs to the target
-             *     region's AGS hierarchy (Köln ags5 `05315` and ags `05315000` are
-             *     the same place). Facts from other cities are not averaged into a
-             *     mean. Destatis `bev_insgesamt` at ags5 is preferred for Einwohner
-             *     over Zensus `ewz`. A Kreis or Land fallback is labeled as such.
-             *     Missing values are absent (liegt nicht vor), never invented.
+             * @description At most five grounded criteria. Heuristic values come from
+             *     Bestandstandort surroundings (store PLZ / Ortsteil plus Gemeinde-
+             *     and Kreis-series such as Köln ags5 `05315`), never from clipping
+             *     Brain facts to the Zielregion. Destatis `bev_insgesamt` at ags5
+             *     is preferred for Einwohner over Zensus `ewz`. A Kreis or Land
+             *     fallback is labeled as such. Missing values are absent
+             *     (liegt nicht vor), never invented.
              */
             criteria: components["schemas"]["PatternCriterion"][];
             yearlySeries?: components["schemas"]["YearlySeries"][];
@@ -1162,14 +1191,19 @@ export interface components {
             label: string;
             direction: components["schemas"]["CriterionDirection"];
             /**
-             * @description Grounded in the retrieved Brain facts or the stored revenue series.
-             *     Nested metric keys use the leaf in heuristic period stamps
+             * @description Grounded in store-surrounding Brain series or the stored revenue
+             *     series. Nested metric keys use the leaf in heuristic period stamps
              *     (`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent
              *     Brain `ref_period` suffix (`2020|wohnungen`). Heuristic numbers
-             *     use only the Zielregion geoKey / AGS hierarchy, never a mean
-             *     across foreign places.
+             *     use only the Filialumgebung keys, never a mean across foreign
+             *     places. Stichtag snapshots say so; missing cells are
+             *     `liegt nicht vor`, never `0`.
              */
             evidence: string;
+            kind?: components["schemas"]["CriterionKind"];
+            coverage?: components["schemas"]["SeriesCoverage"];
+            sourceLevel?: components["schemas"]["SeriesLevel"];
+            sourceGeoKey?: string;
         };
         /**
          * @description Snapshot place this pattern belongs to, for the Stand line
@@ -1202,9 +1236,11 @@ export interface components {
             runId?: string;
         };
         /**
-         * @description Top-3 payload the web client binds to. `count` is `items.length` and
-         *     is never greater than 3. `reason` is null when three positive locations
-         *     were available. `pattern` is the snapshot used for this ranking.
+         * @description Ranked Teilflächen the web client binds to. `count` is `items.length`.
+         *     `reason` is null when at least one sub-area exists and the geo_ref
+         *     read was not truncated. `pattern` is the store-surroundings snapshot
+         *     used for this ranking. Empty `items` only when no sub-area exists
+         *     inside the Zielregion.
          */
         RecommendationSet: {
             /** @description Recommendation set id as a decimal string. */
@@ -1216,8 +1252,8 @@ export interface components {
             window: components["schemas"]["RecommendationWindow"];
             count: number;
             /**
-             * @description German explanation when fewer than three locations are returned,
-             *     or when the Brain read hit its row limit. Null when three matches
+             * @description German explanation when no Teilfläche exists inside the region,
+             *     or when the geo_ref read hit its row limit. Null when sub-areas
              *     were ranked without truncation.
              */
             reason: string | null;
@@ -1225,35 +1261,37 @@ export interface components {
             items: components["schemas"]["Recommendation"][];
         };
         /**
-         * @description Six calendar months, inclusive, ending in the UTC month of the request.
-         *     Brain `ref_period` values outside this window do not affect the score.
+         * @description Three calendar years used for trend ranking (`YYYY`), inclusive.
+         *     Older stored sets may still use `YYYY-MM` (six-month window).
          */
         RecommendationWindow: {
             /**
-             * @description Oldest month in the window (`YYYY-MM`).
-             * @example 2026-04
+             * @description Oldest year (or month) in the window.
+             * @example 2023
              */
             from: string;
             /**
-             * @description Newest month in the window (`YYYY-MM`).
-             * @example 2026-09
+             * @description Newest year (or month) in the window.
+             * @example 2025
              */
             to: string;
         };
         Recommendation: {
             /**
-             * @description Stable location id `{grain}:{geoKey}` inside this set.
-             * @example plz5:80801
+             * @description Stable area id `{grain}:{geoKey}` inside this set.
+             * @example other:ortsteil:osm:5712247
              */
             id: string;
             rank: number;
-            /** @description Card title. Place name, address line, or geo key from Brain. */
+            /** @description Card title. Place name or geo key from geo_ref. */
             title: string;
+            kind?: components["schemas"]["AreaKind"];
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
-             * @description Share of pattern criteria that have a direction and moved the same
-             *     way at this location inside the window. 1 is a full fit.
+             * @description Share of three-year trend criteria whose direction matches the
+             *     store-surroundings pattern. Stichtag criteria are labeled and
+             *     do not drive this score. 1 is a full trend fit.
              */
             score: number;
             /**
@@ -1281,9 +1319,10 @@ export interface components {
             name: string | null;
         };
         /**
-         * @description One pattern criterion that moved in the pattern direction at this
-         *     location. `direction` is what Brain shows in the window.
-         *     `patternDirection` is the saved Musteranalyse direction.
+         * @description One pattern criterion observed on this Teilfläche.
+         *     `kind` is `trend`, `stichtag`, or `absent`. `status` is `present`
+         *     or `absent`. Missing values omit `value` and are never `0`.
+         *     `patternDirection` is the stored Musteranalyse direction.
          */
         RecommendationEvidence: {
             key: string;
@@ -1291,11 +1330,17 @@ export interface components {
             direction: components["schemas"]["CriterionDirection"];
             patternDirection: components["schemas"]["CriterionDirection"];
             /**
-             * @description German sentence with the months and figures used for the score.
-             *     Nested metric keys use the leaf label (`Räume` / `raeume` for
-             *     `wohnungen.raeume`), not the parent key.
+             * @description German sentence with the years/Stichtag and figures used for the
+             *     score, or `liegt nicht vor`. Nested metric keys use the leaf
+             *     label (`Räume` / `raeume` for `wohnungen.raeume`), not the parent key.
              */
             evidence: string;
+            kind?: components["schemas"]["EvidenceKind"];
+            status?: components["schemas"]["SeriesPointStatus"];
+            /** @description True when a trend criterion moved in the pattern direction. */
+            match?: boolean;
+            coverage?: components["schemas"]["SeriesCoverage"];
+            points?: components["schemas"]["SeriesPoint"][];
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];
@@ -2324,45 +2369,68 @@ export interface operations {
                      *       "runId": "15",
                      *       "createdAt": "2026-09-29T12:00:00.000Z",
                      *       "window": {
-                     *         "from": "2026-04",
-                     *         "to": "2026-09"
+                     *         "from": "2023",
+                     *         "to": "2025"
                      *       },
                      *       "count": 1,
-                     *       "reason": "In der Zielregion liegt nur 1 Standort mit positiver Musterentwicklung in den letzten sechs Monaten vor.",
+                     *       "reason": null,
                      *       "pattern": {
                      *         "source": "heuristic",
-                     *         "summary": "Einwohner steigen mit dem Umsatz.",
+                     *         "summary": "Unfälle fallen in der Filialumgebung im Dreijahresverlauf.",
                      *         "revenueDirection": "up",
                      *         "criteria": [
                      *           {
-                     *             "key": "einwohner",
-                     *             "label": "einwohner",
-                     *             "direction": "up",
-                     *             "evidence": "einwohner steigt zwischen den vorliegenden Zeiträumen."
+                     *             "key": "unfallatlas",
+                     *             "label": "Unfälle (Ortsteil)",
+                     *             "direction": "down",
+                     *             "kind": "trend",
+                     *             "coverage": "multi",
+                     *             "evidence": "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8)."
                      *           }
                      *         ]
                      *       },
                      *       "items": [
                      *         {
-                     *           "id": "plz5:80801",
+                     *           "id": "other:ortsteil:osm:5712247",
                      *           "rank": 1,
-                     *           "title": "Schwabing",
+                     *           "title": "Schwabing-West",
+                     *           "kind": "ortsteil",
                      *           "location": {
-                     *             "geoKey": "80801",
-                     *             "grain": "plz5",
+                     *             "geoKey": "ortsteil:osm:5712247",
+                     *             "grain": "other",
                      *             "lon": 11.58,
                      *             "lat": 48.16,
-                     *             "name": "Schwabing"
+                     *             "name": "Schwabing-West"
                      *           },
                      *           "score": 1,
-                     *           "rationale": "Am Standort Schwabing (80801) passt das Muster in den letzten sechs Monaten. Quelle: Heuristik, ohne Sprachmodell.",
+                     *           "rationale": "Die Teilfläche Schwabing-West (ortsteil:osm:5712247) im Vergleich zum Filialmuster. Quelle: Heuristik, ohne Sprachmodell.",
                      *           "criteriaEvidence": [
                      *             {
-                     *               "key": "einwohner",
-                     *               "label": "einwohner",
-                     *               "direction": "up",
-                     *               "patternDirection": "up",
-                     *               "evidence": "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20)."
+                     *               "key": "unfallatlas",
+                     *               "label": "Unfälle (Ortsteil)",
+                     *               "direction": "down",
+                     *               "patternDirection": "down",
+                     *               "kind": "trend",
+                     *               "status": "present",
+                     *               "match": true,
+                     *               "coverage": "multi",
+                     *               "evidence": "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8).",
+                     *               "points": [
+                     *                 {
+                     *                   "period": "2023",
+                     *                   "status": "present",
+                     *                   "value": 20
+                     *                 },
+                     *                 {
+                     *                   "period": "2024",
+                     *                   "status": "absent"
+                     *                 },
+                     *                 {
+                     *                   "period": "2025",
+                     *                   "status": "present",
+                     *                   "value": 8
+                     *                 }
+                     *               ]
                      *             }
                      *           ],
                      *           "source": "heuristic"

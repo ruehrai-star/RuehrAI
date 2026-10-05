@@ -1,20 +1,23 @@
 import { NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
 import { AnalysisInput, AnalysisPattern } from "../analysis/types";
+import { YearlySeries } from "../analysis/yearly-series";
+import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
+import { YearlySeriesService } from "../analysis/yearly-series.service";
 import { DatabaseService } from "../database/database.service";
-import { CandidateSearchService } from "./candidate-search.service";
+import { AreaCandidate } from "./area-candidates";
+import { AreaCandidateService } from "./area-candidate.service";
 import { RECOMMENDATIONS_NOT_FOUND } from "./messages";
 import { RecommendationsService } from "./recommendations.service";
 import { RationaleService } from "./rationale.service";
-import { CandidateRow } from "./types";
 
 const asOf = new Date("2026-09-29T12:00:00.000Z");
 
 const pattern: AnalysisPattern = {
   source: "heuristic",
-  summary: "Einwohner steigen mit dem Umsatz.",
+  summary: "Unfälle fallen mit dem Umsatz.",
   revenueDirection: "up",
-  criteria: [{ key: "einwohner", label: "einwohner", direction: "up", evidence: "steigt" }],
+  criteria: [{ key: "unfallatlas", label: "Unfälle", direction: "down", evidence: "fällt", kind: "trend" }],
 };
 
 function input(): AnalysisInput {
@@ -31,53 +34,77 @@ function input(): AnalysisInput {
       geometry: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
-    stores: [],
+    stores: [
+      {
+        id: "7",
+        label: null,
+        street: "Marienplatz 1",
+        postalCode: "80331",
+        city: "München",
+        lon: null,
+        lat: null,
+        points: [],
+        changes: [],
+      },
+    ],
     revenueDirection: "up",
     capturedAt: "2026-09-01T00:00:00.000Z",
   };
 }
 
-function place(geoKey: string, title: string, early: number, late: number): CandidateRow[] {
-  return [
-    {
-      id: "1",
-      geoKey,
-      grain: "plz5",
-      name: title,
-      title,
-      refPeriod: "2026-04",
-      metadata: { einwohner: early },
-      lon: 11.5,
-      lat: 48.1,
-    },
-    {
-      id: "2",
-      geoKey,
-      grain: "plz5",
-      name: title,
-      title,
-      refPeriod: "2026-09",
-      metadata: { einwohner: late },
-      lon: 11.5,
-      lat: 48.1,
-    },
-  ];
+function area(geoKey: string, title: string, kind: AreaCandidate["kind"] = "ortsteil"): AreaCandidate {
+  return {
+    id: `other:${geoKey}`,
+    geoKey,
+    grain: "other",
+    kind,
+    title,
+    name: title,
+    ags: "09162000",
+    plz: null,
+    lon: 11.5,
+    lat: 48.1,
+  };
+}
+
+function trend(requestedGeoKey: string, first: number, last: number): YearlySeries {
+  return {
+    metricId: "unfallatlas",
+    requestedLevel: "ortsteil",
+    requestedGeoKey,
+    sourceLevel: "ortsteil",
+    sourceGeoKey: requestedGeoKey,
+    granularity: "year",
+    coverage: "multi",
+    points: [
+      { period: "2023", status: "present", value: first },
+      { period: "2024", status: "present", value: (first + last) / 2 },
+      { period: "2025", status: "present", value: last },
+    ],
+  };
 }
 
 describe("RecommendationsService", () => {
   const query = jest.fn();
   const load = jest.fn();
+  const resolve = jest.fn();
+  const build = jest.fn();
   const write = jest.fn();
   const service = new RecommendationsService(
     { query } as unknown as DatabaseService,
-    { load, loadMany: load } as unknown as CandidateSearchService,
+    { load } as unknown as AreaCandidateService,
+    { resolve } as unknown as StoreSurroundingsService,
+    { build } as unknown as YearlySeriesService,
     { write } as unknown as RationaleService,
   );
 
   beforeEach(() => {
     query.mockReset();
     load.mockReset();
+    resolve.mockReset();
+    build.mockReset();
     write.mockReset();
+    resolve.mockResolvedValue({ regions: [{ grain: "plz5", geoKey: "80331", plz: "80331" }], keys: ["80331"] });
     write.mockImplementation(async (_pattern: AnalysisPattern, _window: unknown, items: unknown[]) =>
       (items as { id: string }[]).map((item) => ({
         ...item,
@@ -103,59 +130,58 @@ describe("RecommendationsService", () => {
     });
   });
 
-  it("persists the top three and a null reason when the region is full", async () => {
+  it("persists ranked Teilflächen and never includes the region anchor", async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] })
       .mockResolvedValueOnce({
         rows: [{ id: "3", created_at: new Date("2026-09-29T12:00:00.000Z") }],
       });
     load.mockResolvedValue({
-      rows: [
-        ...place("80801", "Schwabing", 10, 20),
-        ...place("81369", "Sendling", 10, 30),
-        ...place("81541", "Giesing", 10, 12),
-        ...place("80686", "Laim", 20, 10),
+      items: [
+        area("ortsteil:osm:1", "Schwabing"),
+        area("ortsteil:osm:2", "Sendling"),
+        area("ortsteil:osm:3", "Giesing"),
       ],
       truncated: false,
     });
+    build
+      .mockResolvedValueOnce([trend("80331", 20, 8)])
+      .mockResolvedValueOnce([
+        trend("ortsteil:osm:1", 20, 8),
+        trend("ortsteil:osm:2", 18, 9),
+        trend("ortsteil:osm:3", 10, 30),
+      ]);
 
     const set = await service.create("4", undefined, asOf);
     expect(set.id).toBe("3");
     expect(set.runId).toBe("15");
     expect(set.count).toBe(3);
     expect(set.reason).toBeNull();
-    expect(set.window).toEqual({ from: "2026-04", to: "2026-09" });
+    expect(set.window).toEqual({ from: "2023", to: "2025" });
     expect(set.items.map((item) => item.rank)).toEqual([1, 2, 3]);
-    expect(set.items.map((item) => item.title)).toEqual(["Giesing", "Schwabing", "Sendling"]);
-    expect(set.items.every((item) => item.source === "heuristic")).toBe(true);
-    expect(set.items.map((item) => item.id)).not.toContain("plz5:80686");
+    expect(set.items.map((item) => item.title)).toEqual(["Schwabing", "Sendling", "Giesing"]);
+    expect(set.items.map((item) => item.location.geoKey)).not.toContain("09162000");
+    expect(set.pattern.criteria[0]?.kind).toBe("trend");
 
     const insert = query.mock.calls[1] as [string, unknown[]];
     expect(insert[0]).toContain("INSERT INTO app.recommendation_sets");
-    expect(insert[1]?.[0]).toBe("4");
-    expect(insert[1]?.[1]).toBe("15");
-    expect(load.mock.calls[0]?.[1]).toEqual([
-      "2026-04",
-      "2026-05",
-      "2026-06",
-      "2026-07",
-      "2026-08",
-      "2026-09",
-    ]);
+    expect(resolve).toHaveBeenCalled();
+    expect(load.mock.calls[0]?.[0]?.[0]?.geoKey).toBe("09162000");
   });
 
-  it("stores a German reason when only one location fits", async () => {
+  it("returns an empty list only when no sub-area exists", async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] })
       .mockResolvedValueOnce({
         rows: [{ id: "4", created_at: "2026-09-29T12:00:00.000Z" }],
       });
-    load.mockResolvedValue({ rows: place("80801", "Schwabing", 10, 20), truncated: false });
+    load.mockResolvedValue({ items: [], truncated: false });
+    build.mockResolvedValue([]);
 
     const set = await service.create("4", "15", asOf);
-    expect(set.count).toBe(1);
-    expect(set.reason).toContain("nur 1 Standort");
-    expect(set.items[0]?.rank).toBe(1);
+    expect(set.count).toBe(0);
+    expect(set.items).toEqual([]);
+    expect(set.reason).toContain("keine Teilfläche");
   });
 
   it("reads only the caller's latest set", async () => {
@@ -171,9 +197,9 @@ describe("RecommendationsService", () => {
           created_at: "2026-09-29T12:00:00.000Z",
           payload: {
             runId: "15",
-            window: { from: "2026-04", to: "2026-09" },
+            window: { from: "2023", to: "2025" },
             count: 0,
-            reason: "Keine passenden Standorte in der Zielregion.",
+            reason: "In der Zielregion liegt keine Teilfläche vor.",
             pattern,
             items: [],
           },

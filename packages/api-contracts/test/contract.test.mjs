@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.10 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
+test("v0.11 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.10.0");
+  assert.equal(doc.info.version, "0.11.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -84,7 +84,8 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   );
   assert.deepEqual(doc.components.schemas.AnalysisPatternRegion.required, ["label", "geoKey"]);
   assert.equal(doc.components.schemas.AnalysisPatternRegion.properties.geoKey.nullable, true);
-  assert.ok(doc.info.description.includes("0.10.0"));
+  assert.ok(doc.info.description.includes("0.11.0"));
+  assert.ok(doc.info.description.includes("Teilflächen"));
   assert.ok(doc.paths["/analysis/pattern"].get.description.includes("geoKey"));
   assert.equal(doc.paths["/analysis/input"].get.security, undefined);
   assert.equal(doc.paths["/recommendations"].post.operationId, "createRecommendations");
@@ -104,9 +105,20 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   ]);
   assert.deepEqual(recommendation.properties.source.enum, ["llm", "heuristic"]);
   assert.equal(recommendation.properties.rank.minimum, 1);
-  assert.equal(recommendation.properties.rank.maximum, 3);
+  assert.equal(recommendation.properties.rank.maximum, 200);
   assert.equal(doc.components.schemas.RecommendationSet.properties.reason.nullable, true);
-  assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 3);
+  assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 200);
+  assert.deepEqual(doc.components.schemas.AreaKind.enum, [
+    "ortsteil",
+    "stadtteil",
+    "bezirk",
+    "stadtbezirk",
+    "plz",
+    "gemeinde",
+  ]);
+  assert.deepEqual(doc.components.schemas.CriterionKind.enum, ["trend", "stichtag"]);
+  assert.deepEqual(doc.components.schemas.EvidenceKind.enum, ["trend", "stichtag", "absent"]);
+  assert.ok(doc.components.schemas.RecommendationWindow.properties.from.pattern.includes("4"));
   assert.equal(doc.components.schemas.RecommendationLocation.properties.lon.nullable, true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("heuristic"), true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("llm"), true);
@@ -136,7 +148,7 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("whole numbers"));
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("age-band"));
   assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("wohnungen.raeume"));
-  assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("Zielregion geoKey"));
+  assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("Filialumgebung"));
   assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("05315"));
   assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("bev_insgesamt"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.evidence.description.includes("leaf"));

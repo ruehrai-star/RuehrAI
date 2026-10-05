@@ -7,23 +7,24 @@ import {
 import {
   FactGeoMatch,
   classifyFactGeo,
-  factsMatchingTargetRegion,
   higherAdminNoun,
   isDestatisAgs5Fact,
   isDestatisBevInsgesamt,
   isPopulationMetricKey,
   tierRank,
 } from "./pattern-geo";
+import { factsMatchingStoreSurroundings } from "./store-surroundings";
+import { criteriaFromYearlySeries } from "./series-criteria";
 import {
   AnalysisInput,
   AnalysisPattern,
-  AnalysisRegion,
+  AnalysisStoreInput,
   BrainFact,
   CriterionDirection,
   PatternCriterion,
   RevenueDirection,
-  analysisRegions,
 } from "./types";
+import { YearlySeries } from "./yearly-series";
 
 const SKIP_KEYS = new Set([
   "gemeinde_name",
@@ -52,12 +53,14 @@ const money = new Intl.NumberFormat("de-DE", {
 export function buildHeuristicPattern(
   input: AnalysisInput,
   facts: BrainFact[],
+  storeSeries: YearlySeries[] = [],
 ): AnalysisPattern {
-  const localFacts = factsMatchingTargetRegion(input, facts);
-  const criteria = heuristicCriteria(input, localFacts);
+  const storeFacts = factsMatchingStoreSurroundings(input, facts);
+  const fromSeries = criteriaFromYearlySeries(storeSeries);
+  const criteria = fromSeries.length > 0 ? fromSeries : heuristicCriteria(input, storeFacts);
   return {
     source: "heuristic",
-    summary: heuristicSummary(input, localFacts, criteria),
+    summary: heuristicSummary(input, storeFacts, criteria, storeSeries),
     revenueDirection: input.revenueDirection,
     criteria,
   };
@@ -67,6 +70,7 @@ export function parseLlmPattern(
   raw: string,
   facts: BrainFact[],
   revenueDirection: RevenueDirection,
+  storeSeries: YearlySeries[] = [],
 ): AnalysisPattern | null {
   const parsed = extractJson(raw);
   if (!parsed || typeof parsed !== "object") return null;
@@ -77,7 +81,7 @@ export function parseLlmPattern(
 
   const criteria: PatternCriterion[] = [];
   for (const item of record.criteria) {
-    const criterion = parseCriterion(item, facts);
+    const criterion = parseCriterion(item, facts, storeSeries);
     if (!criterion) continue;
     criteria.push(criterion);
     if (criteria.length >= MAX_CRITERIA) break;
@@ -92,9 +96,10 @@ export function parseLlmPattern(
   };
 }
 
-export function isGroundedKey(key: string, facts: BrainFact[]): boolean {
+export function isGroundedKey(key: string, facts: BrainFact[], storeSeries: YearlySeries[] = []): boolean {
   const needle = key.trim().toLowerCase();
   if (!needle) return false;
+  if (storeSeries.some((item) => item.metricId.toLowerCase() === needle)) return true;
   return facts.some((fact) => {
     if (fact.signals.some((signal) => signal.key.toLowerCase() === needle)) return true;
     return `${fact.title}\n${fact.excerpt}`.toLowerCase().includes(needle);
@@ -119,8 +124,7 @@ interface MetricSeries {
 }
 
 function heuristicCriteria(input: AnalysisInput, facts: BrainFact[]): PatternCriterion[] {
-  const regions = analysisRegions(input);
-  const observations = collectObservations(facts, regions);
+  const observations = collectObservations(facts, input.stores);
   const series = seriesByKey(observations);
   const ranked = [...series.values()]
     .sort((left, right) => right.factCount - left.factCount || left.key.localeCompare(right.key))
@@ -138,11 +142,31 @@ function heuristicCriteria(input: AnalysisInput, facts: BrainFact[]): PatternCri
   });
 }
 
-function collectObservations(facts: BrainFact[], regions: AnalysisRegion[]): Observation[] {
+function collectObservations(facts: BrainFact[], _stores: AnalysisStoreInput[]): Observation[] {
+  const fallbackMatch: FactGeoMatch = {
+    tier: "requested",
+    sourceLevel: "plz",
+    requestedLevel: "plz",
+  };
   const observations: Observation[] = [];
   for (const fact of facts) {
-    const match = classifyFactGeo(fact, regions);
-    if (!match) continue;
+    const match =
+      classifyFactGeo(fact, [
+        {
+          label: "",
+          grain: (["plz5", "plz8", "ags", "ags5", "other", "grid100", "address"].includes(fact.grain)
+            ? fact.grain
+            : "ags") as AnalysisInput["region"]["grain"],
+          geoKey: fact.geoKey,
+          ags: fact.grain === "ags" || fact.grain === "ags5" ? fact.geoKey : null,
+          plz: fact.grain === "plz5" || fact.grain === "plz8" ? fact.geoKey.replace(/^(?:plz5|plz8):/i, "") : null,
+          lon: null,
+          lat: null,
+          bounds: null,
+          geometry: null,
+          updatedAt: "",
+        },
+      ]) ?? fallbackMatch;
     const sourceTheme = themeOf(fact);
     const destatisAgs5 = isDestatisAgs5Fact(fact);
     for (const signal of fact.signals) {
@@ -291,6 +315,7 @@ function heuristicSummary(
   input: AnalysisInput,
   facts: BrainFact[],
   criteria: PatternCriterion[],
+  storeSeries: YearlySeries[] = [],
 ): string {
   const changeSum = input.stores.reduce(
     (total, store) => total + store.changes.reduce((sum, change) => sum + change.changeEur, 0),
@@ -303,29 +328,29 @@ function heuristicSummary(
         ? "fallend"
         : "unverändert";
   const revenue = `Der Filialumsatz ist ${trend} (Summe der Veränderungen zwischen aufeinanderfolgenden Monaten: ${money.format(changeSum)} EUR).`;
-  if (facts.length === 0) {
-    return `${revenue} In der Zielregion wurden keine Brain-Fakten gefunden. Das Muster beschreibt nur die Umsatzrichtung. Quelle: Heuristik, ohne Sprachmodell.`;
+  if (facts.length === 0 && storeSeries.every((item) => item.coverage === "none")) {
+    return `${revenue} In der Umgebung der Bestandstandorte wurden keine Brain-Kennzahlen gefunden. Das Muster beschreibt nur die Umsatzrichtung. Quelle: Heuristik, ohne Sprachmodell.`;
   }
   if (criteria.length === 0) {
-    return `${revenue} Die ${facts.length} Brain-Fakten nennen keine vergleichbaren Kennzahlen. Quelle: Heuristik, ohne Sprachmodell.`;
+    return `${revenue} Die Brain-Kennzahlen der Filialumgebung nennen keine vergleichbaren Reihen. Quelle: Heuristik, ohne Sprachmodell.`;
   }
   const listed = criteria
-    .map((criterion) => `${criterion.label} (${directionWord(criterion.direction)})`)
+    .map((criterion) => `${criterion.label} (${directionWord(criterion.direction)}${criterion.kind === "stichtag" ? ", Stichtag" : ""})`)
     .join(", ");
-  return `${revenue} Aus den Brain-Fakten: ${listed}. Quelle: Heuristik, ohne Sprachmodell.`;
+  return `${revenue} Aus der Umgebung der Bestandstandorte: ${listed}. Quelle: Heuristik, ohne Sprachmodell.`;
 }
 
-function parseCriterion(item: unknown, facts: BrainFact[]): PatternCriterion | null {
+function parseCriterion(item: unknown, facts: BrainFact[], storeSeries: YearlySeries[] = []): PatternCriterion | null {
   if (!item || typeof item !== "object") return null;
   const record = item as Record<string, unknown>;
   const key = typeof record.key === "string" ? record.key.trim() : "";
-  if (!key || key.length > 120 || !isGroundedKey(key, facts)) return null;
+  if (!key || key.length > 120 || !isGroundedKey(key, facts, storeSeries)) return null;
   const direction = record.direction;
   if (typeof direction !== "string" || !DIRECTIONS.has(direction as CriterionDirection)) {
     return null;
   }
   const evidence = typeof record.evidence === "string" ? record.evidence.trim() : "";
-  if (evidence.length < 8 || !evidenceTouchesFacts(evidence, facts)) return null;
+  if (evidence.length < 8 || !evidenceTouchesFacts(evidence, facts, storeSeries)) return null;
   const label =
     typeof record.label === "string" && record.label.trim().length > 0
       ? record.label.trim().slice(0, 160)
@@ -338,9 +363,9 @@ function parseCriterion(item: unknown, facts: BrainFact[]): PatternCriterion | n
   };
 }
 
-function evidenceTouchesFacts(evidence: string, facts: BrainFact[]): boolean {
-  const haystack = facts
-    .map((fact) =>
+function evidenceTouchesFacts(evidence: string, facts: BrainFact[], storeSeries: YearlySeries[] = []): boolean {
+  const haystack = [
+    ...facts.map((fact) =>
       [
         fact.title,
         fact.excerpt,
@@ -348,7 +373,13 @@ function evidenceTouchesFacts(evidence: string, facts: BrainFact[]): boolean {
         fact.geoKey,
         ...fact.signals.flatMap((signal) => [signal.key, signal.value]),
       ].join(" "),
-    )
+    ),
+    ...storeSeries.flatMap((item) => [
+      item.metricId,
+      item.sourceGeoKey,
+      ...item.points.map((point) => `${point.period} ${point.status} ${point.value ?? ""}`),
+    ]),
+  ]
     .join(" ")
     .toLowerCase();
   const tokens = evidence.toLowerCase().split(/[^\p{L}\p{N}]+/u);
