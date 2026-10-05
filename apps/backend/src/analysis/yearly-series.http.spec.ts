@@ -97,9 +97,9 @@ describe("analysis yearlySeries HTTP", () => {
       coverage: "single",
     });
     expect(bevoelkerung.points).toEqual([
+      { period: "2023", status: "absent" },
       { period: "2024", status: "absent" },
       { period: "2025", status: "present", value: 1488202 },
-      { period: "2026", status: "absent" },
     ]);
     expect(bevoelkerung.points[0].value).toBeUndefined();
     const stored = JSON.parse(query.mock.calls[2]?.[1]?.[3] as string);
@@ -157,6 +157,104 @@ describe("analysis yearlySeries HTTP", () => {
     expect(bevoelkerung.coverage).toBe("single");
     expect(bevoelkerung.sourceLevel).toBe("gemeinde");
     expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(1);
+  });
+
+  it("recomputes stored yearlySeries on GET /analysis/pattern so old single coverage does not stick", async () => {
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "15",
+          status: "completed",
+          input: {
+            region: {
+              label: "Tempelhof",
+              grain: "other",
+              geoKey: "ortsteil:osm:162894",
+              level: "ortsteil",
+              ags: null,
+              plz: null,
+              lon: null,
+              lat: null,
+              bounds: null,
+              geometry: null,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+            stores: [],
+            revenueDirection: "up",
+            capturedAt: "2026-10-05T00:00:00.000Z",
+          },
+          brain: { mode: "sql", vectorUnavailableReason: "features_unavailable", factCount: 0, facts: [] },
+          pattern: {
+            source: "heuristic",
+            summary: "Der Filialumsatz ist steigend.",
+            revenueDirection: "up",
+            criteria: [],
+            yearlySeries: [
+              {
+                metricId: "bevoelkerung",
+                requestedLevel: "ortsteil",
+                requestedGeoKey: "ortsteil:osm:162894",
+                sourceLevel: "gemeinde",
+                sourceGeoKey: "11000000",
+                granularity: "year",
+                coverage: "single",
+                points: [
+                  { period: "2024", status: "absent" },
+                  { period: "2025", status: "present", value: 1 },
+                  { period: "2026", status: "absent" },
+                ],
+              },
+            ],
+          },
+          created_at: new Date("2026-10-05T00:00:00.000Z"),
+        },
+      ],
+    });
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      if (sql.includes("geo_ref_ortsteil")) {
+        return { rows: [{ id: "osm:162894", geo_key: "ortsteil:osm:162894", geo_ags: "11000000", geo_bezirk_id: "11000007" }] };
+      }
+      if (sql.includes("location_feature_docs") || sql.includes("v_location_search")) {
+        return {
+          rows: [
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 350123, maennlich: 1, weiblich: 2 } },
+              ref_period: "2023-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 351000, maennlich: 1, weiblich: 2 } },
+              ref_period: "2024-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 352000, maennlich: 1, weiblich: 2 } },
+              ref_period: "2025-12",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/analysis/pattern")
+      .set("authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const bevoelkerung = response.body.pattern.yearlySeries.find(
+      (item: { metricId: string }) => item.metricId === "bevoelkerung",
+    );
+    expect(bevoelkerung.coverage).toBe("multi");
+    expect(bevoelkerung.sourceGeoKey).toBe("11007007");
+    expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(3);
   });
 });
 

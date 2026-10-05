@@ -53,7 +53,7 @@ export const TOPIC_SOURCE_THEMES: Record<TopicId, readonly string[]> = {
   zensus2022: ["zensus2022", "zensus_gw_gebaeude", "zensus_gw_wohnungen"],
   bevoelkerung: ["regionalstatistik_bevoelkerung"],
   wanderungen: ["regionalstatistik_wanderungen"],
-  unfallatlas: ["unfallatlas"],
+  unfallatlas: ["unfallatlas", "unfallatlas_gebiet"],
   "rwi-redx": ["rwi_redx"],
   wwk: ["wwk"],
   boris: ["boris_brw"],
@@ -68,6 +68,40 @@ export const TOPIC_SOURCE_THEMES: Record<TopicId, readonly string[]> = {
   kmk: ["kmk"],
 };
 
+/**
+ * Extra yearlySeries metrics. Address-pair keeps the fixed Gemeinde/Kreis/Land
+ * lists; these Brain themes only feed AnalysisPattern.yearlySeries.
+ */
+export const EXTRA_SERIES_METRICS = [
+  { id: "destatis_wohnungen", homeLevel: "kreis" },
+  { id: "destatis_kfz_bestand", homeLevel: "kreis" },
+  { id: "destatis_bevoelkerung_alter", homeLevel: "kreis" },
+  { id: "kba_elektro_pkw", homeLevel: "gemeinde" },
+  { id: "kba_neuzulassungen", homeLevel: "land" },
+  { id: "kba_bestand", homeLevel: "land" },
+] as const;
+
+export type ExtraSeriesMetricId = (typeof EXTRA_SERIES_METRICS)[number]["id"];
+export type SeriesMetricId = TopicId | ExtraSeriesMetricId;
+
+export const EXTRA_SERIES_SOURCE_THEMES: Record<ExtraSeriesMetricId, readonly string[]> = {
+  destatis_wohnungen: ["destatis_wohnungen"],
+  destatis_kfz_bestand: ["destatis_kfz_bestand"],
+  destatis_bevoelkerung_alter: ["destatis_bevoelkerung_alter"],
+  kba_elektro_pkw: ["kba_elektro_pkw"],
+  kba_neuzulassungen: ["kba_neuzulassungen"],
+  kba_bestand: ["kba_bestand"],
+};
+
+export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<TopicLevel, readonly string[]>>> = {
+  destatis_wohnungen: { kreis: ["ags5"] },
+  destatis_kfz_bestand: { kreis: ["ags5"] },
+  destatis_bevoelkerung_alter: { kreis: ["ags5"] },
+  kba_elektro_pkw: { gemeinde: ["ags"] },
+  kba_neuzulassungen: { land: ["other"] },
+  kba_bestand: { land: ["other"] },
+};
+
 /** Grain a Brain row must have to count for that topic level. */
 export const TOPIC_GRAINS: Record<TopicId, Partial<Record<TopicLevel, readonly string[]>>> = {
   pendler: { gemeinde: ["ags"], kreis: ["ags5"], land: ["other"] },
@@ -79,6 +113,8 @@ export const TOPIC_GRAINS: Record<TopicId, Partial<Record<TopicLevel, readonly s
   bevoelkerung: { gemeinde: ["ags"] },
   wanderungen: { gemeinde: ["ags"] },
   unfallatlas: { gemeinde: ["ags"], kreis: ["ags5"] },
+  // unfallatlas_gebiet lives on grain plz5 / other (ortsteil: / bezirk:).
+  // Small-area yearlySeries matches those keys without this Gemeinde/Kreis map.
   "rwi-redx": { gemeinde: ["ags"] },
   wwk: { gemeinde: ["ags"] },
   boris: { gemeinde: ["ags"] },
@@ -104,6 +140,10 @@ export function sourceThemesForTopics(): string[] {
   return [...new Set(Object.values(TOPIC_SOURCE_THEMES).flat())];
 }
 
+export function sourceThemesForSeries(): string[] {
+  return [...new Set([...sourceThemesForTopics(), ...Object.values(EXTRA_SERIES_SOURCE_THEMES).flat()])];
+}
+
 export function topicIdForTheme(theme: string, level: TopicLevel): TopicId | null {
   for (const [id, themes] of Object.entries(TOPIC_SOURCE_THEMES) as Array<[TopicId, readonly string[]]>) {
     if (!themes.includes(theme)) continue;
@@ -113,14 +153,28 @@ export function topicIdForTheme(theme: string, level: TopicLevel): TopicId | nul
   return null;
 }
 
-export function themeMatchesTopic(theme: string, id: TopicId): boolean {
-  return TOPIC_SOURCE_THEMES[id].includes(theme);
+export function themeMatchesTopic(theme: string, id: SeriesMetricId): boolean {
+  return themesForMetric(id).includes(theme);
 }
 
-export function grainMatchesTopic(grain: string | null, id: TopicId, level: TopicLevel): boolean {
-  const allowed = TOPIC_GRAINS[id][level];
+export function grainMatchesTopic(grain: string | null, id: SeriesMetricId, level: TopicLevel): boolean {
+  const allowed = grainsForMetric(id)[level];
   if (!allowed) return false;
   if (grain == null || grain === "") return true;
   if ((EXCLUDED_FEATURE_GRAINS as readonly string[]).includes(grain)) return false;
   return allowed.includes(grain);
+}
+
+function themesForMetric(id: SeriesMetricId): readonly string[] {
+  if (isExtraSeriesMetric(id)) return EXTRA_SERIES_SOURCE_THEMES[id];
+  return TOPIC_SOURCE_THEMES[id];
+}
+
+function grainsForMetric(id: SeriesMetricId): Partial<Record<TopicLevel, readonly string[]>> {
+  if (isExtraSeriesMetric(id)) return EXTRA_SERIES_GRAINS[id];
+  return TOPIC_GRAINS[id];
+}
+
+function isExtraSeriesMetric(id: string): id is ExtraSeriesMetricId {
+  return id in EXTRA_SERIES_SOURCE_THEMES;
 }

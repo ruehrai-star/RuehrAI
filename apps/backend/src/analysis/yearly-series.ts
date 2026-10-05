@@ -1,10 +1,11 @@
 import { placeKeys } from "../address-pair/address-pair.service";
 import {
+  EXTRA_SERIES_METRICS,
   EXCLUDED_FEATURE_GRAINS,
   GEMEINDE_TOPIC_IDS,
   KREIS_TOPIC_IDS,
   LAND_TOPIC_IDS,
-  TopicId,
+  SeriesMetricId,
   TopicLevel,
   grainMatchesTopic,
   themeMatchesTopic,
@@ -17,7 +18,7 @@ import {
   officialAgsKey,
   parentMunicipalityAgs,
 } from "../geo/geo-catalog";
-import { isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
+import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs, regionalstatistikBerlinBezirkAgs } from "../geo/bezirk-ags";
 
 export interface SeriesRegionInput {
   grain?: string | null;
@@ -69,12 +70,16 @@ export interface RegionSourceKeys {
   requestedLevel: CatalogLevel;
   requestedGeoKey: string;
   requested: string[];
+  bezirk: string[];
+  plz: string[];
   gemeinde: string[];
   kreis: string[];
   land: string[];
   gemeindeKey: string | null;
   kreisKey: string | null;
   landKey: string | null;
+  bezirkKey: string | null;
+  bezirkRsKey: string | null;
 }
 
 const SKIP_VALUE_KEYS = new Set([
@@ -95,19 +100,58 @@ const SKIP_VALUE_KEYS = new Set([
   "source_tables",
 ]);
 
-const PREFERRED_VALUE_KEYS = ["value", "count", "anzahl", "personen", "einwohner", "arbeitslose"];
+const PREFERRED_VALUE_KEYS = [
+  "value",
+  "count",
+  "anzahl",
+  "personen",
+  "einwohner",
+  "arbeitslose",
+  "insgesamt",
+  "svb_wohnort",
+  "bev_insgesamt",
+  "wohnungen",
+  "kfz",
+  "gesamt",
+  "pkw_elektro",
+  "pkw_insgesamt",
+  "kfz_insgesamt",
+  "unfaelle_gesamt",
+  "zuzuege",
+  "saldo",
+  "einw",
+];
+
+const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
+  bevoelkerung: ["insgesamt", "personen", "einwohner"],
+  wanderungen: ["saldo", "zuzuege"],
+  pendler: ["svb_wohnort", "count", "einpendler"],
+  destatis: ["bev_insgesamt", "personen"],
+  destatis_wohnungen: ["wohnungen"],
+  destatis_kfz_bestand: ["kfz", "pkw"],
+  destatis_bevoelkerung_alter: ["gesamt", "personen"],
+  kba: ["pkw", "kfz_insgesamt"],
+  kba_elektro_pkw: ["pkw_elektro", "pkw_insgesamt"],
+  kba_neuzulassungen: ["kfz_insgesamt", "pkw"],
+  kba_bestand: ["kfz_insgesamt", "pkw"],
+  baugenehmigungen: ["wohnungen", "bauten", "value"],
+  unfallatlas: ["unfaelle_gesamt", "count"],
+  vgrdl: ["einw"],
+  gerda: ["value", "count", "personen"],
+};
 
 const GEMEINDE_SET = new Set<string>(GEMEINDE_TOPIC_IDS);
 const KREIS_SET = new Set<string>(KREIS_TOPIC_IDS);
 
-/** Unique topic ids already used by address-pair. Finest native level first. */
-export const SERIES_METRICS: ReadonlyArray<{ id: TopicId; homeLevel: TopicLevel }> = [
+/** Unique topic ids already used by address-pair, then extra Brain series themes. Finest native level first. */
+export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: TopicLevel }> = [
   ...GEMEINDE_TOPIC_IDS.map((id) => ({ id, homeLevel: "gemeinde" as const })),
   ...KREIS_TOPIC_IDS.filter((id) => !GEMEINDE_SET.has(id)).map((id) => ({ id, homeLevel: "kreis" as const })),
   ...LAND_TOPIC_IDS.filter((id) => !GEMEINDE_SET.has(id) && !KREIS_SET.has(id)).map((id) => ({
     id,
     homeLevel: "land" as const,
   })),
+  ...EXTRA_SERIES_METRICS.map((metric) => ({ id: metric.id, homeLevel: metric.homeLevel })),
 ];
 
 export function requestedLevelOf(region: SeriesRegionInput): CatalogLevel | null {
@@ -150,9 +194,11 @@ export function parseRefPeriod(raw: string | null | undefined): ParsedPeriod | n
   return null;
 }
 
-export function yearWindow(asOf: Date): string[] {
-  const year = asOf.getUTCFullYear();
-  return [String(year - 2), String(year - 1), String(year)];
+export function yearWindow(asOf: Date, availableYears: number[] = []): string[] {
+  const asOfYear = asOf.getUTCFullYear();
+  const latest = availableYears.length > 0 ? Math.max(...availableYears) : asOfYear;
+  const end = latest < asOfYear && latest >= asOfYear - 2 ? latest : asOfYear;
+  return [String(end - 2), String(end - 1), String(end)];
 }
 
 export function monthWindow(asOf: Date): string[] {
@@ -176,7 +222,7 @@ export function coverageOf(points: SeriesPoint[]): SeriesCoverage {
  * One stored numeric cell. 0 is a real value. Missing / unreadable cells are
  * null — never coerced to 0 or {}.
  */
-export function seriesNumber(metadata: unknown): { value: number; key?: string } | null {
+export function seriesNumber(metadata: unknown, metricId?: string): { value: number; key?: string } | null {
   if (typeof metadata === "number" && Number.isFinite(metadata)) return { value: metadata };
   if (typeof metadata === "string") {
     const numeric = asFiniteNumber(metadata);
@@ -186,16 +232,11 @@ export function seriesNumber(metadata: unknown): { value: number; key?: string }
   const cleaned = storedRowValue(metadata);
   if (!isRecord(cleaned)) return null;
 
-  const numeric: Array<{ key: string; value: number }> = [];
-  for (const [key, value] of Object.entries(cleaned)) {
-    if (SKIP_VALUE_KEYS.has(key)) continue;
-    const parsed = asFiniteNumber(value);
-    if (parsed === null) continue;
-    numeric.push({ key, value: parsed });
-  }
+  const numeric = collectNumericFields(cleaned);
   if (numeric.length === 0) return null;
-  for (const preferred of PREFERRED_VALUE_KEYS) {
-    const hit = numeric.find((item) => item.key === preferred);
+  const preferred = [...(metricId ? (METRIC_VALUE_KEYS[metricId] ?? []) : []), ...PREFERRED_VALUE_KEYS];
+  for (const key of preferred) {
+    const hit = numeric.find((item) => item.key === key);
     if (hit) return hit;
   }
   if (numeric.length === 1) return numeric[0]!;
@@ -237,18 +278,31 @@ export function keysForResolvedPlace(
   gemeindeAgs: string | null,
   kreisAgs: string | null,
   landAgs: string | null,
+  extras: { bezirkOfficial?: string | null; plz?: string | null } = {},
 ): RegionSourceKeys {
   const place = gemeindeAgs && kreisAgs ? placeKeys(gemeindeAgs, kreisAgs, landAgs) : { gemeinde: [], kreis: [], land: [] };
+  const bezirkOfficial =
+    extras.bezirkOfficial ?? berlinOfficialFromRequested(requestedLevel, requestedGeoKey);
+  const bezirkRs = bezirkOfficial ? regionalstatistikBerlinBezirkAgs(bezirkOfficial) : null;
+  const landKey = landAgs ? (landAgs.startsWith("land:") ? landAgs : `land:${landAgs}`) : null;
   return {
     requestedLevel,
     requestedGeoKey,
     requested: requestedKeyVariants(requestedLevel, requestedGeoKey),
+    bezirk: unique([
+      bezirkOfficial,
+      bezirkOfficial ? `bezirk:${bezirkOfficial}` : null,
+      bezirkOfficial ? `ags:${bezirkOfficial}` : null,
+    ]),
+    plz: extras.plz ? requestedKeyVariants("plz", extras.plz) : requestedLevel === "plz" ? requestedKeyVariants("plz", requestedGeoKey) : [],
     gemeinde: place.gemeinde,
     kreis: place.kreis,
-    land: place.land,
+    land: unique([...place.land, landKey, landAgs]),
     gemeindeKey: gemeindeAgs,
     kreisKey: kreisAgs,
-    landKey: landAgs,
+    landKey: landKey ?? landAgs,
+    bezirkKey: bezirkOfficial,
+    bezirkRsKey: bezirkRs,
   };
 }
 
@@ -272,7 +326,7 @@ export function requestedKeyVariants(level: CatalogLevel, geoKey: string): strin
 }
 
 export function buildMetricSeries(input: {
-  metricId: TopicId;
+  metricId: SeriesMetricId;
   homeLevel: TopicLevel;
   region: RegionSourceKeys;
   docs: SeriesFeatureRow[];
@@ -283,7 +337,8 @@ export function buildMetricSeries(input: {
     .map((row) => ({ row, period: parseRefPeriod(row.ref_period) }))
     .filter((item): item is { row: SeriesFeatureRow; period: ParsedPeriod } => item.period !== null);
   const granularity = detectGranularity(parsed.map((item) => item.period));
-  const window = granularity === "month" ? monthWindow(input.asOf) : yearWindow(input.asOf);
+  const availableYears = parsed.map((item) => item.period.year);
+  const window = granularity === "month" ? monthWindow(input.asOf) : yearWindow(input.asOf, availableYears);
   const byPeriod = valuesByPeriod(input.metricId, parsed, granularity);
 
   const points: SeriesPoint[] = window.map((period) => {
@@ -314,7 +369,7 @@ export function asOfFrom(capturedAt: string | undefined): Date {
 }
 
 function pickSource(
-  metricId: TopicId,
+  metricId: SeriesMetricId,
   homeLevel: TopicLevel,
   region: RegionSourceKeys,
   docs: SeriesFeatureRow[],
@@ -322,6 +377,23 @@ function pickSource(
   const attempts: Array<{ level: SeriesLevel; keys: string[]; match: "topic" | "requested" }> = [];
   if (isSmallArea(region.requestedLevel) && region.requested.length > 0) {
     attempts.push({ level: region.requestedLevel, keys: region.requested, match: "requested" });
+  }
+  if (region.bezirk.length > 0) {
+    attempts.push({
+      level: region.requestedLevel === "plz" ? "bezirk" : isSmallArea(region.requestedLevel) ? "bezirk" : region.requestedLevel,
+      keys: region.bezirk,
+      match: "requested",
+    });
+  }
+  if (region.plz.length > 0 && region.requestedLevel !== "plz") {
+    attempts.push({ level: "plz", keys: region.plz, match: "requested" });
+  }
+  if (region.bezirkRsKey && grainMatchesTopic(null, metricId, "gemeinde")) {
+    attempts.push({
+      level: "gemeinde",
+      keys: unique([region.bezirkRsKey, `ags:${region.bezirkRsKey}`]),
+      match: "topic",
+    });
   }
   if (grainMatchesTopic(null, metricId, "gemeinde")) {
     attempts.push({ level: "gemeinde", keys: region.gemeinde, match: "topic" });
@@ -341,9 +413,10 @@ function pickSource(
   }
 
   for (const attempt of attempts) {
+    if (attempt.keys.length === 0) continue;
     const rows = docs.filter((row) => rowMatches(row, metricId, attempt));
     if (rows.length === 0) continue;
-    const usable = rows.some((row) => parseRefPeriod(row.ref_period) && seriesNumber(row.metadata));
+    const usable = rows.some((row) => parseRefPeriod(row.ref_period) && seriesNumber(row.metadata, metricId));
     if (!usable && !rows.some((row) => parseRefPeriod(row.ref_period))) continue;
     return {
       level: attempt.level,
@@ -356,7 +429,7 @@ function pickSource(
 }
 
 function valuesByPeriod(
-  metricId: TopicId,
+  metricId: SeriesMetricId,
   parsed: Array<{ row: SeriesFeatureRow; period: ParsedPeriod }>,
   granularity: SeriesGranularity,
 ): Map<string, { value: number; key?: string }> {
@@ -372,7 +445,7 @@ function valuesByPeriod(
   const out = new Map<string, { value: number; key?: string }>();
   for (const [period, rows] of [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const metadata = metricId === "zensus2022" ? mergeMetadata(rows) : storedRowValue(pickLatest(rows).metadata);
-    const numeric = seriesNumber(metadata);
+    const numeric = seriesNumber(metadata, metricId);
     if (!numeric) continue;
     out.set(period, numeric);
   }
@@ -381,13 +454,14 @@ function valuesByPeriod(
 
 function rowMatches(
   row: SeriesFeatureRow,
-  metricId: TopicId,
+  metricId: SeriesMetricId,
   attempt: { level: SeriesLevel; keys: string[]; match: "topic" | "requested" },
 ): boolean {
   const theme = row.source_theme?.trim() ?? "";
   if (!theme || !themeMatchesTopic(theme, metricId)) return false;
   if (attempt.match === "requested") {
     if (isExcludedGrain(row.grain)) return false;
+    if (row.grain === "ags" || row.grain === "ags5") return false;
     return rowKeyHits(row, attempt.keys);
   }
   if (attempt.level !== "gemeinde" && attempt.level !== "kreis" && attempt.level !== "land") return false;
@@ -418,9 +492,11 @@ function rowKeyHits(row: SeriesFeatureRow, keys: string[]): boolean {
 }
 
 function canonicalSourceKey(level: SeriesLevel, region: RegionSourceKeys): string {
-  if (level === "gemeinde") return region.gemeindeKey ?? region.requestedGeoKey;
+  if (level === "gemeinde") return region.bezirkRsKey ?? region.gemeindeKey ?? region.requestedGeoKey;
   if (level === "kreis") return region.kreisKey ?? region.requestedGeoKey;
   if (level === "land") return region.landKey ?? region.requestedGeoKey;
+  if (level === "bezirk") return region.bezirkKey ?? region.requestedGeoKey;
+  if (level === "plz") return region.plz[0] ?? region.requestedGeoKey;
   return region.requestedGeoKey;
 }
 
@@ -482,6 +558,30 @@ function metadataText(metadata: unknown, key: string): string | null {
 function stripPrefixedKey(value: string): string {
   const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk):(.+)$/i.exec(value.trim());
   return match?.[1] ?? value.trim();
+}
+
+function berlinOfficialFromRequested(level: CatalogLevel, geoKey: string): string | null {
+  if (level !== "bezirk" && level !== "stadtbezirk") return null;
+  const bare = officialAgsKey(geoKey) ?? digits(stripPrefixedKey(geoKey));
+  if (!bare) return null;
+  const official = canonicalBerlinBezirkAgs(bare);
+  return isOfficialBerlinBezirkAgs(official) ? official : null;
+}
+
+function collectNumericFields(row: Record<string, unknown>): Array<{ key: string; value: number }> {
+  const numeric: Array<{ key: string; value: number }> = [];
+  const bags: Record<string, unknown>[] = [row];
+  if (isRecord(row.values)) bags.push(row.values);
+  if (isRecord(row.werte)) bags.push(row.werte);
+  for (const bag of bags) {
+    for (const [key, value] of Object.entries(bag)) {
+      if (SKIP_VALUE_KEYS.has(key) || key === "values" || key === "werte") continue;
+      const parsed = asFiniteNumber(value);
+      if (parsed === null) continue;
+      numeric.push({ key, value: parsed });
+    }
+  }
+  return numeric;
 }
 
 function digits(value: string | null | undefined): string | null {

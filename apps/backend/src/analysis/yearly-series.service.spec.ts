@@ -46,9 +46,9 @@ describe("YearlySeriesService", () => {
       granularity: "year",
     });
     expect(bevoelkerung?.points).toEqual([
+      { period: "2023", status: "absent" },
       { period: "2024", status: "absent" },
       { period: "2025", status: "present", value: 1488202 },
-      { period: "2026", status: "absent" },
     ]);
     expect(series.some((item) => item.metricId === "store_revenue")).toBe(false);
     expect(queryReadingFeatures.mock.calls.some((call) => String(call[0]).includes("store_monthly_revenue"))).toBe(
@@ -117,6 +117,115 @@ describe("YearlySeriesService", () => {
     expect(bevoelkerung?.sourceLevel).toBe("gemeinde");
     expect(bevoelkerung?.sourceGeoKey).toBe("11000000");
     expect(queryReadingFeatures.mock.calls.every((call) => !String(call[0]).includes("geo_ref_ortsteil"))).toBe(true);
+  });
+
+  it("resolves Tempelhof Ortsteil to Bezirk RS 11007007 and returns coverage multi", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      if (sql.includes("geo_ref_ortsteil") && sql.includes("geo_ref_bezirk")) {
+        return { rows: [{ id: "osm:162894", geo_key: "ortsteil:osm:162894", geo_ags: "11000000", geo_bezirk_id: "11000007" }] };
+      }
+      if (sql.includes("geo_ref_ortsteil")) {
+        return { rows: [{ id: "osm:162894", geo_key: "ortsteil:osm:162894", geo_ags: "11000000", geo_bezirk_id: null }] };
+      }
+      if (sql.includes("location_feature_docs")) {
+        return {
+          rows: [
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 350123, maennlich: 1, weiblich: 2 } },
+              ref_period: "2022-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 351000, maennlich: 1, weiblich: 2 } },
+              ref_period: "2023-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 352000, maennlich: 1, weiblich: 2 } },
+              ref_period: "2024-12",
+            },
+            {
+              source_theme: "regionalstatistik_bevoelkerung",
+              grain: "ags",
+              geo_key: "11007007",
+              metadata: { values: { insgesamt: 353000, maennlich: 1, weiblich: 2 } },
+              ref_period: "2025-12",
+            },
+            {
+              source_theme: "kba_elektro_pkw",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { pkw_elektro: 12, pkw_insgesamt: 100 },
+              ref_period: "2023-01|elektro",
+            },
+            {
+              source_theme: "kba_elektro_pkw",
+              grain: "ags",
+              geo_key: "11000000",
+              metadata: { pkw_elektro: 18, pkw_insgesamt: 100 },
+              ref_period: "2024-01|elektro",
+            },
+            {
+              source_theme: "unfallatlas_gebiet",
+              grain: "other",
+              geo_key: "ortsteil:osm:162894",
+              metadata: { unfaelle_gesamt: 41, getoetet_kat1: 0 },
+              ref_period: "2024|unfallatlas_gebiet",
+            },
+            {
+              source_theme: "unfallatlas_gebiet",
+              grain: "other",
+              geo_key: "ortsteil:osm:162894",
+              metadata: { unfaelle_gesamt: 44, getoetet_kat1: 0 },
+              ref_period: "2025|unfallatlas_gebiet",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+
+    const series = await service.build([tempelhofOrtsteil()], asOf);
+    const bevoelkerung = series.find((item) => item.metricId === "bevoelkerung");
+    expect(bevoelkerung).toMatchObject({
+      requestedLevel: "ortsteil",
+      requestedGeoKey: "ortsteil:osm:162894",
+      sourceLevel: "gemeinde",
+      sourceGeoKey: "11007007",
+      coverage: "multi",
+    });
+    const elektro = series.find((item) => item.metricId === "kba_elektro_pkw");
+    expect(elektro?.coverage).toBe("multi");
+    expect(elektro?.sourceGeoKey).toBe("11000000");
+    const unfallatlas = series.find((item) => item.metricId === "unfallatlas");
+    expect(unfallatlas).toMatchObject({
+      sourceLevel: "ortsteil",
+      sourceGeoKey: "ortsteil:osm:162894",
+      coverage: "multi",
+    });
+    const featureSql = queryReadingFeatures.mock.calls
+      .map((call) => String(call[0]))
+      .find((sql) => sql.includes("location_feature_docs"));
+    expect(featureSql).toBeDefined();
+    expect(featureSql).not.toMatch(/embedding/i);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("11007007"),
+      ),
+    ).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => Array.isArray(call[1]?.[1]) && (call[1]?.[1] as string[]).includes("land:11"),
+      ),
+    ).toBe(true);
+    expect(series.some((item) => item.metricId === "umsatz")).toBe(false);
   });
 
   it("emits every known topic and marks missing Brain rows absent", async () => {
@@ -211,6 +320,22 @@ function berlinBezirk(): AnalysisRegion {
     geoKey: "11000001",
     level: "bezirk",
     ags: "11000001",
+    plz: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function tempelhofOrtsteil(): AnalysisRegion {
+  return {
+    label: "Tempelhof",
+    grain: "other",
+    geoKey: "ortsteil:osm:162894",
+    level: "ortsteil",
+    ags: null,
     plz: null,
     lon: null,
     lat: null,

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.8.0
+  version: 0.9.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -27,6 +27,15 @@ info:
     last three calendar years (or last 36 months) on the user's Zielregionen.
     `coverage` is `single` when only one period is present — that is not a
     trend. Missing periods are `absent` (liegt nicht vor).
+    `0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,
+    `destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,
+    `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto
+    `yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses
+    Berlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips
+    `ref_period` tags after `|`, never filters on embedding, always
+    recomputes the field on `GET /analysis/pattern` and new runs, and
+    anchors a yearly window to the latest Brain year when that year is still
+    within two years of `asOf`.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1896,15 +1905,22 @@ components:
         - points
       description: |
         One topic on one Zielregion over the last three UTC calendar years
-        (`year`) or the last 36 UTC months (`month`). `coverage` tells the
-        client whether a trend exists. `sourceLevel` / `sourceGeoKey` are
-        the Brain row, not the picker grain. Brain STAGE (2026-10-05) has
-        no Ortsteil / Stadtteil / Stadtbezirk / PLZ feature-docs, so those
-        requests resolve to Gemeinde or Kreis and say so here.
+        (`year`) or the last 36 UTC months (`month`). When the newest Brain
+        year is older than `asOf` but still within two years, the year
+        window ends on that Brain year so a series such as Wanderungen
+        through 2024 stays `multi`. `coverage` tells the client whether a
+        trend exists. `sourceLevel` / `sourceGeoKey` are the Brain row, not
+        the picker grain. Unfallatlas Gebiet may be Ortsteil, Bezirk, or
+        PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
+        grain `ags` / `ags5` / `other` and are labeled as such. Missing
+        cells are `absent` without `value`. Store revenue is not included.
       properties:
         metricId:
           type: string
-          description: Existing topic id (`bevoelkerung`, `pendler`, …), not a new name.
+          description: |
+            Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain
+            series theme id (`destatis_wohnungen`, `kba_elektro_pkw`, …).
+            Not store revenue.
         requestedLevel:
           $ref: "#/components/schemas/CatalogLevel"
         requestedGeoKey:
