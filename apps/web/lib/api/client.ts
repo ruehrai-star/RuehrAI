@@ -1,6 +1,5 @@
 import type {
   AnalysisInput,
-  AnalysisPatternResponse,
   AnalysisRun,
   Credentials,
   RecommendationCreate,
@@ -13,7 +12,14 @@ import type {
   TargetRegionWrite,
 } from "@ruehrai/api-contracts";
 import type { AddressPairRequest, AddressPairResult } from "../addresses/types.ts";
-import type { RecommendationSet, SearchResponse, Session, TargetRegion } from "./types";
+import type {
+  AnalysisPatternQuery,
+  AnalysisPatternResponse,
+  RecommendationSet,
+  SearchResponse,
+  Session,
+  TargetRegion,
+} from "./types";
 
 /**
  * UI-facing client. Methods follow OpenAPI operationIds:
@@ -43,7 +49,7 @@ export interface RuehrApi {
   getAnalysisInput(): Promise<AnalysisInput>;
   createAnalysisRun(): Promise<AnalysisRun>;
   getAnalysisRun(id: string): Promise<AnalysisRun>;
-  getAnalysisPattern(): Promise<AnalysisPatternResponse | null>;
+  getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null>;
   getRecommendations(): Promise<RecommendationSet | null>;
   createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet>;
   evaluateAddressPair(body: AddressPairRequest): Promise<AddressPairResult>;

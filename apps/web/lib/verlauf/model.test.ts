@@ -92,6 +92,8 @@ test("after Standorte the path is Verlauf, not the map", () => {
   assert.equal(VERLAUF_COPY.title, "Verlauf");
   assert.equal(VERLAUF_COPY.heroHeading, "Veränderung der Kleinraumdaten");
   assert.equal(VERLAUF_COPY.top3, "Top 3 in Ihrer Zielregion");
+  assert.equal(VERLAUF_COPY.missingRun, "Für diese Zielregion liegt noch kein Analyselauf vor.");
+  assert.equal(VERLAUF_COPY.startAnalysis, "Musteranalyse starten");
 });
 
 test("multi coverage draws a trend from present points only", () => {
@@ -308,4 +310,8 @@ test("Verlauf page and proof map do not load demo-gemeinden", () => {
   assert.equal(proof.includes("DEFAULT_LAYER_ID"), false);
   assert.match(standorte, /POST_STANDORTE_HREF/);
   assert.match(standorte, />\s*Verlauf\s*</);
+  assert.match(page, /VERLAUF_COPY\.missingRun/);
+  assert.match(page, /VERLAUF_COPY\.startAnalysis/);
+  assert.match(page, /loadPatternForMarkedRegion/);
+  assert.equal(page.includes("createAnalysisRun"), false);
 });

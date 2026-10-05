@@ -269,6 +269,67 @@ test("GET /analysis/pattern rejects a present yearlySeries point without a numbe
   });
 });
 
+test("GET /analysis/pattern?geoKey= sends the marked catalog key", async () => {
+  const seen: string[] = [];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl) => {
+      seen.push(String(inputUrl));
+      return json({
+        runId: "7",
+        createdAt: run.createdAt,
+        region: { label: "Lankwitz", geoKey: "ortsteil:osm:5712247", level: "ortsteil", parentLabel: "Berlin" },
+        pattern,
+      });
+    },
+  });
+  const latest = await api.getAnalysisPattern({ geoKey: "ortsteil:osm:5712247" });
+  assert.equal(latest?.runId, "7");
+  assert.equal(latest?.region?.label, "Lankwitz");
+  assert.equal(latest?.region?.parentLabel, "Berlin");
+  assert.equal(seen[0], "http://localhost:3000/analysis/pattern?geoKey=ortsteil%3Aosm%3A5712247");
+});
+
+test("GET /analysis/pattern without geoKey keeps the latest-pattern URL", async () => {
+  const seen: string[] = [];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl) => {
+      seen.push(String(inputUrl));
+      return json({ runId: "7", createdAt: run.createdAt, pattern });
+    },
+  });
+  const latest = await api.getAnalysisPattern();
+  assert.equal(latest?.region, undefined);
+  assert.equal(seen[0], "http://localhost:3000/analysis/pattern");
+});
+
+test("GET /analysis/pattern?geoKey= maps 404 to no pattern", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json(
+        {
+          statusCode: 404,
+          message: "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
+          error: "Not Found",
+        },
+        404,
+      ),
+  });
+  assert.equal(await api.getAnalysisPattern({ geoKey: "09162000" }), null);
+});
+
+test("GET /analysis/pattern ignores a region object without a label", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ runId: "7", createdAt: run.createdAt, region: { geoKey: "09162000" }, pattern }),
+  });
+  const latest = await api.getAnalysisPattern({ geoKey: "09162000" });
+  assert.equal(latest?.region, undefined);
+  assert.equal(latest?.runId, "7");
+});
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

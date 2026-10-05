@@ -9,6 +9,7 @@ import {
   addRegionToFront,
   ensureMarkedKey,
   isHitInList,
+  markedRegion,
   nextMarkedKeyAfterAdd,
   nextMarkedKeyAfterRemove,
   regionListKey,
@@ -164,4 +165,7 @@ test("a non-empty list always has exactly one marked row", () => {
   assert.equal(ensureMarkedKey([], null), null);
   assert.equal(ensureMarkedKey(items, null), "09162000");
   assert.equal(ensureMarkedKey(items, "11000000"), "11000000");
+  assert.equal(markedRegion([], null), null);
+  assert.equal(markedRegion(items, "11000000")?.label, "Berlin");
+  assert.equal(markedRegion(items, null)?.label, "München");
 });

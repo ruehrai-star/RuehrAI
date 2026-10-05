@@ -140,6 +140,13 @@ export function ensureMarkedKey(items: readonly TargetRegion[], markedKey: strin
   return regionListKey(match ?? (items[0] as TargetRegion));
 }
 
+/** The marked Zielregion row, or null when the list is empty. */
+export function markedRegion(items: readonly TargetRegion[], markedKey: string | null): TargetRegion | null {
+  const key = ensureMarkedKey(items, markedKey);
+  if (!key) return null;
+  return items.find((item) => regionListKey(item) === key || catalogKeyVariants(item.geoKey).includes(key)) ?? null;
+}
+
 function trimText(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
