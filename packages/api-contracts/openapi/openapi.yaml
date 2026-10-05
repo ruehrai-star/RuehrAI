@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.9.0
+  version: 0.10.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -44,6 +44,14 @@ info:
     local rows fall back to Gemeinde, Kreis, or Land keys and are labeled
     as such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for
     that lookup, never `gemeinde`.
+    `0.10.0` lets `GET /analysis/pattern` take optional `geoKey` (the same
+    catalog key as `TargetRegion.geoKey`). When set, the newest completed run
+    whose snapshot includes that place is returned; `yearlySeries` is limited
+    to that Zielregion; `region` names the matched snapshot place for the
+    Stand line. No matching run is `404` with a German message, never another
+    region's pattern. Without `geoKey` the newest completed run is unchanged.
+    Create stays `POST /analysis/runs` (full list snapshot). Marking a
+    Zielregion is UI-only.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -862,11 +870,19 @@ paths:
       operationId: getAnalysisPattern
       summary: Latest persisted pattern for the signed-in user
       description: |
-        Returns the pattern from the newest completed run. `404` when the
-        user has not completed an analysis yet.
+        Without `geoKey`, returns the pattern from the newest completed run
+        (`input.region` is the Stand-line place). With `geoKey`, returns the
+        newest completed run whose snapshot includes that catalog key
+        (`input.region.geoKey` or any `input.regions[].geoKey`), after the
+        same Berlin Bezirk alias rewrite as add/remove on `/target-region`.
+        `yearlySeries` is then limited to that Zielregion. Criteria and
+        summary stay as stored. `404` when this user has no matching run —
+        never another region's pattern. This endpoint does not start a run.
+      parameters:
+        - $ref: "#/components/parameters/AnalysisPatternGeoKey"
       responses:
         "200":
-          description: Latest pattern.
+          description: Pattern for the latest matching completed run.
           content:
             application/json:
               schema:
@@ -874,15 +890,26 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: No completed analysis run for this user.
+          description: |
+            No completed analysis run for this user, or `geoKey` did not
+            match any of this user's completed snapshots.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              example:
-                statusCode: 404
-                message: Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.
-                error: Not Found
+              examples:
+                noPattern:
+                  summary: No completed run
+                  value:
+                    statusCode: 404
+                    message: Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.
+                    error: Not Found
+                noRunForRegion:
+                  summary: geoKey set, no matching snapshot
+                  value:
+                    statusCode: 404
+                    message: Für diese Zielregion liegt noch kein Analyselauf vor.
+                    error: Not Found
   /recommendations:
     post:
       tags: [Recommendations]
@@ -1078,6 +1105,19 @@ components:
         Catalog place id stored on the list item (`geoKey`). Same value
         `GET /search` returns. A Berlin Bezirk alias is matched as the
         official AGS.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    AnalysisPatternGeoKey:
+      name: geoKey
+      in: query
+      required: false
+      description: |
+        Catalog place id (`TargetRegion.geoKey` / `GET /search`). When set,
+        the newest completed run whose snapshot includes this place is
+        returned. A Berlin Bezirk alias is matched as the official AGS.
+        Omit for the newest completed run of this user.
       schema:
         type: string
         minLength: 1
@@ -2015,16 +2055,48 @@ components:
             Nested metric keys use the leaf in heuristic period stamps
             (`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent
             Brain `ref_period` suffix (`2020|wohnungen`).
+    AnalysisPatternRegion:
+      type: object
+      additionalProperties: false
+      required: [label, geoKey]
+      description: |
+        Snapshot place this pattern belongs to, for the Stand line
+        (`Stand: Lauf vom … für [label]`). Unfiltered GET uses `input.region`.
+        With `geoKey`, the matching list item. `parentLabel` is optional.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        geoKey:
+          type: string
+          nullable: true
+          maxLength: 200
+          description: Stored catalog key of the snapshot place. Null when unknown.
+        level:
+          allOf:
+            - $ref: "#/components/schemas/CatalogLevel"
+          nullable: true
+        parentLabel:
+          type: string
+          nullable: true
+          description: Parent municipality name. Null when unknown or the place is the municipality.
+        grain:
+          type: string
+          nullable: true
+          enum: [address, grid100, plz8, plz5, ags, ags5, other]
     AnalysisPatternResponse:
       type: object
       additionalProperties: false
-      required: [runId, createdAt, pattern]
+      required: [runId, createdAt, region, pattern]
       properties:
         runId:
           type: string
         createdAt:
           type: string
           format: date-time
+        region:
+          $ref: "#/components/schemas/AnalysisPatternRegion"
         pattern:
           $ref: "#/components/schemas/AnalysisPattern"
     RecommendationCreate:

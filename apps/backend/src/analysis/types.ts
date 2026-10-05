@@ -128,8 +128,17 @@ export interface AnalysisRun {
   pattern: AnalysisPattern;
 }
 
+export interface AnalysisPatternRegion {
+  label: string;
+  geoKey: string | null;
+  level?: string | null;
+  parentLabel?: string | null;
+  grain: Grain | null;
+}
+
 export interface AnalysisPatternResponse {
   runId: string;
   createdAt: string;
+  region: AnalysisPatternRegion;
   pattern: AnalysisPattern;
 }

@@ -1,8 +1,8 @@
-import { Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
+import { Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AnalysisService } from "./analysis.service";
-import { AnalysisRunParamsDto } from "./dto";
+import { AnalysisPatternQueryDto, AnalysisRunParamsDto } from "./dto";
 
 @Controller("analysis")
 export class AnalysisController {
@@ -20,8 +20,8 @@ export class AnalysisController {
   }
 
   @Get("pattern")
-  pattern(@CurrentUser() user: AuthUser) {
-    return this.analysis.latestPattern(user.id);
+  pattern(@CurrentUser() user: AuthUser, @Query() query: AnalysisPatternQueryDto) {
+    return this.analysis.latestPattern(user.id, query.geoKey);
   }
 
   @Get("runs/:id")

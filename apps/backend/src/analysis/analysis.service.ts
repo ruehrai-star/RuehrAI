@@ -8,12 +8,19 @@ import { boundsFromRow, geometryFromUnknown } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 import { BrainSearchService } from "./brain-search.service";
 import {
+  PATTERN_FOR_REGION_NOT_FOUND,
   PATTERN_NOT_FOUND,
   REGION_MISSING,
   REVENUE_INSUFFICIENT,
   RUN_NOT_FOUND,
 } from "./messages";
 import { PatternService } from "./pattern.service";
+import {
+  filterYearlySeries,
+  findSnapshotRegion,
+  matchingGeoKeys,
+  toPatternRegion,
+} from "./region-match";
 import {
   hasAdjacentRevenue,
   latestPoints,
@@ -128,23 +135,64 @@ export class AnalysisService {
     return toRun({ ...row, pattern: await this.withYearlySeries(row.pattern, row.input) });
   }
 
-  async latestPattern(userId: string): Promise<AnalysisPatternResponse> {
+  async latestPattern(userId: string, geoKey?: string): Promise<AnalysisPatternResponse> {
+    const row = await this.loadLatestRun(userId, geoKey);
+    if (!row) {
+      throw new NotFoundException(geoKey ? PATTERN_FOR_REGION_NOT_FOUND : PATTERN_NOT_FOUND);
+    }
+    const region = findSnapshotRegion(row.input, geoKey);
+    if (!region) {
+      throw new NotFoundException(geoKey ? PATTERN_FOR_REGION_NOT_FOUND : PATTERN_NOT_FOUND);
+    }
+    const inputForSeries =
+      geoKey && row.input
+        ? { ...row.input, region, regions: [region] }
+        : row.input;
+    let pattern = await this.withYearlySeries(row.pattern, inputForSeries);
+    if (geoKey) {
+      pattern = { ...pattern, yearlySeries: filterYearlySeries(pattern.yearlySeries, geoKey) };
+    }
+    return {
+      runId: row.id,
+      createdAt: toIso(row.created_at),
+      region: toPatternRegion(region),
+      pattern,
+    };
+  }
+
+  private async loadLatestRun(userId: string, geoKey?: string): Promise<RunRow | undefined> {
+    if (!geoKey) {
+      const result = await this.db.query<RunRow>(
+        `SELECT id::text AS id, status, input, brain, pattern, created_at
+         FROM app.analysis_runs
+         WHERE user_id = $1::bigint
+           AND status = 'completed'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [userId],
+      );
+      return result.rows[0];
+    }
+
+    const keys = matchingGeoKeys(geoKey);
     const result = await this.db.query<RunRow>(
       `SELECT id::text AS id, status, input, brain, pattern, created_at
        FROM app.analysis_runs
        WHERE user_id = $1::bigint
          AND status = 'completed'
+         AND (
+           COALESCE(input#>>'{region,geoKey}', '') = ANY($2::text[])
+           OR EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements(COALESCE(input->'regions', '[]'::jsonb)) AS r
+             WHERE COALESCE(r->>'geoKey', '') = ANY($2::text[])
+           )
+         )
        ORDER BY created_at DESC, id DESC
        LIMIT 1`,
-      [userId],
+      [userId, keys],
     );
-    const row = result.rows[0];
-    if (!row) throw new NotFoundException(PATTERN_NOT_FOUND);
-    return {
-      runId: row.id,
-      createdAt: toIso(row.created_at),
-      pattern: await this.withYearlySeries(row.pattern, row.input),
-    };
+    return result.rows[0];
   }
 
   private async attachYearlySeries(pattern: AnalysisPattern, input: AnalysisInput): Promise<AnalysisPattern> {

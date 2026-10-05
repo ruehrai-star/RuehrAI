@@ -47,6 +47,7 @@ export type SeriesLevel = Schemas["SeriesLevel"];
 export type SeriesGranularity = Schemas["SeriesGranularity"];
 export type SeriesCoverage = Schemas["SeriesCoverage"];
 export type SeriesPointStatus = Schemas["SeriesPointStatus"];
+export type AnalysisPatternRegion = Schemas["AnalysisPatternRegion"];
 export type AnalysisPatternResponse = Schemas["AnalysisPatternResponse"];
 export type RecommendationCreate = Schemas["RecommendationCreate"];
 export type RecommendationSet = Schemas["RecommendationSet"];

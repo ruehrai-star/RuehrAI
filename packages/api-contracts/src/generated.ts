@@ -495,8 +495,14 @@ export interface paths {
         };
         /**
          * Latest persisted pattern for the signed-in user
-         * @description Returns the pattern from the newest completed run. `404` when the
-         *     user has not completed an analysis yet.
+         * @description Without `geoKey`, returns the pattern from the newest completed run
+         *     (`input.region` is the Stand-line place). With `geoKey`, returns the
+         *     newest completed run whose snapshot includes that catalog key
+         *     (`input.region.geoKey` or any `input.regions[].geoKey`), after the
+         *     same Berlin Bezirk alias rewrite as add/remove on `/target-region`.
+         *     `yearlySeries` is then limited to that Zielregion. Criteria and
+         *     summary stay as stored. `404` when this user has no matching run —
+         *     never another region's pattern. This endpoint does not start a run.
          */
         get: operations["getAnalysisPattern"];
         put?: never;
@@ -1154,10 +1160,26 @@ export interface components {
              */
             evidence: string;
         };
+        /**
+         * @description Snapshot place this pattern belongs to, for the Stand line
+         *     (`Stand: Lauf vom … für [label]`). Unfiltered GET uses `input.region`.
+         *     With `geoKey`, the matching list item. `parentLabel` is optional.
+         */
+        AnalysisPatternRegion: {
+            label: string;
+            /** @description Stored catalog key of the snapshot place. Null when unknown. */
+            geoKey: string | null;
+            level?: components["schemas"]["CatalogLevel"] | null;
+            /** @description Parent municipality name. Null when unknown or the place is the municipality. */
+            parentLabel?: string | null;
+            /** @enum {string|null} */
+            grain?: "address" | "grid100" | "plz8" | "plz5" | "ags" | "ags5" | "other" | null;
+        };
         AnalysisPatternResponse: {
             runId: string;
             /** Format: date-time */
             createdAt: string;
+            region: components["schemas"]["AnalysisPatternRegion"];
             pattern: components["schemas"]["AnalysisPattern"];
         };
         /**
@@ -1346,6 +1368,13 @@ export interface components {
          *     official AGS.
          */
         TargetRegionGeoKey: string;
+        /**
+         * @description Catalog place id (`TargetRegion.geoKey` / `GET /search`). When set,
+         *     the newest completed run whose snapshot includes this place is
+         *     returned. A Berlin Bezirk alias is matched as the official AGS.
+         *     Omit for the newest completed run of this user.
+         */
+        AnalysisPatternGeoKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -2183,14 +2212,22 @@ export interface operations {
     };
     getAnalysisPattern: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Catalog place id (`TargetRegion.geoKey` / `GET /search`). When set,
+                 *     the newest completed run whose snapshot includes this place is
+                 *     returned. A Berlin Bezirk alias is matched as the official AGS.
+                 *     Omit for the newest completed run of this user.
+                 */
+                geoKey?: components["parameters"]["AnalysisPatternGeoKey"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Latest pattern. */
+            /** @description Pattern for the latest matching completed run. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2200,19 +2237,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description No completed analysis run for this user. */
+            /**
+             * @description No completed analysis run for this user, or `geoKey` did not
+             *     match any of this user's completed snapshots.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "statusCode": 404,
-                     *       "message": "Es liegt noch kein Muster vor. Bitte zuerst eine Analyse starten.",
-                     *       "error": "Not Found"
-                     *     }
-                     */
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
