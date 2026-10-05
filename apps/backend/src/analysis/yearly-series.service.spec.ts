@@ -1,7 +1,7 @@
 import { DatabaseService } from "../database/database.service";
 import { AnalysisRegion } from "./types";
 import { AreaBaselineService } from "./area-baseline.service";
-import { SERIES_METRICS } from "./yearly-series";
+import { SERIES_METRICS, YearlySeries } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
 
 const asOf = new Date("2026-10-05T11:00:00.000Z");
@@ -14,7 +14,7 @@ describe("YearlySeriesService", () => {
     queryReadingFeatures.mockReset();
     service = new YearlySeriesService(
       { queryReadingFeatures } as unknown as DatabaseService,
-      { normalize: async (items) => items } as unknown as AreaBaselineService,
+      { normalize: async (items: YearlySeries[]) => items } as unknown as AreaBaselineService,
     );
   });
 
