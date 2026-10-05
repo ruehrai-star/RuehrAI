@@ -189,6 +189,14 @@ describe("yearly-series helpers", () => {
       value: 4.133,
       key: "pkw_elektro_anteil",
     });
+    expect(seriesNumber({ "alter.40.59": 206273.67 })).toEqual({
+      value: 206274,
+      key: "alter.40.59",
+    });
+    expect(seriesNumber({ alter_25_39: 180411.4 }, "destatis_bevoelkerung_alter")).toEqual({
+      value: 180411,
+      key: "alter_25_39",
+    });
   });
 
   it("uses year granularity for a single YYYY-MM snapshot", () => {

@@ -162,6 +162,47 @@ describe("BrainSearchService", () => {
     expect(result.facts[0]?.signals.find((signal) => signal.key === "wohnungen")?.value).not.toContain(".");
   });
 
+  it("rounds age-band person counts even when the key is dotted or spaced", async () => {
+    queryReadingFeatures
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: columns })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "12",
+            geo_key: "05315",
+            grain: "ags5",
+            name: "Köln",
+            ref_period: "2022-05",
+            title: "Köln",
+            content: "Bevölkerung nach Alter.",
+            metadata: {
+              "alter.40.59": 206273.67,
+              "alter 25 39": 180411.4,
+              alter_60_plus: 198002.5,
+              durchschnittsalter: 42.7,
+              gemeinde_name: "Köln",
+            },
+            source_theme: "destatis_bevoelkerung_alter",
+            distance: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const result = await service.search(input());
+    const signals = result.facts[0]?.signals ?? [];
+    expect(signals).toEqual(
+      expect.arrayContaining([
+        { key: "alter.40.59", value: "206274" },
+        { key: "alter 25 39", value: "180411" },
+        { key: "alter_60_plus", value: "198003" },
+        { key: "durchschnittsalter", value: "42.7" },
+      ]),
+    );
+    expect(signals.find((signal) => signal.key === "alter.40.59")?.value).not.toContain(".");
+  });
+
   it("uses a query embedding and cosine order when oMLX answers", async () => {
     vectorGate.mockReturnValue("ready");
     embed.mockResolvedValue({ ok: true, vector: [0.2, 0.4] });

@@ -106,6 +106,27 @@ describe("pattern", () => {
     expect(ewz?.evidence).not.toContain("742.286,33");
   });
 
+  it("rounds age-band person counts and labels nested raeume as Räume", () => {
+    const pattern = buildHeuristicPattern(input(), [
+      fact({
+        id: "1",
+        refPeriod: "2022-05",
+        signals: [
+          { key: "alter.40.59", value: "206273.67" },
+          { key: "wohnungen.raeume", value: "4.4" },
+        ],
+      }),
+    ]);
+    const age = pattern.criteria.find((criterion) => criterion.key === "alter.40.59");
+    const rooms = pattern.criteria.find((criterion) => criterion.key === "wohnungen.raeume");
+    expect(age?.label).toBe("alter 40 59");
+    expect(age?.evidence).toContain("206.274");
+    expect(age?.evidence).not.toContain("206.273,67");
+    expect(rooms?.label).toBe("Räume");
+    expect(rooms?.evidence).toContain("Räume");
+    expect(rooms?.evidence).not.toContain("wohnungen");
+  });
+
   it("keeps rate-like heuristic values fractional", () => {
     const pattern = buildHeuristicPattern(input(), [
       fact({

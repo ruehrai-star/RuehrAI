@@ -1039,8 +1039,8 @@ export interface components {
             key: string;
             /**
              * @description Display value for this signal. Count-like metrics (dwellings,
-             *     population, people counts, SGB2 BG/PERS, …) are whole numbers.
-             *     Rates, shares, and percentages stay fractional.
+             *     population, age-band and other person counts, SGB2 BG/PERS, …)
+             *     are whole numbers. Rates, shares, and percentages stay fractional.
              */
             value: string;
         };
@@ -1084,8 +1084,9 @@ export interface components {
              * @description Stored Brain cell for this period. Omitted when absent.
              *     Not a geo identifier (`ba_schluessel`, `geo_ags`, `geo_ags5`,
              *     `geo_key`, `source_theme`). Count-like metrics (dwellings,
-             *     population, people counts, SGB2 BG, PERS, ELB, NEF, RLB) are
-             *     whole numbers. Rates, shares, and percentages stay fractional.
+             *     population, age-band and other person counts, SGB2 BG, PERS,
+             *     ELB, NEF, RLB) are whole numbers. Rates, shares, and percentages
+             *     stay fractional.
              */
             value?: number;
         };

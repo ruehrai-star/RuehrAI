@@ -281,31 +281,37 @@ function excerpt(content: string | null, title: string): string {
 
 function signalsFrom(metadata: unknown, sourceTheme: string | null): BrainSignal[] {
   const signals: BrainSignal[] = [];
-  if (sourceTheme && sourceTheme.trim()) {
-    pushSignal(signals, "source_theme", sourceTheme.trim());
+  const metricId = sourceTheme?.trim() || undefined;
+  if (metricId) {
+    pushSignal(signals, "source_theme", metricId, metricId);
   }
-  collectSignals(signals, metadata, "");
+  collectSignals(signals, metadata, "", metricId);
   return signals.slice(0, 6);
 }
 
-function collectSignals(signals: BrainSignal[], value: unknown, prefix: string): void {
+function collectSignals(
+  signals: BrainSignal[],
+  value: unknown,
+  prefix: string,
+  metricId?: string,
+): void {
   if (signals.length >= 6 || !value || typeof value !== "object" || Array.isArray(value)) return;
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
     if (signals.length >= 6) return;
     const fullKey = prefix ? `${prefix}.${key}` : key;
     if (SIGNAL_SKIP.has(fullKey)) continue;
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      collectSignals(signals, nested, fullKey);
+      collectSignals(signals, nested, fullKey, metricId);
       continue;
     }
-    pushSignal(signals, fullKey, nested);
+    pushSignal(signals, fullKey, nested, metricId);
   }
 }
 
-function pushSignal(signals: BrainSignal[], key: string, value: unknown): void {
+function pushSignal(signals: BrainSignal[], key: string, value: unknown, metricId?: string): void {
   if (signals.length >= 6 || value === null || value === undefined) return;
   if (typeof value === "number" && Number.isFinite(value)) {
-    signals.push({ key, value: String(roundCountMetricValue(key, value)) });
+    signals.push({ key, value: String(roundCountMetricValue(key, value, metricId)) });
     return;
   }
   if (typeof value === "boolean") {
@@ -318,7 +324,7 @@ function pushSignal(signals: BrainSignal[], key: string, value: unknown): void {
     if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
       const numeric = Number(trimmed);
       if (Number.isFinite(numeric)) {
-        signals.push({ key, value: String(roundCountMetricValue(key, numeric)) });
+        signals.push({ key, value: String(roundCountMetricValue(key, numeric, metricId)) });
         return;
       }
     }

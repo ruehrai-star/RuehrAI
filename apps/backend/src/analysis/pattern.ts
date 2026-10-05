@@ -6,7 +6,7 @@ import {
   PatternCriterion,
   RevenueDirection,
 } from "./types";
-import { formatMetricNumber, roundCountMetricValue } from "./count-metrics";
+import { displayMetricLabel, formatMetricNumber, roundCountMetricValue } from "./count-metrics";
 
 const SKIP_KEYS = new Set([
   "gemeinde_name",
@@ -255,7 +255,7 @@ function mean(values: number[]): number {
 }
 
 function labelFor(key: string): string {
-  return key.replace(/[._]+/g, " ").trim();
+  return displayMetricLabel(key);
 }
 
 function directionWord(direction: CriterionDirection): string {
