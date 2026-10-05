@@ -9,9 +9,10 @@ export const AREA_CANDIDATE_LIMIT = 200;
 export const AREA_KINDS = [
   "address",
   "grid100",
+  "lor",
+  "quartier",
   "ortsteil",
   "stadtteil",
-  "lor",
   "plz",
   "bezirk",
   "stadtbezirk",
@@ -50,15 +51,15 @@ export interface ParentMembership {
 }
 
 /**
- * Finest → coarsest. Address is skipped when Brain has 0 docs.
- * Berlin LOR sits between Ortsteil and PLZ/Bezirk. Only the finest rank
- * with hits is returned; parents stay off the list.
+ * Finest → coarsest. Address is skipped when geo_ref_address / Brain has 0 docs.
+ * LOR Planungsraum and Köln-Quartier sit **above** Ortsteil (finer).
+ * Only the finest rank with hits is returned; parents stay off the list.
  */
 export function areaKindRank(kind: AreaKind): number {
   if (kind === "address") return 0;
   if (kind === "grid100") return 1;
-  if (kind === "ortsteil" || kind === "stadtteil") return 2;
-  if (kind === "lor") return 3;
+  if (kind === "lor" || kind === "quartier") return 2;
+  if (kind === "ortsteil" || kind === "stadtteil") return 3;
   if (kind === "plz") return 4;
   if (kind === "bezirk" || kind === "stadtbezirk") return 5;
   if (kind === "gemeinde") return 6;
@@ -69,16 +70,47 @@ export function isAreaKind(value: string | null | undefined): value is AreaKind 
   return Boolean(value && (AREA_KINDS as readonly string[]).includes(value));
 }
 
+export function isLorPlrKey(value: string | null | undefined): boolean {
+  return /^lor:plr:/i.test(value?.trim() ?? "");
+}
+
+export function isKoelnQuartierKey(value: string | null | undefined): boolean {
+  return /^koeln:sq:/i.test(value?.trim() ?? "");
+}
+
+function finestKindOrderSql(): string {
+  return `CASE kind
+       WHEN 'address' THEN 0
+       WHEN 'grid100' THEN 1
+       WHEN 'lor' THEN 2
+       WHEN 'quartier' THEN 2
+       WHEN 'ortsteil' THEN 3
+       WHEN 'stadtteil' THEN 3
+       WHEN 'plz' THEN 4
+       WHEN 'bezirk' THEN 5
+       WHEN 'stadtbezirk' THEN 5
+       WHEN 'gemeinde' THEN 6
+       ELSE 7
+     END`;
+}
+
 export function selectFinestHits(
   candidates: AreaCandidate[],
   regions: Array<Pick<AnalysisRegion, "geoKey" | "grain" | "ags" | "plz">>,
 ): AreaCandidate[] {
-  const withoutAnchor = candidates.filter(
-    (candidate) => !regions.some((region) => isRegionAnchor(candidate, region)),
+  const withoutAnchor = dropLor2006WhenPlrExists(
+    candidates.filter((candidate) => !regions.some((region) => isRegionAnchor(candidate, region))),
   );
   if (withoutAnchor.length === 0) return [];
   const finest = Math.min(...withoutAnchor.map((candidate) => areaKindRank(candidate.kind)));
   return withoutAnchor.filter((candidate) => areaKindRank(candidate.kind) === finest);
+}
+
+/** 2021 PLR (`lor:plr:*`) and 2006 LOR are separate; skip 2006 hits when PLR exists. */
+function dropLor2006WhenPlrExists(candidates: AreaCandidate[]): AreaCandidate[] {
+  const hasPlr = candidates.some((candidate) => candidate.kind === "lor" && isLorPlrKey(candidate.geoKey));
+  if (!hasPlr) return candidates;
+  return candidates.filter((candidate) => candidate.kind !== "lor" || isLorPlrKey(candidate.geoKey));
 }
 
 export function isRegionAnchor(
@@ -144,6 +176,10 @@ export function parentMemberships(region: AnalysisRegion): ParentMembership {
   }
   if (/^lor:/i.test(geoKey ?? "")) {
     add("lor", geoKey);
+  }
+  if (isKoelnQuartierKey(geoKey) || fromKey === "quartier") {
+    add("quartier", geoKey);
+    add("koeln_quartier", geoKey);
   }
   if (fromKey === "bezirk" || fromKey === "stadtbezirk") {
     add("bezirk", geoKey);
@@ -229,6 +265,43 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
 
     SELECT
       CASE
+        WHEN c.child_id LIKE 'koeln:sq:%' THEN c.child_id
+        WHEN c.child_id LIKE 'quartier:%' THEN regexp_replace(c.child_id, '^quartier:', 'koeln:sq:')
+        ELSE 'koeln:sq:' || c.child_id
+      END AS geo_key,
+      'other'::text AS grain,
+      'quartier'::text AS kind,
+      COALESCE(NULLIF(btrim(c.child_id), ''), 'koeln:sq:' || c.child_id) AS name,
+      NULL::text AS ags,
+      NULL::text AS plz,
+      NULL::float8 AS lon,
+      NULL::float8 AS lat
+    FROM children c
+    WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
+      AND NULLIF(btrim(c.child_id), '') IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      CASE
+        WHEN c.child_id LIKE 'address:%' THEN c.child_id
+        ELSE 'address:' || c.child_id
+      END AS geo_key,
+      'address'::text AS grain,
+      'address'::text AS kind,
+      COALESCE(NULLIF(btrim(c.child_id), ''), 'address:' || c.child_id) AS name,
+      NULL::text AS ags,
+      NULL::text AS plz,
+      NULL::float8 AS lon,
+      NULL::float8 AS lat
+    FROM children c
+    WHERE lower(btrim(c.child_grain)) = 'address'
+      AND NULLIF(btrim(c.child_id), '') IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      CASE
         WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN b.geo_bezirk_id::text
         ELSE 'stadtbezirk:' || b.geo_bezirk_id::text
       END AS geo_key,
@@ -302,18 +375,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
    WHERE geo_key IS NOT NULL
      AND NOT (geo_key = ANY($3::text[]))
    ORDER BY
-     CASE kind
-       WHEN 'address' THEN 0
-       WHEN 'grid100' THEN 1
-       WHEN 'ortsteil' THEN 2
-       WHEN 'stadtteil' THEN 2
-       WHEN 'lor' THEN 3
-       WHEN 'plz' THEN 4
-       WHEN 'bezirk' THEN 5
-       WHEN 'stadtbezirk' THEN 5
-       WHEN 'gemeinde' THEN 6
-       ELSE 7
-     END,
+     ${finestKindOrderSql()},
      name ASC NULLS LAST,
      geo_key ASC
    LIMIT ${AREA_CANDIDATE_LIMIT}
@@ -368,7 +430,51 @@ export function buildGrid100CandidateSql(): string {
 }
 
 /**
- * Address grain. Brain currently has 0 docs — skip gracefully when empty.
+ * Official addresses from Location-Guide (`geo.geo_ref_address`: Berlin,
+ * Hamburg, NRW) with PLZ / Ortsteil / Bezirk / Gemeinde / 100-m cell.
+ * Skip on missing table or unknown columns — do not invent addresses.
+ *
+ * $1 geometry GeoJSON (nullable)
+ * $2 ags (nullable)
+ * $3 Kreis AGS5 prefix (nullable)
+ * $4 exclude geoKey[]
+ * $5 plz (nullable)
+ */
+export function buildGeoAddressCandidateSql(): string {
+  const geom = geom4326("a");
+  return `
+  WITH region_geom AS (
+    SELECT ${regionGeomExpr()} AS geom
+  )
+  SELECT
+    COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_key::text) AS geo_key,
+    'address'::text AS grain,
+    'address'::text AS kind,
+    COALESCE(NULLIF(btrim(a.name), ''), NULLIF(btrim(a.geo_key::text), '')) AS name,
+    NULLIF(btrim(a.geo_ags::text), '') AS ags,
+    NULLIF(btrim(a.geo_plz5::text), '') AS plz,
+    ST_X(ST_PointOnSurface(${geom})) AS lon,
+    ST_Y(ST_PointOnSurface(${geom})) AS lat
+  FROM geo.geo_ref_address a, region_geom g
+  WHERE NULLIF(btrim(a.geo_key::text), '') IS NOT NULL
+    AND NOT (a.geo_key::text = ANY($4::text[]))
+    AND ${hasArea("a")}
+    AND (
+      ($2::text IS NOT NULL AND (
+        a.geo_ags::text = $2
+        OR a.geo_ags::text LIKE $2 || '%'
+      ))
+      OR ($3::text IS NOT NULL AND a.geo_ags::text LIKE $3 || '%')
+      OR ($5::text IS NOT NULL AND a.geo_plz5::text = $5)
+      OR (g.geom IS NOT NULL AND ST_Intersects(${geom}, g.geom))
+    )
+  ORDER BY a.geo_key ASC
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+/**
+ * Address grain on Brain feature docs. Empty today — skip when 0 rows.
  *
  * $1 geometry GeoJSON (nullable)
  * $2 ags (nullable)
@@ -522,16 +628,7 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
      AND ($2::text IS NULL OR geo_key IS DISTINCT FROM $2)
      AND ($3::text IS NULL OR geo_key IS DISTINCT FROM $3)
    ORDER BY
-     CASE kind
-       WHEN 'ortsteil' THEN 0
-       WHEN 'stadtteil' THEN 0
-       WHEN 'lor' THEN 1
-       WHEN 'plz' THEN 2
-       WHEN 'bezirk' THEN 3
-       WHEN 'stadtbezirk' THEN 3
-       WHEN 'gemeinde' THEN 4
-       ELSE 5
-     END,
+     ${finestKindOrderSql()},
      name ASC NULLS LAST,
      geo_key ASC
    LIMIT ${AREA_CANDIDATE_LIMIT}
@@ -559,10 +656,109 @@ export function featureCandidateParams(
   return [geometry, ags, kreis, excludeKeys(region)];
 }
 
+export function geoAddressCandidateParams(
+  region: AnalysisRegion,
+): [string | null, string | null, string | null, string[], string | null] {
+  return [...featureCandidateParams(region), region.plz?.trim() || null];
+}
+
+function berlinLorMembershipSql(): string {
+  return `
+    AND (
+      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
+        NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '') = ANY($3::text[])
+        OR ('bezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
+        OR ('stadtbezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
+        OR NULLIF(btrim(d.metadata->>'geo_ags'), '') = ANY($3::text[])
+      ))
+      OR ($1::text IS NOT NULL AND (
+        $1 = '11000000'
+        OR $1 LIKE '11000%'
+        OR d.metadata->>'geo_ags' = $1
+        OR d.metadata->>'geo_ags' LIKE $1 || '%'
+        OR d.metadata->>'geo_bezirk_id' = $1
+        OR d.metadata->>'geo_bezirk_id' LIKE $1 || '%'
+      ))
+    )
+  `;
+}
+
 /**
- * Berlin LOR keys inside the Zielregion. No invented polygons: lon/lat come
- * from the feature doc when stored, otherwise null. Mapping uses
- * `metadata.geo_bezirk_id` or parent AGS, not a LOR geo_ref table.
+ * Berlin LOR Planungsraum 2021 outlines (`lor:plr:*`, `lor_version=2021`).
+ * Skip when `geo.geo_ref_lor` is missing (42P01 / 42703).
+ *
+ * $1 ags (nullable)
+ * $2 exclude geoKey[]
+ * $3 bezirk id variants[]
+ */
+export function buildLorPlrCatalogSql(): string {
+  const geom = geom4326("l");
+  return `
+  SELECT
+    l.geo_key::text AS geo_key,
+    'other'::text AS grain,
+    'lor'::text AS kind,
+    COALESCE(NULLIF(btrim(l.name), ''), l.geo_key::text) AS name,
+    NULLIF(btrim(l.geo_ags::text), '') AS ags,
+    NULL::text AS plz,
+    ST_X(ST_PointOnSurface(${geom})) AS lon,
+    ST_Y(ST_PointOnSurface(${geom})) AS lat
+  FROM geo.geo_ref_lor l
+  WHERE l.geo_key LIKE 'lor:plr:%'
+    AND NOT (l.geo_key = ANY($2::text[]))
+    AND ${hasArea("l")}
+    AND (
+      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
+        NULLIF(btrim(l.geo_bezirk_id::text), '') = ANY($3::text[])
+        OR ('bezirk:' || NULLIF(btrim(l.geo_bezirk_id::text), '')) = ANY($3::text[])
+        OR ('stadtbezirk:' || NULLIF(btrim(l.geo_bezirk_id::text), '')) = ANY($3::text[])
+        OR NULLIF(btrim(l.geo_ags::text), '') = ANY($3::text[])
+      ))
+      OR ($1::text IS NOT NULL AND (
+        $1 = '11000000'
+        OR $1 LIKE '11000%'
+        OR l.geo_ags::text = $1
+        OR l.geo_ags::text LIKE $1 || '%'
+      ))
+    )
+  ORDER BY l.geo_key ASC
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+/**
+ * Berlin LOR PLR keys from Brain feature docs (`lor:plr:*`, years 2021–2025).
+ * Does not concatenate with lor_version=2006.
+ *
+ * $1 ags (nullable)
+ * $2 exclude geoKey[]
+ * $3 bezirk id variants[]
+ */
+export function buildLorPlrFeatureCandidateSql(): string {
+  return `
+  SELECT DISTINCT ON (d.geo_key)
+    d.geo_key::text AS geo_key,
+    'other'::text AS grain,
+    'lor'::text AS kind,
+    COALESCE(NULLIF(btrim(d.title), ''), d.geo_key::text) AS name,
+    NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
+    NULL::text AS plz,
+    d.lon::float8 AS lon,
+    d.lat::float8 AS lat
+  FROM features.location_feature_docs d
+  WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
+    AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
+    AND d.geo_key LIKE 'lor:plr:%'
+    AND NOT (d.geo_key = ANY($2::text[]))
+    ${berlinLorMembershipSql()}
+  ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+/**
+ * Berlin LOR 2006 keys (`lor:{RAUMID}`, 2001–2020). Used only when no 2021
+ * PLR hit exists for the Zielregion. Never mixed into a PLR trend.
  *
  * $1 ags (nullable)
  * $2 exclude geoKey[]
@@ -583,22 +779,45 @@ export function buildLorFeatureCandidateSql(): string {
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND d.geo_key LIKE 'lor:%'
+    AND d.geo_key NOT LIKE 'lor:plr:%'
+    AND COALESCE(d.metadata->>'lor_version', '2006') IS DISTINCT FROM '2021'
     AND NOT (d.geo_key = ANY($2::text[]))
+    ${berlinLorMembershipSql()}
+  ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+/**
+ * Köln Quartiere (`koeln:sq:*`), finer than Ortsteil. Prefer these keys over
+ * quartier→bezirk `parent_fallback` rows.
+ *
+ * $1 ags (nullable)
+ * $2 exclude geoKey[]
+ */
+export function buildKoelnQuartierCandidateSql(): string {
+  return `
+  SELECT DISTINCT ON (d.geo_key)
+    d.geo_key::text AS geo_key,
+    'other'::text AS grain,
+    'quartier'::text AS kind,
+    COALESCE(NULLIF(btrim(d.title), ''), d.geo_key::text) AS name,
+    NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
+    NULL::text AS plz,
+    d.lon::float8 AS lon,
+    d.lat::float8 AS lat
+  FROM features.location_feature_docs d
+  WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
+    AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
+    AND d.geo_key LIKE 'koeln:sq:%'
+    AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
+    AND NOT (d.geo_key = ANY($2::text[]))
+    AND $1::text IS NOT NULL
     AND (
-      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
-        NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '') = ANY($3::text[])
-        OR ('bezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
-        OR ('stadtbezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
-        OR NULLIF(btrim(d.metadata->>'geo_ags'), '') = ANY($3::text[])
-      ))
-      OR ($1::text IS NOT NULL AND (
-        $1 = '11000000'
-        OR $1 LIKE '11000%'
-        OR d.metadata->>'geo_ags' = $1
-        OR d.metadata->>'geo_ags' LIKE $1 || '%'
-        OR d.metadata->>'geo_bezirk_id' = $1
-        OR d.metadata->>'geo_bezirk_id' LIKE $1 || '%'
-      ))
+      $1 = '05315000'
+      OR $1 LIKE '05315%'
+      OR d.metadata->>'geo_ags' = $1
+      OR d.metadata->>'ags' = $1
     )
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
   LIMIT ${AREA_CANDIDATE_LIMIT}
@@ -723,7 +942,7 @@ function sameCatalogKey(left: string, right: string): boolean {
 
 function bareKey(value: string): string {
   const match =
-    /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|grid100|address|lor|hamburg_stadtteil):(.+)$/i.exec(
+    /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|grid100|address|lor:plr|koeln:sq|quartier|lor|hamburg_stadtteil):(.+)$/i.exec(
       value.trim(),
     );
   return match?.[1] ?? value.trim();

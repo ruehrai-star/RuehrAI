@@ -29,6 +29,7 @@ const SERIES_LEVEL_LABELS: Record<SeriesLevel, string> = {
   address: "Adresse",
   grid100: "100-m-Raster",
   lor: "LOR",
+  quartier: "Quartier",
   plz: "PLZ",
   bezirk: "Bezirk",
   stadtbezirk: "Stadtbezirk",

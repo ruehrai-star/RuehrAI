@@ -574,7 +574,8 @@ function isSeriesLevel(value: unknown): value is YearlySeries["sourceLevel"] {
     value === "land" ||
     value === "grid100" ||
     value === "address" ||
-    value === "lor"
+    value === "lor" ||
+    value === "quartier"
   );
 }
 

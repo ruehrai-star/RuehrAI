@@ -83,6 +83,11 @@ export const EXTRA_SERIES_METRICS = [
   { id: "hamburg_stadtteil_regionalstatistik", homeLevel: "gemeinde" },
   { id: "muenchen_indikatorenatlas", homeLevel: "gemeinde" },
   { id: "berlin_lor_ewr_bevoelkerung", homeLevel: "gemeinde" },
+  { id: "koeln_statistischer_datenkatalog", homeLevel: "gemeinde" },
+  { id: "leipzig_lis_ortsteil", homeLevel: "gemeinde" },
+  { id: "duesseldorf_bevoelkerung_stadtteile", homeLevel: "gemeinde" },
+  { id: "essen_bevoelkerung_stadtteile", homeLevel: "gemeinde" },
+  { id: "frankfurt_demographie_stadtteile", homeLevel: "gemeinde" },
 ] as const;
 
 export type ExtraSeriesMetricId = (typeof EXTRA_SERIES_METRICS)[number]["id"];
@@ -99,6 +104,11 @@ export const EXTRA_SERIES_SOURCE_THEMES: Record<ExtraSeriesMetricId, readonly st
   hamburg_stadtteil_regionalstatistik: ["hamburg_stadtteil_regionalstatistik"],
   muenchen_indikatorenatlas: ["muenchen_indikatorenatlas"],
   berlin_lor_ewr_bevoelkerung: ["berlin_lor_ewr_bevoelkerung"],
+  koeln_statistischer_datenkatalog: ["koeln_statistischer_datenkatalog"],
+  leipzig_lis_ortsteil: ["leipzig_lis_ortsteil"],
+  duesseldorf_bevoelkerung_stadtteile: ["duesseldorf_bevoelkerung_stadtteile"],
+  essen_bevoelkerung_stadtteile: ["essen_bevoelkerung_stadtteile"],
+  frankfurt_demographie_stadtteile: ["frankfurt_demographie_stadtteile"],
 };
 
 export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<TopicLevel, readonly string[]>>> = {
@@ -113,6 +123,11 @@ export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<Top
   hamburg_stadtteil_regionalstatistik: {},
   muenchen_indikatorenatlas: { gemeinde: ["ags"] },
   berlin_lor_ewr_bevoelkerung: {},
+  koeln_statistischer_datenkatalog: { gemeinde: ["ags"] },
+  leipzig_lis_ortsteil: { gemeinde: ["ags"] },
+  duesseldorf_bevoelkerung_stadtteile: {},
+  essen_bevoelkerung_stadtteile: {},
+  frankfurt_demographie_stadtteile: { gemeinde: ["ags"] },
 };
 
 /** Grain a Brain row must have to count for that topic level. */

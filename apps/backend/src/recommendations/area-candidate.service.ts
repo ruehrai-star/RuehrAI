@@ -16,13 +16,19 @@ import {
   areaCandidateParams,
   buildAddressCandidateSql,
   buildAreaCandidateSql,
+  buildGeoAddressCandidateSql,
   buildGrid100CandidateSql,
   buildHamburgStadtteilFallbackSql,
+  buildKoelnQuartierCandidateSql,
   buildLorFeatureCandidateSql,
+  buildLorPlrCatalogSql,
+  buildLorPlrFeatureCandidateSql,
   buildTeilCatalogSql,
   featureCandidateParams,
+  geoAddressCandidateParams,
   hamburgFallbackParams,
   isAreaKind,
+  isLorPlrKey,
   lorCandidateParams,
   parentMemberships,
   selectFinestHits,
@@ -43,7 +49,8 @@ export class AreaCandidateService {
 
   /**
    * Finest Teilflächen inside the Zielregion. Never the region geoKey itself.
-   * Address is skipped when Brain has no docs; grid100 is tried next.
+   * Address is skipped when `geo.geo_ref_address` / Brain has no rows; grid100 is tried next.
+   * Berlin 2021 PLR (`lor:plr:*`) wins over 2006 LOR; Köln `koeln:sq:*` is quartier.
    */
   async load(regions: AnalysisRegion[]): Promise<AreaCandidateLoad> {
     if (regions.length === 0) return { items: [], truncated: false };
@@ -73,22 +80,46 @@ export class AreaCandidateService {
   }
 
   private async loadRegion(region: AnalysisRegion): Promise<AreaCandidateLoad> {
+    const geoAddress = await this.readOptional(buildGeoAddressCandidateSql(), geoAddressCandidateParams(region));
     const address = await this.readOptional(buildAddressCandidateSql(), featureCandidateParams(region));
     const grid = await this.readOptional(buildGrid100CandidateSql(), featureCandidateParams(region));
+    const lorPlrCatalog = await this.readOptional(buildLorPlrCatalogSql(), lorCandidateParams(region));
+    const lorPlrFeatures = await this.readOptional(buildLorPlrFeatureCandidateSql(), lorCandidateParams(region));
+    const quartier = await this.readOptional(buildKoelnQuartierCandidateSql(), hamburgFallbackParams(region));
     const catalog = await this.readCatalog(region);
-    const lor = await this.readOptional(buildLorFeatureCandidateSql(), lorCandidateParams(region));
+    const plrItems = [...lorPlrCatalog.items, ...lorPlrFeatures.items];
+    const hasPlr = plrItems.some((item) => isLorPlrKey(item.geoKey));
+    const lor2006 = hasPlr
+      ? { items: [], truncated: false }
+      : await this.readOptional(buildLorFeatureCandidateSql(), lorCandidateParams(region));
     const hamburg = await this.readOptional(buildHamburgStadtteilFallbackSql(), hamburgFallbackParams(region));
-    const combined = [...address.items, ...grid.items, ...catalog.items, ...lor.items, ...hamburg.items];
+    const combined = [
+      ...geoAddress.items,
+      ...address.items,
+      ...grid.items,
+      ...plrItems,
+      ...quartier.items,
+      ...catalog.items,
+      ...lor2006.items,
+      ...hamburg.items,
+    ];
     const truncated =
+      geoAddress.truncated ||
       address.truncated ||
       grid.truncated ||
+      lorPlrCatalog.truncated ||
+      lorPlrFeatures.truncated ||
+      quartier.truncated ||
       catalog.truncated ||
-      lor.truncated ||
+      lor2006.truncated ||
       hamburg.truncated ||
+      geoAddress.items.length >= AREA_CANDIDATE_LIMIT ||
       address.items.length >= AREA_CANDIDATE_LIMIT ||
       grid.items.length >= AREA_CANDIDATE_LIMIT ||
+      plrItems.length >= AREA_CANDIDATE_LIMIT ||
+      quartier.items.length >= AREA_CANDIDATE_LIMIT ||
       catalog.items.length >= AREA_CANDIDATE_LIMIT ||
-      lor.items.length >= AREA_CANDIDATE_LIMIT ||
+      lor2006.items.length >= AREA_CANDIDATE_LIMIT ||
       hamburg.items.length >= AREA_CANDIDATE_LIMIT;
     return { items: combined, truncated };
   }
@@ -143,7 +174,12 @@ export class AreaCandidateService {
     try {
       return await this.readSql(sql, params);
     } catch (error) {
-      if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
+      if (
+        isGeoCatalogUnavailable(error) ||
+        isMissingFeaturesRelation(error) ||
+        isFeaturesAccessDenied(error) ||
+        isUndefinedColumn(error)
+      ) {
         this.logger.log(`Optional area-candidate read missed (${messageOf(error)}).`);
         return { items: [], truncated: false };
       }

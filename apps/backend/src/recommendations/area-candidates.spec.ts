@@ -5,9 +5,13 @@ import {
   areaCandidateParams,
   buildAddressCandidateSql,
   buildAreaCandidateSql,
+  buildGeoAddressCandidateSql,
   buildGrid100CandidateSql,
   buildHamburgStadtteilFallbackSql,
+  buildKoelnQuartierCandidateSql,
   buildLorFeatureCandidateSql,
+  buildLorPlrCatalogSql,
+  buildLorPlrFeatureCandidateSql,
   buildTeilCatalogSql,
   isRegionAnchor,
   parentMemberships,
@@ -68,19 +72,32 @@ describe("area candidate SQL", () => {
     expect(grid).not.toContain("<=>");
   });
 
-  it("loads Berlin LOR and Hamburg fallback keys from feature docs without embeddings or invented polygons", () => {
+  it("loads Berlin LOR PLR, Köln quartier, Hamburg fallback, and official addresses without embeddings", () => {
     const lor = buildLorFeatureCandidateSql();
+    const plrCatalog = buildLorPlrCatalogSql();
+    const plrFeature = buildLorPlrFeatureCandidateSql();
+    const quartier = buildKoelnQuartierCandidateSql();
+    const geoAddress = buildGeoAddressCandidateSql();
     const hamburg = buildHamburgStadtteilFallbackSql();
+    const teil = buildTeilCatalogSql();
     expect(lor).toContain("berlin_lor_ewr_bevoelkerung");
-    expect(lor).toContain("geo_bezirk_id");
-    expect(lor).toContain("'lor'");
+    expect(lor).toContain("NOT LIKE 'lor:plr:%'");
     expect(lor).not.toContain("<=>");
     expect(lor).not.toMatch(/embedding/i);
-    expect(lor).not.toContain("geo_ref_lor");
+    expect(plrCatalog).toContain("geo.geo_ref_lor");
+    expect(plrCatalog).toContain("lor:plr:%");
+    expect(plrFeature).toContain("lor:plr:%");
+    expect(plrFeature).not.toMatch(/embedding/i);
+    expect(quartier).toContain("koeln:sq:%");
+    expect(quartier).toContain("parent_fallback");
+    expect(geoAddress).toContain("geo.geo_ref_address");
+    expect(geoAddress).not.toMatch(/embedding/i);
     expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
-    expect(hamburg).toContain("hamburg_stadtteil:");
-    expect(hamburg).not.toMatch(/embedding/i);
-    expect(buildTeilCatalogSql()).toContain("child_grain)) = 'lor'");
+    expect(teil).toContain("child_grain)) = 'lor'");
+    expect(teil).toContain("koeln_quartier");
+    expect(teil).toContain("WHEN 'lor' THEN 2");
+    expect(teil).toContain("WHEN 'quartier' THEN 2");
+    expect(teil).toContain("WHEN 'ortsteil' THEN 3");
   });
 
   it("keeps an intersect fallback that still avoids treating admin geom as WGS84", () => {
@@ -241,15 +258,27 @@ describe("selectFinestHits", () => {
     expect(hits.map((item) => item.kind)).toEqual(["grid100"]);
   });
 
-  it("keeps LOR over PLZ and Bezirk, and Ortsteil over LOR", () => {
+  it("keeps LOR Planungsraum / Quartier over Ortsteil, and Ortsteil over PLZ", () => {
     const lor = {
-      id: "other:lor:110010101",
-      geoKey: "lor:110010101",
+      id: "other:lor:plr:01100101",
+      geoKey: "lor:plr:01100101",
       grain: "other" as const,
       kind: "lor" as const,
-      title: "LOR 101",
-      name: "LOR 101",
+      title: "PLR 01100101",
+      name: "PLR 01100101",
       ags: "11000000",
+      plz: null,
+      lon: null,
+      lat: null,
+    };
+    const quartier = {
+      id: "other:koeln:sq:1",
+      geoKey: "koeln:sq:1",
+      grain: "other" as const,
+      kind: "quartier" as const,
+      title: "Belgisches Viertel",
+      name: "Belgisches Viertel",
+      ags: "05315000",
       plz: null,
       lon: null,
       lat: null,
@@ -278,12 +307,32 @@ describe("selectFinestHits", () => {
       lon: 13.3,
       lat: 52.4,
     };
+    const lor2006 = {
+      id: "other:lor:110010101",
+      geoKey: "lor:110010101",
+      grain: "other" as const,
+      kind: "lor" as const,
+      title: "LOR 2006",
+      name: "LOR 2006",
+      ags: "11000000",
+      plz: null,
+      lon: null,
+      lat: null,
+    };
     expect(selectFinestHits([lor, plz], [region({ geoKey: "11000000", ags: "11000000" })]).map((item) => item.kind)).toEqual(
       ["lor"],
     );
     expect(
       selectFinestHits([lor, ortsteil, plz], [region({ geoKey: "11000000", ags: "11000000" })]).map((item) => item.kind),
-    ).toEqual(["ortsteil"]);
+    ).toEqual(["lor"]);
+    expect(
+      selectFinestHits([quartier, ortsteil], [region({ geoKey: "05315000", ags: "05315000" })]).map((item) => item.kind),
+    ).toEqual(["quartier"]);
+    expect(
+      selectFinestHits([lor, lor2006, ortsteil], [region({ geoKey: "11000000", ags: "11000000" })]).map(
+        (item) => item.geoKey,
+      ),
+    ).toEqual(["lor:plr:01100101"]);
   });
 
   it("never treats the Zielregion geoKey as a hit", () => {

@@ -75,6 +75,11 @@ describe("address-pair topic catalog", () => {
         "hamburg_stadtteil_regionalstatistik",
         "muenchen_indikatorenatlas",
         "berlin_lor_ewr_bevoelkerung",
+        "koeln_statistischer_datenkatalog",
+        "leipzig_lis_ortsteil",
+        "duesseldorf_bevoelkerung_stadtteile",
+        "essen_bevoelkerung_stadtteile",
+        "frankfurt_demographie_stadtteile",
       ]),
     );
     expect(TOPIC_SOURCE_THEMES.kba).toEqual(["kba_besitz"]);

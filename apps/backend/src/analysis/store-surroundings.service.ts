@@ -184,7 +184,7 @@ export class StoreSurroundingsService {
                 NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
            FROM features.location_feature_docs
           WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
-            AND geo_key LIKE 'lor:%'
+            AND geo_key LIKE 'lor:plr:%'
             AND lon IS NOT NULL AND lat IS NOT NULL
           ORDER BY ST_Distance(
             ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
@@ -193,7 +193,26 @@ export class StoreSurroundingsService {
           LIMIT 1`,
         [store.lon, store.lat],
       );
-      rows.push(...found);
+      if (found.length > 0) {
+        rows.push(...found);
+        continue;
+      }
+      const legacy = await this.readCatalog<LorRow>(
+        `SELECT geo_key::text AS geo_key,
+                NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
+           FROM features.location_feature_docs
+          WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
+            AND geo_key LIKE 'lor:%'
+            AND geo_key NOT LIKE 'lor:plr:%'
+            AND lon IS NOT NULL AND lat IS NOT NULL
+          ORDER BY ST_Distance(
+            ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
+            ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
+          )
+          LIMIT 1`,
+        [store.lon, store.lat],
+      );
+      rows.push(...legacy);
     }
     return rows;
   }

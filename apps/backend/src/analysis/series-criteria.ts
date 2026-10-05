@@ -22,6 +22,11 @@ const TREND_METRIC_ORDER = [
   "hamburg_stadtteil_regionalstatistik",
   "muenchen_indikatorenatlas",
   "berlin_lor_ewr_bevoelkerung",
+  "koeln_statistischer_datenkatalog",
+  "leipzig_lis_ortsteil",
+  "duesseldorf_bevoelkerung_stadtteile",
+  "essen_bevoelkerung_stadtteile",
+  "frankfurt_demographie_stadtteile",
   "unfallatlas",
   "bevoelkerung",
   "wanderungen",
@@ -73,14 +78,20 @@ const METRIC_LABELS: Record<string, string> = {
   hamburg_stadtteil_regionalstatistik: "Bevölkerung (Hamburg Ortsteil)",
   muenchen_indikatorenatlas: "Indikatorenatlas (Stadtbezirk)",
   berlin_lor_ewr_bevoelkerung: "Bevölkerung (LOR)",
+  koeln_statistischer_datenkatalog: "Statistischer Datenkatalog (Köln)",
+  leipzig_lis_ortsteil: "Bevölkerung (Leipzig Ortsteil)",
+  duesseldorf_bevoelkerung_stadtteile: "Bevölkerung (Düsseldorf Stadtteil)",
+  essen_bevoelkerung_stadtteile: "Bevölkerung (Essen Stadtteil)",
+  frankfurt_demographie_stadtteile: "Demographie (Frankfurt Stadtteil)",
 };
 
 const LEVEL_RANK: Record<string, number> = {
   address: 0,
   grid100: 1,
-  ortsteil: 2,
-  stadtteil: 2,
-  lor: 3,
+  lor: 2,
+  quartier: 2,
+  ortsteil: 3,
+  stadtteil: 3,
   plz: 4,
   bezirk: 5,
   stadtbezirk: 5,
@@ -91,7 +102,17 @@ const LEVEL_RANK: Record<string, number> = {
 
 /** Signal keys from older heuristic runs → yearlySeries metricId. */
 const METRIC_ALIASES: Record<string, string[]> = {
-  einwohner: ["bevoelkerung", "destatis", "hamburg_stadtteil_regionalstatistik", "berlin_lor_ewr_bevoelkerung"],
+  einwohner: [
+    "bevoelkerung",
+    "destatis",
+    "hamburg_stadtteil_regionalstatistik",
+    "berlin_lor_ewr_bevoelkerung",
+    "koeln_statistischer_datenkatalog",
+    "leipzig_lis_ortsteil",
+    "duesseldorf_bevoelkerung_stadtteile",
+    "essen_bevoelkerung_stadtteile",
+    "frankfurt_demographie_stadtteile",
+  ],
   einwohnerzahl: ["bevoelkerung", "destatis"],
   ewz: ["bevoelkerung", "destatis", "zensus2022"],
   bev_insgesamt: ["destatis", "bevoelkerung"],
@@ -147,6 +168,7 @@ export function frameNoun(level: SeriesLevel | string | undefined): string | nul
   if (level === "plz") return "PLZ";
   if (level === "ortsteil" || level === "stadtteil") return "Ortsteil";
   if (level === "lor") return "LOR";
+  if (level === "quartier") return "Quartier";
   if (level === "bezirk" || level === "stadtbezirk") return "Bezirk";
   if (level === "grid100") return "100-m-Raster";
   if (level === "address") return "Adresse";

@@ -536,12 +536,16 @@ export interface paths {
          *     **finest** Teilflächen inside the Zielregion (never the region
          *     itself), evaluating small → large:
          *
-         *     - Adresse (`grain=address`) when Brain has docs (currently 0 — skipped)
+         *     - Adresse (`kind=address`) from `geo.geo_ref_address` when rows
+         *       exist for the Zielregion (Berlin, Hamburg, NRW). Empty or
+         *       missing table is skipped; addresses are never invented.
          *     - 100-m Raster (`grid100` / `breitband_gitter`)
+         *     - LOR Planungsraum 2021 (`lor:plr:*` / `geo.geo_ref_lor`) and
+         *       Köln-Quartier (`koeln:sq:*`, `kind=quartier`). Finer than Ortsteil.
+         *       2006 LOR (`lor:{RAUMID}`) is a separate series, used only when
+         *       no PLR exists, never concatenated with 2021.
          *     - Ortsteil / Stadtteil (`geo.geo_ref_ortsteil`; Hamburg also
          *       `hamburg_stadtteil:{id}` yearly series)
-         *     - LOR (`lor:{RAUMID}` / `berlin_lor_ewr_bevoelkerung`) when those
-         *       keys map into the Zielregion. No invented LOR polygons.
          *     - PLZ5 (`geo.geo_ref_plz`)
          *     - Stadtbezirk / Bezirk (`geo.geo_ref_bezirk`; München
          *       `muenchen_indikatorenatlas` on `bezirk:{id}`)
@@ -561,7 +565,8 @@ export interface paths {
          *     Ranking uses the three-year trend where a **local** series exists
          *     at the hit's own Ebene (`hamburg_stadtteil_regionalstatistik` on
          *     Ortsteil, `muenchen_indikatorenatlas` on Stadtbezirk,
-         *     `berlin_lor_ewr_bevoelkerung` on LOR, plus `unfallatlas_gebiet`
+         *     `berlin_lor_ewr_bevoelkerung` on LOR PLR, Köln/Leipzig/Düsseldorf/
+         *     Essen/Frankfurt kleinräumige themes, plus `unfallatlas_gebiet`
          *     on Ortsteil/Bezirk/PLZ). Snapshot values are labeled `stichtag`.
          *     Missing cells are `absent` (`liegt nicht vor`), never `0`.
          *     Kleinräumige yearlySeries rows may have a null embedding.
@@ -1024,12 +1029,14 @@ export interface components {
         /**
          * @description Ebene of a Teilfläche inside the Zielregion. Never the region itself.
          *     Only the finest matching Ebene is returned (Adresse → Raster →
-         *     Ortsteil → LOR → PLZ5 → Bezirk → Gemeinde). `address` is skipped when
-         *     Brain has no address docs. `lor` is Berlin LOR, between Ortsteil and
-         *     PLZ/Bezirk, when `lor:{RAUMID}` keys map into the Zielregion.
+         *     LOR Planungsraum / Köln-Quartier → Ortsteil → PLZ5 → Bezirk →
+         *     Gemeinde). `address` is skipped when `geo.geo_ref_address` is empty
+         *     or unavailable. `lor` is Berlin LOR Planungsraum (`lor:plr:*`
+         *     preferred; 2006 `lor:{RAUMID}` is separate). `quartier` is Köln
+         *     `koeln:sq:*`.
          * @enum {string}
          */
-        AreaKind: "address" | "grid100" | "ortsteil" | "stadtteil" | "lor" | "bezirk" | "stadtbezirk" | "plz" | "gemeinde";
+        AreaKind: "address" | "grid100" | "lor" | "quartier" | "ortsteil" | "stadtteil" | "plz" | "bezirk" | "stadtbezirk" | "gemeinde";
         /**
          * @description How this criterion was observed on the Teilfläche. `absent` means
          *     the value liegt nicht vor (never invented as 0).
@@ -1110,12 +1117,13 @@ export interface components {
          *     Brain row. `requestedLevel` is the Zielregion or Teilfläche.
          *     Grain `ags5` and a 5-digit AGS (Köln `05315`) are `kreis`, never
          *     `gemeinde`. `grid100` and `address` are Stage-1 hit Ebenen.
-         *     `lor` is Berlin LOR (between Ortsteil and PLZ/Bezirk).
-         *     Gemeinde or Kreis numbers are never labeled as Stadtteil, Ortsteil,
-         *     PLZ, or Stadtbezirk.
+         *     `lor` is Berlin LOR Planungsraum (`lor:plr:*` preferred over 2006
+         *     `lor:{RAUMID}`). `quartier` is Köln `koeln:sq:*`. Both sit finer
+         *     than Ortsteil. Gemeinde or Kreis numbers are never labeled as
+         *     Stadtteil, Ortsteil, PLZ, or Stadtbezirk.
          * @enum {string}
          */
-        SeriesLevel: "address" | "grid100" | "lor" | "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
+        SeriesLevel: "address" | "grid100" | "lor" | "quartier" | "plz" | "bezirk" | "stadtbezirk" | "stadtteil" | "ortsteil" | "gemeinde" | "kreis" | "land";
         /** @enum {string} */
         SeriesGranularity: "month" | "year";
         /**
@@ -1173,10 +1181,15 @@ export interface components {
              * @description Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain
              *     series theme id (`destatis_wohnungen`, `kba_elektro_pkw`,
              *     `hamburg_stadtteil_regionalstatistik`,
-             *     `muenchen_indikatorenatlas`, `berlin_lor_ewr_bevoelkerung`, …).
+             *     `muenchen_indikatorenatlas`, `berlin_lor_ewr_bevoelkerung`,
+             *     `koeln_statistischer_datenkatalog`, `leipzig_lis_ortsteil`,
+             *     `duesseldorf_bevoelkerung_stadtteile`,
+             *     `essen_bevoelkerung_stadtteile`,
+             *     `frankfurt_demographie_stadtteile`, …).
              *     Not store revenue. Kleinräumige themes score at the hit's own
-             *     Ebene (Ortsteil, Stadtbezirk, LOR) and do not require an
-             *     embedding.
+             *     Ebene (Adresse, Raster, LOR/Quartier, Ortsteil, Stadtbezirk)
+             *     and do not require an embedding. Berlin LOR 2021 PLR and 2006
+             *     are separate series.
              */
             metricId: string;
             requestedLevel: components["schemas"]["SeriesLevel"];

@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.12.1");
+  assert.equal(doc.info.version, "0.13.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -86,6 +86,11 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.AnalysisPatternRegion.properties.geoKey.nullable, true);
   assert.ok(doc.info.description.includes("0.12.0"));
   assert.ok(doc.info.description.includes("0.12.1"));
+  assert.ok(doc.info.description.includes("0.13.0"));
+  assert.ok(doc.info.description.includes("lor:plr"));
+  assert.ok(doc.info.description.includes("koeln:sq"));
+  assert.ok(doc.info.description.includes("geo.geo_ref_address"));
+  assert.ok(doc.info.description.includes("koeln_statistischer_datenkatalog"));
   assert.ok(doc.info.description.includes("hamburg_stadtteil_regionalstatistik"));
   assert.ok(doc.info.description.includes("muenchen_indikatorenatlas"));
   assert.ok(doc.info.description.includes("berlin_lor_ewr_bevoelkerung"));
@@ -116,12 +121,13 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.deepEqual(doc.components.schemas.AreaKind.enum, [
     "address",
     "grid100",
+    "lor",
+    "quartier",
     "ortsteil",
     "stadtteil",
-    "lor",
+    "plz",
     "bezirk",
     "stadtbezirk",
-    "plz",
     "gemeinde",
   ]);
   assert.deepEqual(doc.components.schemas.EvidenceScope.enum, ["local", "inherited"]);
@@ -166,6 +172,8 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("grid100"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("address"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("lor"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("quartier"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("address"));
   assert.ok(doc.info.description.includes("inherited"));
   assert.equal(
     doc.components.schemas.YearlySeries.properties.requestedLevel.$ref,
@@ -176,7 +184,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.9.0"));
   assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("destatis_wohnungen"));
   assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("hamburg_stadtteil_regionalstatistik"));
-  assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("berlin_lor_ewr_bevoelkerung"));
+  assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("koeln_statistischer_datenkatalog"));
   assert.ok(doc.components.schemas.YearlySeries.description.includes("Ortsteil"));
   assert.ok(doc.info.description.includes("Ortsteil"));
   assert.ok(doc.info.description.includes("ba_sgb2"));

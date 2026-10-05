@@ -3,6 +3,18 @@ import { AnalysisRegion } from "../analysis/types";
 import { AreaCandidateService } from "./area-candidate.service";
 import { buildAddressCandidateSql, buildGrid100CandidateSql, buildTeilCatalogSql } from "./area-candidates";
 
+function emptyOptionalSql(text: string): boolean {
+  return (
+    text.includes("FROM geo.geo_ref_address") ||
+    text.includes("FROM geo.geo_ref_lor") ||
+    text.includes("source_theme = 'koeln_statistischer_datenkatalog'") ||
+    text.includes("berlin_lor_ewr_bevoelkerung") ||
+    text.includes("grain = 'address'") ||
+    text.includes("grain = 'grid100'") ||
+    text.includes("hamburg_stadtteil_regionalstatistik")
+  );
+}
+
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
   return {
     label: "München",
@@ -41,8 +53,7 @@ describe("AreaCandidateService", () => {
   it("returns only the finest hits and drops the region anchor", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
-      if (text.includes("grain = 'address'")) return { rows: [] };
-      if (text.includes("grain = 'grid100'")) return { rows: [] };
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
       return {
         rows: [
           {
@@ -92,7 +103,6 @@ describe("AreaCandidateService", () => {
   it("skips empty address grain and keeps grid100 as finest when cells exist", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
-      if (text.includes("grain = 'address'")) return { rows: [] };
       if (text.includes("grain = 'grid100'")) {
         return {
           rows: [
@@ -109,6 +119,7 @@ describe("AreaCandidateService", () => {
           ],
         };
       }
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
       return {
         rows: [
           {
@@ -129,20 +140,18 @@ describe("AreaCandidateService", () => {
     expect(loaded.items.map((item) => item.kind)).toEqual(["grid100"]);
   });
 
-  it("lists LOR as finest when Ortsteile are absent and does not require embeddings", async () => {
+  it("lists LOR Planungsraum as finest over Ortsteil and does not require embeddings", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
-      if (text.includes("grain = 'address'") || text.includes("grain = 'grid100'")) return { rows: [] };
-      if (text.includes("hamburg_stadtteil_regionalstatistik")) return { rows: [] };
-      if (text.includes("berlin_lor_ewr_bevoelkerung")) {
+      if (text.includes("geo.geo_ref_lor") || text.includes("lor:plr:%")) {
         expect(text).not.toMatch(/embedding/i);
         return {
           rows: [
             {
-              geo_key: "lor:110010101",
+              geo_key: "lor:plr:01100101",
               grain: "other",
               kind: "lor",
-              name: "LOR 101",
+              name: "PLR 01100101",
               ags: "11000000",
               plz: null,
               lon: null,
@@ -151,15 +160,19 @@ describe("AreaCandidateService", () => {
           ],
         };
       }
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      if (text.includes("berlin_lor_ewr_bevoelkerung") && text.includes("NOT LIKE 'lor:plr:%'")) {
+        throw new Error("2006 LOR must not be queried when PLR exists");
+      }
       return {
         rows: [
           {
-            geo_key: "12247",
-            grain: "plz5",
-            kind: "plz",
-            name: "12247",
+            geo_key: "ortsteil:osm:1",
+            grain: "other",
+            kind: "ortsteil",
+            name: "Lankwitz",
             ags: "11000000",
-            plz: "12247",
+            plz: null,
             lon: 13.3,
             lat: 52.4,
           },
@@ -176,13 +189,39 @@ describe("AreaCandidateService", () => {
       }),
     ]);
     expect(loaded.items.map((item) => item.kind)).toEqual(["lor"]);
-    expect(loaded.items.map((item) => item.geoKey)).toEqual(["lor:110010101"]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["lor:plr:01100101"]);
+  });
+
+  it("skips missing geo_ref_address and continues at the next Ebene", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("geo.geo_ref_address")) {
+        throw Object.assign(new Error('relation "geo.geo_ref_address" does not exist'), { code: "42P01" });
+      }
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      return {
+        rows: [
+          {
+            geo_key: "ortsteil:osm:1",
+            grain: "other",
+            kind: "ortsteil",
+            name: "Schwabing",
+            ags: "09162000",
+            plz: null,
+            lon: 11.58,
+            lat: 48.16,
+          },
+        ],
+      };
+    });
+    const loaded = await service.load([region()]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["ortsteil:osm:1"]);
   });
 
   it("falls back to intersect SQL when zielregion_teil is missing", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
-      if (text.includes("grain = 'address'") || text.includes("grain = 'grid100'")) return { rows: [] };
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
       if (text.includes("geo_ref_zielregion_teil")) {
         throw Object.assign(new Error('relation "geo.geo_ref_zielregion_teil" does not exist'), { code: "42P01" });
       }
