@@ -176,6 +176,73 @@ test("a malformed analysis run is rejected", async () => {
   });
 });
 
+test("GET /analysis/pattern accepts an old run without yearlySeries", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ runId: "7", createdAt: run.createdAt, pattern }),
+  });
+  const latest = await api.getAnalysisPattern();
+  assert.equal(latest?.pattern.yearlySeries, undefined);
+});
+
+test("GET /analysis/pattern keeps yearlySeries points and absent cells without value", async () => {
+  const yearlySeries = [
+    {
+      metricId: "bevoelkerung",
+      requestedLevel: "ortsteil",
+      requestedGeoKey: "ortsteil:osm:1",
+      sourceLevel: "gemeinde",
+      sourceGeoKey: "11000000",
+      granularity: "year",
+      coverage: "single",
+      points: [
+        { period: "2023", status: "absent" },
+        { period: "2024", status: "present", value: 0 },
+        { period: "2025", status: "absent" },
+      ],
+    },
+  ];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ runId: "7", createdAt: run.createdAt, pattern: { ...pattern, yearlySeries } }),
+  });
+  const latest = await api.getAnalysisPattern();
+  assert.equal(latest?.pattern.yearlySeries?.[0]?.coverage, "single");
+  assert.equal(latest?.pattern.yearlySeries?.[0]?.points[1]?.value, 0);
+  assert.equal(latest?.pattern.yearlySeries?.[0]?.points[0]?.value, undefined);
+});
+
+test("GET /analysis/pattern rejects a present yearlySeries point without a number", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json({
+        runId: "7",
+        createdAt: run.createdAt,
+        pattern: {
+          ...pattern,
+          yearlySeries: [
+            {
+              metricId: "bevoelkerung",
+              requestedLevel: "gemeinde",
+              requestedGeoKey: "11000000",
+              sourceLevel: "gemeinde",
+              sourceGeoKey: "11000000",
+              granularity: "year",
+              coverage: "single",
+              points: [{ period: "2024", status: "present" }],
+            },
+          ],
+        },
+      }),
+  });
+  await assert.rejects(api.getAnalysisPattern(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+});
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

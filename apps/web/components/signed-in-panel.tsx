@@ -26,12 +26,15 @@ export function SignedInPanel() {
       <p className="stub-copy">{session.email}</p>
       <p className="hint">Abmelden beendet die Sitzung in diesem Browser.</p>
       <div className="auth-actions">
-        <button type="button" className="button" onClick={() => router.push("/")}>
-          Zur Karte
+        <button type="button" className="button" onClick={() => router.push("/verlauf")}>
+          Zum Verlauf
         </button>
         <Link href="/standorte" className="button button-quiet">
           Standorte
         </Link>
+        <button type="button" className="button button-quiet" onClick={() => router.push("/")}>
+          Zur Karte
+        </button>
         <button type="button" className="button button-quiet" onClick={onLogout} disabled={pending}>
           {pending ? "Abmelden …" : "Abmelden"}
         </button>

@@ -187,7 +187,12 @@ export function MusteranalysePage() {
           {ANALYSIS_COPY.back}
         </Link>
         {visiblePattern ? (
-          <Link href="/empfehlungen" className="button">
+          <Link href="/verlauf" className="button">
+            Verlauf
+          </Link>
+        ) : null}
+        {visiblePattern ? (
+          <Link href="/empfehlungen" className="button button-quiet">
             Empfehlungen
           </Link>
         ) : null}

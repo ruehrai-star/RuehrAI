@@ -251,8 +251,13 @@ export function reduceAddressPage(state: AddressPageState, action: AddressPageAc
   }
 }
 
+/** Existing topic name only. Unknown ids stay the contract `metricId`. */
+export function topicName(id: string): string {
+  return TOPIC_LABELS[id] ?? id;
+}
+
 export function topicLabel(id: string, level: TopicLevel): string {
-  const name = TOPIC_LABELS[id] ?? id;
+  const name = topicName(id);
   if (MULTI_LEVEL_IDS.has(id)) return `${name} · ${LEVEL_LABELS[level]}`;
   return name;
 }
