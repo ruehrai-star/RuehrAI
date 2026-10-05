@@ -23,10 +23,11 @@ Open http://localhost:3001.
 
 | Flow | Route | Backend |
 | --- | --- | --- |
-| Registrieren | `/register` | `POST /auth/register` (201, JWT). The map opens signed in. |
-| Anmelden | `/login` | `POST /auth/login`. Invalid credentials stay on the form with an error. |
+| Registrieren | `/register` | `POST /auth/register` (201, JWT). New accounts have no Standorte and open `/standorte`. |
+| Anmelden | `/login` | `POST /auth/login`. With stores or Zielregionen the app opens `/verlauf`; otherwise `/standorte`. Invalid credentials stay on the form with an error. |
 | Abmelden | header | Clears `sessionStorage` and opens `/login`. |
-| Karte + Suche | `/` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. OpenAPI 0.5.0: Filialadressen use `lon`/`lat` (PLZ centroid when the write omits both) as Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion `geometry` (Polygon or MultiPolygon) is a translucent fill plus outline and the legend **Zielregion**. `bounds` (`west`, `south`, `east`, `north`) is unioned with the pins for fit (48px padding) on first open and when that data changes. An empty pair stays on a Germany overview. |
+| Einstieg | `/` | Signed-in root: `GET /stores` and `GET /target-region`. Either list non-empty → `/verlauf`, both empty → `/standorte`. Signed out → `/karte`. |
+| Karte + Suche | `/karte` | `GET /layers/demo-gemeinden`, `GET /search`, `GET /stores`, `GET /target-region`, `GET /recommendations`. OpenAPI 0.5.0: Filialadressen use `lon`/`lat` (PLZ centroid when the write omits both) as Stecknadeln (Straße, PLZ Ort). Top-3 points use a separate mark. The Zielregion `geometry` (Polygon or MultiPolygon) is a translucent fill plus outline and the legend **Zielregion**. `bounds` (`west`, `south`, `east`, `north`) is unioned with the pins for fit (48px padding) on first open and when that data changes. An empty pair stays on a Germany overview. The map stays in the nav; it is not the signed-in entry. |
 | Zielregion | `/standorte#zielregion` | Pick a Treffer from `GET /search`, then `PUT /target-region`. The picker sends the place id (`geoKey`, `ags` or `plz`) and coordinates, not a polygon. The outline comes from Brain `app.map_features`, then Data-Scout `geo_ref_bezirk` / `geo_ref_admin` (Location-Guide). A Berlin Bezirk alias such as `11006006` is stored as `11000006`. `GET` returns 404 until one is saved. `PUT` returns 400 when no catalog area exists and the hit has no coordinates. |
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |

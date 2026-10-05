@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MAP_HREF } from "@/lib/entry";
 import { useSession } from "./session-provider";
 
 export function SignedInPanel() {
@@ -32,7 +33,7 @@ export function SignedInPanel() {
         <Link href="/standorte" className="button button-quiet">
           Standorte
         </Link>
-        <button type="button" className="button button-quiet" onClick={() => router.push("/")}>
+        <button type="button" className="button button-quiet" onClick={() => router.push(MAP_HREF)}>
           Zur Karte
         </button>
         <button type="button" className="button button-quiet" onClick={onLogout} disabled={pending}>

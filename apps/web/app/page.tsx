@@ -1,5 +1,5 @@
-import { MapPage } from "@/components/map-page";
+import { HomeGate } from "@/components/home-gate";
 
 export default function Home() {
-  return <MapPage />;
+  return <HomeGate />;
 }

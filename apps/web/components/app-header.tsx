@@ -8,7 +8,7 @@ import { useSession } from "./session-provider";
 const LINKS: { href: string; label: string; signedIn?: boolean }[] = [
   { href: "/verlauf", label: "Verlauf", signedIn: true },
   { href: "/standorte", label: "Standorte", signedIn: true },
-  { href: "/", label: "Karte" },
+  { href: "/karte", label: "Karte" },
   { href: "/empfehlungen", label: "Empfehlungen", signedIn: true },
   { href: "/adressen", label: "Adressen", signedIn: true },
   { href: "/musteranalyse", label: "Musteranalyse", signedIn: true },
