@@ -15,7 +15,7 @@ interface ProofMapProps {
   error: string | null;
 }
 
-/** Proof map: Zielregion Polygon/MultiPolygon only. No demo-gemeinden layer. */
+/** Proof map: Zielregion Polygon/MultiPolygon only. No catalog search layer. */
 export function ProofMap({ karte, cameraKey, error }: ProofMapProps) {
   return (
     <div className="map-stage verlauf-proof-stage">

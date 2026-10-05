@@ -121,12 +121,12 @@ export function VerlaufPage() {
     () =>
       buildKarte({
         stores: visible ? (stores ?? []) : [],
-        regions: visibleRegions,
+        regions: visible ? regions : [],
         markedKey: visible ? markedKey : null,
         recommendations: visible ? (recommendationSet?.items ?? []) : [],
         addressesKnownEmpty: Boolean(visible && stores && stores.length === 0),
       }),
-    [visible, stores, visibleRegions, markedKey, recommendationSet],
+    [visible, stores, regions, markedKey, recommendationSet],
   );
   const cameraKey = !session || (visible && phase !== "loading") ? karte.cameraKey : null;
 

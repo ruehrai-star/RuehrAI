@@ -306,5 +306,5 @@ test("Verlauf page and proof map do not load demo-gemeinden", () => {
   assert.equal(proof.includes("demo-gemeinden"), false);
   assert.equal(proof.includes("DEFAULT_LAYER_ID"), false);
   assert.match(standorte, /POST_STANDORTE_HREF/);
-  assert.match(standorte, />Verlauf</);
+  assert.match(standorte, />\s*Verlauf\s*</);
 });
