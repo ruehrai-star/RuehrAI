@@ -29,7 +29,7 @@ export interface SeriesRegionInput {
   plz?: string | null;
 }
 
-export type SeriesLevel = CatalogLevel | "kreis" | "land" | "grid100" | "address";
+export type SeriesLevel = CatalogLevel | "kreis" | "land" | "grid100" | "address" | "lor";
 export type SeriesGranularity = "month" | "year";
 export type SeriesCoverage = "none" | "single" | "multi";
 export type SeriesPointStatus = "present" | "absent";
@@ -169,12 +169,25 @@ const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
   unfallatlas: ["unfaelle_gesamt", "count"],
   vgrdl: ["einw"],
   gerda: ["value", "count", "personen"],
+  hamburg_stadtteil_regionalstatistik: ["insgesamt", "personen", "einwohner", "ewz", "bev_insgesamt"],
+  muenchen_indikatorenatlas: ["einwohner", "personen", "insgesamt", "ewz", "indikatorwert"],
+  berlin_lor_ewr_bevoelkerung: ["einwohner", "personen", "ewz", "insgesamt", "e_e"],
 };
 
 const GEMEINDE_SET = new Set<string>(GEMEINDE_TOPIC_IDS);
 const KREIS_SET = new Set<string>(KREIS_TOPIC_IDS);
 
 /** Unique topic ids already used by address-pair, then extra Brain series themes. Finest native level first. */
+export const KLEINRAEUMIG_SERIES_METRICS = [
+  "hamburg_stadtteil_regionalstatistik",
+  "muenchen_indikatorenatlas",
+  "berlin_lor_ewr_bevoelkerung",
+] as const;
+
+export function isKleinraeumigMetric(metricId: string): boolean {
+  return (KLEINRAEUMIG_SERIES_METRICS as readonly string[]).includes(metricId);
+}
+
 export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: TopicLevel }> = [
   ...GEMEINDE_TOPIC_IDS.map((id) => ({ id, homeLevel: "gemeinde" as const })),
   ...KREIS_TOPIC_IDS.filter((id) => !GEMEINDE_SET.has(id)).map((id) => ({ id, homeLevel: "kreis" as const })),
@@ -186,7 +199,14 @@ export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: Topi
 ];
 
 export function isSeriesLevel(value: unknown): value is SeriesLevel {
-  return isCatalogLevel(value) || value === "kreis" || value === "land" || value === "grid100" || value === "address";
+  return (
+    isCatalogLevel(value) ||
+    value === "kreis" ||
+    value === "land" ||
+    value === "grid100" ||
+    value === "address" ||
+    value === "lor"
+  );
 }
 
 /**
@@ -199,7 +219,7 @@ export function isKreisPlace(region: SeriesRegionInput): boolean {
     return false;
   }
   const rawKey = region.geoKey ?? region.ags ?? "";
-  if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk):/i.test(rawKey.trim())) return false;
+  if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk|lor|hamburg_stadtteil):/i.test(rawKey.trim())) return false;
   if (grain === "ags5") return true;
   return kreisAgsKey(region.geoKey) != null || kreisAgsKey(region.ags) != null;
 }
@@ -207,6 +227,9 @@ export function isKreisPlace(region: SeriesRegionInput): boolean {
 export function requestedLevelOf(region: SeriesRegionInput): SeriesLevel | null {
   if (region.grain === "grid100") return "grid100";
   if (region.grain === "address") return "address";
+  const geoKey = region.geoKey?.trim() ?? "";
+  if (/^lor:/i.test(geoKey) || region.level === "lor") return "lor";
+  if (/^hamburg_stadtteil:/i.test(geoKey)) return "ortsteil";
   if (isSeriesLevel(region.level)) return region.level;
   const catalog = catalogLevelForPlace({
     grain: region.grain,
@@ -256,6 +279,13 @@ export function yearWindow(asOf: Date, availableYears: number[] = []): string[] 
   return [String(end - 2), String(end - 1), String(end)];
 }
 
+/** Last three calendar years of a kleinräumige series, even when older than asOf. */
+export function yearWindowFromAvailable(availableYears: number[], asOf: Date): string[] {
+  if (availableYears.length === 0) return yearWindow(asOf, []);
+  const latest = Math.max(...availableYears);
+  return [String(latest - 2), String(latest - 1), String(latest)];
+}
+
 export function monthWindow(asOf: Date, availableMonths: string[] = []): string[] {
   const asOfStamp = `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}`;
   const latest = [...availableMonths].filter(Boolean).sort().at(-1) ?? asOfStamp;
@@ -302,11 +332,17 @@ export function seriesNumber(metadata: unknown, metricId?: string): { value: num
   const preferred = [...(metricId ? (METRIC_VALUE_KEYS[metricId] ?? []) : []), ...PREFERRED_VALUE_KEYS];
   let hit: { key: string; value: number } | null = null;
   for (const key of preferred) {
-    const found = numeric.find((item) => item.key === key);
+    const found = numeric.find(
+      (item) => item.key === key || item.key.toLowerCase() === key.toLowerCase(),
+    );
     if (found) {
       hit = found;
       break;
     }
+  }
+  if (!hit && isKleinraeumigMetric(metricId ?? "")) {
+    hit =
+      numeric.find((item) => /einwohner|personen|insgesamt|ewz|indikatorwert|^e_e$/i.test(item.key)) ?? null;
   }
   if (!hit && numeric.length === 1) hit = numeric[0]!;
   if (!hit) return null;
@@ -404,8 +440,9 @@ export function keysForResolvedPlace(
 }
 
 export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string[] {
-  if (level === "grid100" || level === "address") {
-    return unique([geoKey, stripPrefixedKey(geoKey)]);
+  if (level === "grid100" || level === "address" || level === "lor") {
+    const bare = stripPrefixedKey(geoKey);
+    return unique([geoKey, bare, geoKey.startsWith("lor:") ? geoKey : `lor:${bare}`]);
   }
   if (level === "plz") {
     const plz = geoKey.replace(/^(?:plz5|plz8):/i, "");
@@ -419,7 +456,7 @@ export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string
   const kreis = level === "kreis" ? kreisAgsKey(geoKey) : null;
   const prefixes =
     level === "stadtteil" || level === "ortsteil"
-      ? [level]
+      ? [level, "hamburg_stadtteil"]
       : level === "bezirk" || level === "stadtbezirk"
         ? ["ags", "stadtbezirk", "bezirk"]
         : level === "kreis"
@@ -448,7 +485,12 @@ export function buildMetricSeries(input: {
   const availableMonths = parsed
     .map((item) => item.period.monthStamp)
     .filter((stamp): stamp is string => Boolean(stamp));
-  const window = granularity === "month" ? monthWindow(input.asOf, availableMonths) : yearWindow(input.asOf, availableYears);
+  const window =
+    granularity === "month"
+      ? monthWindow(input.asOf, availableMonths)
+      : isKleinraeumigMetric(input.metricId)
+        ? yearWindowFromAvailable(availableYears, input.asOf)
+        : yearWindow(input.asOf, availableYears);
   const byPeriod = valuesByPeriod(input.metricId, parsed, granularity);
 
   const points: SeriesPoint[] = window.map((period) => {
@@ -647,6 +689,7 @@ function isSmallArea(level: SeriesLevel): boolean {
     level === "stadtbezirk" ||
     level === "stadtteil" ||
     level === "ortsteil" ||
+    level === "lor" ||
     level === "grid100" ||
     level === "address"
   );
@@ -676,7 +719,9 @@ function metadataText(metadata: unknown, key: string): string | null {
 }
 
 function stripPrefixedKey(value: string): string {
-  const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk):(.+)$/i.exec(value.trim());
+  const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk|lor|hamburg_stadtteil):(.+)$/i.exec(
+    value.trim(),
+  );
   return match?.[1] ?? value.trim();
 }
 
@@ -688,18 +733,25 @@ function berlinOfficialFromRequested(level: SeriesLevel, geoKey: string): string
   return isOfficialBerlinBezirkAgs(official) ? official : null;
 }
 
-function collectNumericFields(row: Record<string, unknown>): Array<{ key: string; value: number }> {
+function collectNumericFields(row: Record<string, unknown>, depth = 0): Array<{ key: string; value: number }> {
   const numeric: Array<{ key: string; value: number }> = [];
-  const bags: Record<string, unknown>[] = [row];
+  const bags: Array<{ key: string; bag: Record<string, unknown> }> = [{ key: "", bag: row }];
   for (const nested of NESTED_VALUE_BAGS) {
-    if (isRecord(row[nested])) bags.push(row[nested]);
+    if (isRecord(row[nested])) bags.push({ key: nested, bag: row[nested] });
   }
-  for (const bag of bags) {
+  for (const { bag } of bags) {
     for (const [key, value] of Object.entries(bag)) {
       if (isSkippedValueKey(key) || isNestedValueBag(key)) continue;
       const parsed = asFiniteNumber(value);
-      if (parsed === null) continue;
-      numeric.push({ key, value: parsed });
+      if (parsed !== null) {
+        numeric.push({ key, value: parsed });
+        continue;
+      }
+      if (depth < 2 && isRecord(value)) {
+        for (const nested of collectNumericFields(value, depth + 1)) {
+          numeric.push(nested);
+        }
+      }
     }
   }
   return numeric;

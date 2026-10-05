@@ -84,7 +84,7 @@ function evidenceForCandidate(
   local: YearlySeries[],
   candidateKind: AreaKind,
 ): RecommendationEvidence {
-  const series = findSeries(criterion, local);
+    const series = findSeries(criterion, local, candidateKind);
   const label = criterion.label || metricLabel(criterion.key);
   if (!series) {
     return {
@@ -156,17 +156,27 @@ function withScopeNote(evidence: string, scope: EvidenceScope, sourceLevel?: str
   return `${evidence.replace(/\s+$/, "")}${suffix}`;
 }
 
-function findSeries(criterion: PatternCriterion, local: YearlySeries[]): YearlySeries | null {
-  const wanted = metricIdsForCriterion(criterion.key);
-  for (const id of wanted) {
-    const hit = local.find((item) => item.metricId === id && presentPoints(item.points).length > 0);
-    if (hit) return hit;
-  }
-  for (const id of wanted) {
-    const hit = local.find((item) => item.metricId === id);
-    if (hit) return hit;
-  }
-  return null;
+function findSeries(
+  criterion: PatternCriterion,
+  local: YearlySeries[],
+  candidateKind: AreaKind,
+): YearlySeries | null {
+  const wanted = new Set(metricIdsForCriterion(criterion.key));
+  const matches = local.filter((item) => wanted.has(item.metricId));
+  if (matches.length === 0) return null;
+  const ranked = [...matches].sort((left, right) => {
+    const leftScore = seriesPreference(left, candidateKind);
+    const rightScore = seriesPreference(right, candidateKind);
+    if (leftScore !== rightScore) return leftScore - rightScore;
+    return seriesLevelRank(left.sourceLevel) - seriesLevelRank(right.sourceLevel);
+  });
+  return ranked[0] ?? null;
+}
+
+function seriesPreference(series: YearlySeries, candidateKind: AreaKind): number {
+  const present = presentPoints(series.points).length > 0 ? 0 : 2;
+  const local = evidenceScope(candidateKind, series.sourceLevel) === "local" ? 0 : 1;
+  return present + local;
 }
 
 function groupSeries(series: YearlySeries[]): Map<string, YearlySeries[]> {

@@ -19,6 +19,16 @@ interface OrtsteilRow {
   geo_ags: string | null;
 }
 
+interface BezirkRow {
+  geo_key: string | null;
+  geo_ags: string | null;
+}
+
+interface LorRow {
+  geo_key: string | null;
+  geo_ags: string | null;
+}
+
 export interface StoreSurroundings {
   regions: SeriesRegionInput[];
   keys: string[];
@@ -43,6 +53,8 @@ export class StoreSurroundingsService {
     );
     const plzRows = await this.readPlz(postalCodes);
     const ortsteilRows = await this.readOrtsteilAtPoints(points);
+    const bezirkRows = await this.readBezirkAtPoints(points);
+    const lorRows = await this.readLorNearPoints(points);
 
     const regions: SeriesRegionInput[] = [];
     const keys: string[] = [];
@@ -65,6 +77,26 @@ export class StoreSurroundingsService {
         geoKey: row.geo_key,
         ags: row.geo_ags,
         level: row.geo_key.startsWith("stadtteil:") ? "stadtteil" : "ortsteil",
+      });
+    }
+
+    for (const row of bezirkRows) {
+      if (!row.geo_key) continue;
+      pushRegion(regions, keys, {
+        grain: row.geo_key.startsWith("bezirk:") || row.geo_key.startsWith("stadtbezirk:") ? "other" : "ags",
+        geoKey: row.geo_key,
+        ags: row.geo_ags,
+        level: row.geo_key.startsWith("stadtbezirk:") ? "stadtbezirk" : "bezirk",
+      });
+    }
+
+    for (const row of lorRows) {
+      if (!row.geo_key) continue;
+      pushRegion(regions, keys, {
+        grain: "other",
+        geoKey: row.geo_key,
+        ags: row.geo_ags,
+        level: "lor",
       });
     }
 
@@ -103,6 +135,61 @@ export class StoreSurroundingsService {
               ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)
             )
           ORDER BY geo_ortsteil_id ASC
+          LIMIT 1`,
+        [store.lon, store.lat],
+      );
+      rows.push(...found);
+    }
+    return rows;
+  }
+
+  private async readBezirkAtPoints(stores: AnalysisStoreInput[]): Promise<BezirkRow[]> {
+    if (stores.length === 0) return [];
+    const rows: BezirkRow[] = [];
+    for (const store of stores) {
+      const found = await this.readCatalog<BezirkRow>(
+        `SELECT CASE
+                  WHEN geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN geo_bezirk_id::text
+                  ELSE 'stadtbezirk:' || geo_bezirk_id::text
+                END AS geo_key,
+                NULLIF(btrim(geo_ags::text), '') AS geo_ags
+           FROM geo.geo_ref_bezirk
+          WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)
+            AND ST_Intersects(
+              CASE
+                WHEN ST_SRID(geom) IN (0, 4326) THEN ST_SetSRID(geom, 4326)
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)
+            )
+          ORDER BY geo_bezirk_id ASC
+          LIMIT 1`,
+        [store.lon, store.lat],
+      );
+      rows.push(...found);
+    }
+    return rows;
+  }
+
+  /**
+   * Nearest Berlin LOR with stored lon/lat. No invented polygons; skip when
+   * the feature docs have no coordinates.
+   */
+  private async readLorNearPoints(stores: AnalysisStoreInput[]): Promise<LorRow[]> {
+    if (stores.length === 0) return [];
+    const rows: LorRow[] = [];
+    for (const store of stores) {
+      const found = await this.readCatalog<LorRow>(
+        `SELECT geo_key::text AS geo_key,
+                NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
+           FROM features.location_feature_docs
+          WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
+            AND geo_key LIKE 'lor:%'
+            AND lon IS NOT NULL AND lat IS NOT NULL
+          ORDER BY ST_Distance(
+            ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
+            ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
+          )
           LIMIT 1`,
         [store.lon, store.lat],
       );

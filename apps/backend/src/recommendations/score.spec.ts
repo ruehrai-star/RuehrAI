@@ -205,6 +205,51 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toMatch(/übernommen/i);
     expect(ranked.map((item) => item.title)).toEqual(["Alpha", "Beta"]);
   });
+
+  it("prefers a local kleinräumige series over an inherited parent series for the same criterion", () => {
+    const ranked = rankTeilflaechen(
+      [candidate({ geoKey: "ortsteil:42", kind: "ortsteil", title: "Eimsbüttel" })],
+      [
+        series({
+          metricId: "hamburg_stadtteil_regionalstatistik",
+          requestedGeoKey: "ortsteil:42",
+          requestedLevel: "ortsteil",
+          sourceLevel: "ortsteil",
+          sourceGeoKey: "ortsteil:42",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        series({
+          metricId: "bevoelkerung",
+          requestedGeoKey: "ortsteil:42",
+          requestedLevel: "ortsteil",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "02000000",
+          points: [
+            { period: "2023", status: "present", value: 1 },
+            { period: "2025", status: "present", value: 2 },
+          ],
+        }),
+      ],
+      [
+        {
+          key: "einwohner",
+          label: "Bevölkerung",
+          direction: "down",
+          evidence: "fällt",
+          kind: "trend",
+          coverage: "multi",
+        },
+      ],
+    );
+    expect(ranked[0]?.criteriaEvidence[0]?.scope).toBe("local");
+    expect(ranked[0]?.criteriaEvidence[0]?.sourceLevel).toBe("ortsteil");
+    expect(ranked[0]?.criteriaEvidence[0]?.label).toMatch(/Ortsteil/);
+    expect(ranked[0]?.score).toBe(1);
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toMatch(/übernommen/i);
+  });
 });
 
 describe("recommendationReason", () => {

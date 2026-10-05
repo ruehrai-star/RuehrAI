@@ -11,6 +11,7 @@ export const AREA_KINDS = [
   "grid100",
   "ortsteil",
   "stadtteil",
+  "lor",
   "plz",
   "bezirk",
   "stadtbezirk",
@@ -50,16 +51,18 @@ export interface ParentMembership {
 
 /**
  * Finest → coarsest. Address is skipped when Brain has 0 docs.
- * Only the finest rank with hits is returned; parents stay off the list.
+ * Berlin LOR sits between Ortsteil and PLZ/Bezirk. Only the finest rank
+ * with hits is returned; parents stay off the list.
  */
 export function areaKindRank(kind: AreaKind): number {
   if (kind === "address") return 0;
   if (kind === "grid100") return 1;
   if (kind === "ortsteil" || kind === "stadtteil") return 2;
-  if (kind === "plz") return 3;
-  if (kind === "bezirk" || kind === "stadtbezirk") return 4;
-  if (kind === "gemeinde") return 5;
-  return 6;
+  if (kind === "lor") return 3;
+  if (kind === "plz") return 4;
+  if (kind === "bezirk" || kind === "stadtbezirk") return 5;
+  if (kind === "gemeinde") return 6;
+  return 7;
 }
 
 export function isAreaKind(value: string | null | undefined): value is AreaKind {
@@ -134,9 +137,13 @@ export function parentMemberships(region: AnalysisRegion): ParentMembership {
     add("plz5", plz);
     add("plz", plz);
   }
-  if (fromKey === "ortsteil" || fromKey === "stadtteil") {
+  if (fromKey === "ortsteil" || fromKey === "stadtteil" || /^hamburg_stadtteil:/i.test(geoKey ?? "")) {
     add("ortsteil", geoKey);
     add("stadtteil", geoKey);
+    add("hamburg_stadtteil", geoKey);
+  }
+  if (/^lor:/i.test(geoKey ?? "")) {
+    add("lor", geoKey);
   }
   if (fromKey === "bezirk" || fromKey === "stadtbezirk") {
     add("bezirk", geoKey);
@@ -192,10 +199,31 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
     JOIN geo.geo_ref_ortsteil o
       ON o.geo_ortsteil_id::text = c.child_id
       OR (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) = c.child_id
-    WHERE lower(btrim(c.child_grain)) IN ('ortsteil', 'stadtteil')
+    WHERE lower(btrim(c.child_grain)) IN ('ortsteil', 'stadtteil', 'hamburg_stadtteil')
       AND ${hasArea("o")}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
       AND NULLIF(btrim(o.name), '') IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      CASE
+        WHEN c.child_id LIKE 'lor:%' THEN c.child_id
+        ELSE 'lor:' || c.child_id
+      END AS geo_key,
+      'other'::text AS grain,
+      'lor'::text AS kind,
+      COALESCE(
+        NULLIF(btrim(c.child_id), ''),
+        CASE WHEN c.child_id LIKE 'lor:%' THEN c.child_id ELSE 'lor:' || c.child_id END
+      ) AS name,
+      NULL::text AS ags,
+      NULL::text AS plz,
+      NULL::float8 AS lon,
+      NULL::float8 AS lat
+    FROM children c
+    WHERE lower(btrim(c.child_grain)) = 'lor'
+      AND NULLIF(btrim(c.child_id), '') IS NOT NULL
 
     UNION ALL
 
@@ -279,11 +307,12 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
        WHEN 'grid100' THEN 1
        WHEN 'ortsteil' THEN 2
        WHEN 'stadtteil' THEN 2
-       WHEN 'plz' THEN 3
-       WHEN 'bezirk' THEN 4
-       WHEN 'stadtbezirk' THEN 4
-       WHEN 'gemeinde' THEN 5
-       ELSE 6
+       WHEN 'lor' THEN 3
+       WHEN 'plz' THEN 4
+       WHEN 'bezirk' THEN 5
+       WHEN 'stadtbezirk' THEN 5
+       WHEN 'gemeinde' THEN 6
+       ELSE 7
      END,
      name ASC NULLS LAST,
      geo_key ASC
@@ -496,11 +525,12 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
      CASE kind
        WHEN 'ortsteil' THEN 0
        WHEN 'stadtteil' THEN 0
-       WHEN 'plz' THEN 1
-       WHEN 'bezirk' THEN 2
-       WHEN 'stadtbezirk' THEN 2
-       WHEN 'gemeinde' THEN 3
-       ELSE 4
+       WHEN 'lor' THEN 1
+       WHEN 'plz' THEN 2
+       WHEN 'bezirk' THEN 3
+       WHEN 'stadtbezirk' THEN 3
+       WHEN 'gemeinde' THEN 4
+       ELSE 5
      END,
      name ASC NULLS LAST,
      geo_key ASC
@@ -527,6 +557,113 @@ export function featureCandidateParams(
   const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
   const kreis = kreisAgsFrom(region);
   return [geometry, ags, kreis, excludeKeys(region)];
+}
+
+/**
+ * Berlin LOR keys inside the Zielregion. No invented polygons: lon/lat come
+ * from the feature doc when stored, otherwise null. Mapping uses
+ * `metadata.geo_bezirk_id` or parent AGS, not a LOR geo_ref table.
+ *
+ * $1 ags (nullable)
+ * $2 exclude geoKey[]
+ * $3 bezirk id variants[]
+ */
+export function buildLorFeatureCandidateSql(): string {
+  return `
+  SELECT DISTINCT ON (d.geo_key)
+    d.geo_key::text AS geo_key,
+    'other'::text AS grain,
+    'lor'::text AS kind,
+    COALESCE(NULLIF(btrim(d.title), ''), d.geo_key::text) AS name,
+    NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
+    NULL::text AS plz,
+    d.lon::float8 AS lon,
+    d.lat::float8 AS lat
+  FROM features.location_feature_docs d
+  WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
+    AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
+    AND d.geo_key LIKE 'lor:%'
+    AND NOT (d.geo_key = ANY($2::text[]))
+    AND (
+      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
+        NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '') = ANY($3::text[])
+        OR ('bezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
+        OR ('stadtbezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
+        OR NULLIF(btrim(d.metadata->>'geo_ags'), '') = ANY($3::text[])
+      ))
+      OR ($1::text IS NOT NULL AND (
+        $1 = '11000000'
+        OR $1 LIKE '11000%'
+        OR d.metadata->>'geo_ags' = $1
+        OR d.metadata->>'geo_ags' LIKE $1 || '%'
+        OR d.metadata->>'geo_bezirk_id' = $1
+        OR d.metadata->>'geo_bezirk_id' LIKE $1 || '%'
+      ))
+    )
+  ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+/**
+ * Hamburg Ortsteil fallback keys (`hamburg_stadtteil:{id}`) that are not in
+ * geo_ref_ortsteil. Prefer `ortsteil:{id}` from the catalog when it exists.
+ *
+ * $1 ags (nullable)
+ * $2 exclude geoKey[]
+ */
+export function buildHamburgStadtteilFallbackSql(): string {
+  return `
+  SELECT DISTINCT ON (d.geo_key)
+    d.geo_key::text AS geo_key,
+    'other'::text AS grain,
+    'ortsteil'::text AS kind,
+    COALESCE(NULLIF(btrim(d.title), ''), d.geo_key::text) AS name,
+    NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
+    NULL::text AS plz,
+    d.lon::float8 AS lon,
+    d.lat::float8 AS lat
+  FROM features.location_feature_docs d
+  WHERE d.source_theme = 'hamburg_stadtteil_regionalstatistik'
+    AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
+    AND d.geo_key LIKE 'hamburg_stadtteil:%'
+    AND NOT (d.geo_key = ANY($2::text[]))
+    AND $1::text IS NOT NULL
+    AND (
+      $1 = '02000000'
+      OR $1 LIKE '02%'
+      OR d.metadata->>'geo_ags' = $1
+      OR d.metadata->>'ags' = $1
+    )
+  ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
+  LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+export function lorCandidateParams(region: AnalysisRegion): [string | null, string[], string[]] {
+  const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
+  return [ags, excludeKeys(region), bezirkIdVariants(region)];
+}
+
+export function hamburgFallbackParams(region: AnalysisRegion): [string | null, string[]] {
+  const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
+  return [ags, excludeKeys(region)];
+}
+
+function bezirkIdVariants(region: AnalysisRegion): string[] {
+  const values: string[] = [];
+  const membership = parentMemberships(region);
+  for (let index = 0; index < membership.grains.length; index += 1) {
+    const grain = membership.grains[index];
+    const id = membership.ids[index];
+    if (!grain || !id) continue;
+    if (grain === "bezirk" || grain === "stadtbezirk") values.push(id);
+  }
+  const geoKey = region.geoKey?.trim();
+  if (geoKey && /^(?:bezirk|stadtbezirk):/i.test(geoKey)) values.push(geoKey, bareKey(geoKey));
+  const ags = region.ags?.trim();
+  if (ags && /^110000(0[1-9]|1[0-2])$/.test(ags)) values.push(ags, `bezirk:${ags}`);
+  return unique(values);
 }
 
 function geom4326(alias: string): string {
@@ -586,7 +723,7 @@ function sameCatalogKey(left: string, right: string): boolean {
 
 function bareKey(value: string): string {
   const match =
-    /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|grid100|address):(.+)$/i.exec(
+    /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|grid100|address|lor|hamburg_stadtteil):(.+)$/i.exec(
       value.trim(),
     );
   return match?.[1] ?? value.trim();

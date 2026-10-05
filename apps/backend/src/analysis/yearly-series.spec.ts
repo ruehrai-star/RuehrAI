@@ -8,10 +8,12 @@ import {
   detectGranularity,
   keysForResolvedPlace,
   parseRefPeriod,
+  requestedKeyVariants,
   requestedLevelOf,
   seriesNumber,
   monthWindow,
   yearWindow,
+  yearWindowFromAvailable,
 } from "./yearly-series";
 
 const asOf = new Date("2026-10-05T11:00:00.000Z");
@@ -226,6 +228,22 @@ describe("yearly-series helpers", () => {
     expect(monthWindow(asOf).at(-1)).toBe("2026-10");
     expect(monthWindow(asOf, ["2023-10", "2026-09"])[0]).toBe("2023-10");
     expect(monthWindow(asOf, ["2023-10", "2026-09"]).at(-1)).toBe("2026-09");
+    expect(yearWindowFromAvailable([2001, 2018, 2019, 2020], asOf)).toEqual(["2018", "2019", "2020"]);
+    expect(yearWindowFromAvailable([], asOf)).toEqual(["2024", "2025", "2026"]);
+  });
+
+  it("reads nested München Indikatorenatlas values without inventing 0", () => {
+    expect(
+      seriesNumber(
+        { values: { einwohner: { insgesamt: 1488202, maennlich: 720000 } } },
+        "muenchen_indikatorenatlas",
+      ),
+    ).toEqual({ value: 1488202, key: "insgesamt" });
+    expect(seriesNumber({ values: { Bevoelkerung: { Insgesamt: 91 } } }, "muenchen_indikatorenatlas")).toEqual({
+      value: 91,
+      key: "Insgesamt",
+    });
+    expect(seriesNumber({ values: { dummy: { other: true } } }, "muenchen_indikatorenatlas")).toBeNull();
   });
 });
 
@@ -395,6 +413,9 @@ describe("buildMetricSeries", () => {
         "ba_sgb2",
         "kba_neuzulassungen",
         "kba_bestand",
+        "hamburg_stadtteil_regionalstatistik",
+        "muenchen_indikatorenatlas",
+        "berlin_lor_ewr_bevoelkerung",
       ]),
     );
     expect(SERIES_METRICS.map((metric) => metric.id)).not.toContain("krankenhaeuser");
@@ -446,6 +467,12 @@ describe("buildMetricSeries", () => {
     expect(requestedLevelOf({ grain: "ags", geoKey: "11000", ags: "11000" })).toBe("kreis");
     expect(requestedLevelOf({ grain: "plz5", geoKey: "80331", ags: null })).toBeNull();
     expect(requestedLevelOf({ grain: "ags", geoKey: "09162000", ags: "09162000" })).toBe("gemeinde");
+    expect(requestedLevelOf({ grain: "other", geoKey: "lor:110010101", level: "lor" })).toBe("lor");
+    expect(requestedLevelOf({ grain: "other", geoKey: "hamburg_stadtteil:117/118" })).toBe("ortsteil");
+    expect(requestedKeyVariants("lor", "01011101")).toEqual(expect.arrayContaining(["01011101", "lor:01011101"]));
+    expect(requestedKeyVariants("ortsteil", "ortsteil:42")).toEqual(
+      expect.arrayContaining(["ortsteil:42", "hamburg_stadtteil:42"]),
+    );
   });
 
   it("resolves Kreis lookup keys without inventing a Gemeinde", () => {
@@ -456,6 +483,158 @@ describe("buildMetricSeries", () => {
     expect(region.kreis).toEqual(expect.arrayContaining(["05315", "ags:05315", "ags5:05315", "05315000"]));
     expect(region.kreisKey).toBe("05315");
     expect(region.land).toEqual(expect.arrayContaining(["05", "land:05"]));
+  });
+});
+
+describe("kleinräumige first3 yearly series", () => {
+  it("uses the last three available Berlin LOR years and never fills gaps with 0", () => {
+    const series = buildMetricSeries({
+      metricId: "berlin_lor_ewr_bevoelkerung",
+      homeLevel: "gemeinde",
+      region: keysForResolvedPlace("lor", "lor:110010101", "11000000", "11000", "11"),
+      docs: [
+        feature({
+          theme: "berlin_lor_ewr_bevoelkerung",
+          grain: "other",
+          key: "lor:110010101",
+          period: "2018|berlin_lor_ewr_bevoelkerung",
+          metadata: { einwohner: 1200 },
+        }),
+        feature({
+          theme: "berlin_lor_ewr_bevoelkerung",
+          grain: "other",
+          key: "lor:110010101",
+          period: "2020|berlin_lor_ewr_bevoelkerung",
+          metadata: { einwohner: 1250 },
+        }),
+      ],
+      asOf,
+    });
+    expect(series.requestedLevel).toBe("lor");
+    expect(series.sourceLevel).toBe("lor");
+    expect(series.sourceGeoKey).toBe("lor:110010101");
+    expect(series.points.map((point) => point.period)).toEqual(["2018", "2019", "2020"]);
+    expect(series.points.find((point) => point.period === "2019")).toEqual({ period: "2019", status: "absent" });
+    expect(series.points.find((point) => point.period === "2019")).not.toHaveProperty("value");
+    expect(series.points.find((point) => point.period === "2018")).toEqual({
+      period: "2018",
+      status: "present",
+      value: 1200,
+    });
+    expect(series.coverage).toBe("multi");
+    expect(JSON.stringify(series.points)).not.toMatch(/"value":0/);
+  });
+
+  it("prefers Hamburg Ortsteil series over Gemeinde and accepts hamburg_stadtteil fallback keys", () => {
+    const series = buildMetricSeries({
+      metricId: "hamburg_stadtteil_regionalstatistik",
+      homeLevel: "gemeinde",
+      region: keysForResolvedPlace("ortsteil", "ortsteil:42", "02000000", "02000", "02"),
+      docs: [
+        feature({
+          theme: "hamburg_stadtteil_regionalstatistik",
+          grain: "other",
+          key: "hamburg_stadtteil:42",
+          period: "2023|hamburg_stadtteil_regionalstatistik",
+          metadata: { insgesamt: 100 },
+        }),
+        feature({
+          theme: "hamburg_stadtteil_regionalstatistik",
+          grain: "other",
+          key: "hamburg_stadtteil:42",
+          period: "2024|hamburg_stadtteil_regionalstatistik",
+          metadata: { insgesamt: 110 },
+        }),
+        feature({
+          theme: "hamburg_stadtteil_regionalstatistik",
+          grain: "other",
+          key: "hamburg_stadtteil:42",
+          period: "2025|hamburg_stadtteil_regionalstatistik",
+          metadata: { insgesamt: 120 },
+        }),
+        feature({
+          theme: "regionalstatistik_bevoelkerung",
+          grain: "ags",
+          key: "02000000",
+          period: "2025",
+          metadata: { personen: 1_800_000 },
+        }),
+      ],
+      asOf,
+    });
+    expect(series.sourceLevel).toBe("ortsteil");
+    expect(series.sourceGeoKey).toBe("hamburg_stadtteil:42");
+    expect(series.coverage).toBe("multi");
+    expect(series.points.find((point) => point.period === "2025")?.value).toBe(120);
+  });
+
+  it("reads München Stadtbezirk nested values as local, Stadt AGS as inherited fallback", () => {
+    const local = buildMetricSeries({
+      metricId: "muenchen_indikatorenatlas",
+      homeLevel: "gemeinde",
+      region: keysForResolvedPlace("bezirk", "bezirk:1", "09162000", "09162", "09"),
+      docs: [
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "other",
+          key: "bezirk:1",
+          period: "2023|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 50 } } },
+        }),
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "other",
+          key: "bezirk:1",
+          period: "2024|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 52 } } },
+        }),
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "other",
+          key: "bezirk:1",
+          period: "2025|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 55 } } },
+        }),
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "ags",
+          key: "09162000",
+          period: "2025|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 1_488_202 } } },
+        }),
+      ],
+      asOf,
+    });
+    expect(local.sourceLevel).toBe("bezirk");
+    expect(local.sourceGeoKey).toBe("bezirk:1");
+    expect(local.coverage).toBe("multi");
+    expect(local.points.find((point) => point.period === "2025")?.value).toBe(55);
+
+    const inherited = buildMetricSeries({
+      metricId: "muenchen_indikatorenatlas",
+      homeLevel: "gemeinde",
+      region: keysForResolvedPlace("bezirk", "bezirk:99", "09162000", "09162", "09"),
+      docs: [
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "ags",
+          key: "09162000",
+          period: "2023|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 1_400_000 } } },
+        }),
+        feature({
+          theme: "muenchen_indikatorenatlas",
+          grain: "ags",
+          key: "09162000",
+          period: "2025|muenchen_indikatorenatlas",
+          metadata: { values: { einwohner: { insgesamt: 1_488_202 } } },
+        }),
+      ],
+      asOf,
+    });
+    expect(inherited.sourceLevel).toBe("gemeinde");
+    expect(inherited.sourceGeoKey).toBe("09162000");
+    expect(inherited.coverage).toBe("multi");
   });
 });
 

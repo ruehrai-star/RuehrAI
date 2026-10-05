@@ -17,9 +17,13 @@ import {
   buildAddressCandidateSql,
   buildAreaCandidateSql,
   buildGrid100CandidateSql,
+  buildHamburgStadtteilFallbackSql,
+  buildLorFeatureCandidateSql,
   buildTeilCatalogSql,
   featureCandidateParams,
+  hamburgFallbackParams,
   isAreaKind,
+  lorCandidateParams,
   parentMemberships,
   selectFinestHits,
 } from "./area-candidates";
@@ -72,14 +76,20 @@ export class AreaCandidateService {
     const address = await this.readOptional(buildAddressCandidateSql(), featureCandidateParams(region));
     const grid = await this.readOptional(buildGrid100CandidateSql(), featureCandidateParams(region));
     const catalog = await this.readCatalog(region);
-    const combined = [...address.items, ...grid.items, ...catalog.items];
+    const lor = await this.readOptional(buildLorFeatureCandidateSql(), lorCandidateParams(region));
+    const hamburg = await this.readOptional(buildHamburgStadtteilFallbackSql(), hamburgFallbackParams(region));
+    const combined = [...address.items, ...grid.items, ...catalog.items, ...lor.items, ...hamburg.items];
     const truncated =
       address.truncated ||
       grid.truncated ||
       catalog.truncated ||
+      lor.truncated ||
+      hamburg.truncated ||
       address.items.length >= AREA_CANDIDATE_LIMIT ||
       grid.items.length >= AREA_CANDIDATE_LIMIT ||
-      catalog.items.length >= AREA_CANDIDATE_LIMIT;
+      catalog.items.length >= AREA_CANDIDATE_LIMIT ||
+      lor.items.length >= AREA_CANDIDATE_LIMIT ||
+      hamburg.items.length >= AREA_CANDIDATE_LIMIT;
     return { items: combined, truncated };
   }
 

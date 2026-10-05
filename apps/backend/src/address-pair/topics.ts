@@ -80,6 +80,9 @@ export const EXTRA_SERIES_METRICS = [
   { id: "ba_sgb2", homeLevel: "kreis" },
   { id: "kba_neuzulassungen", homeLevel: "land" },
   { id: "kba_bestand", homeLevel: "land" },
+  { id: "hamburg_stadtteil_regionalstatistik", homeLevel: "gemeinde" },
+  { id: "muenchen_indikatorenatlas", homeLevel: "gemeinde" },
+  { id: "berlin_lor_ewr_bevoelkerung", homeLevel: "gemeinde" },
 ] as const;
 
 export type ExtraSeriesMetricId = (typeof EXTRA_SERIES_METRICS)[number]["id"];
@@ -93,6 +96,9 @@ export const EXTRA_SERIES_SOURCE_THEMES: Record<ExtraSeriesMetricId, readonly st
   ba_sgb2: ["ba_sgb2"],
   kba_neuzulassungen: ["kba_neuzulassungen"],
   kba_bestand: ["kba_bestand"],
+  hamburg_stadtteil_regionalstatistik: ["hamburg_stadtteil_regionalstatistik"],
+  muenchen_indikatorenatlas: ["muenchen_indikatorenatlas"],
+  berlin_lor_ewr_bevoelkerung: ["berlin_lor_ewr_bevoelkerung"],
 };
 
 export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<TopicLevel, readonly string[]>>> = {
@@ -103,6 +109,10 @@ export const EXTRA_SERIES_GRAINS: Record<ExtraSeriesMetricId, Partial<Record<Top
   ba_sgb2: { kreis: ["ags5"] },
   kba_neuzulassungen: { land: ["other"] },
   kba_bestand: { land: ["other"] },
+  // Kleinräumig: match requested Ortsteil/Bezirk/LOR keys. München Stadt is grain ags.
+  hamburg_stadtteil_regionalstatistik: {},
+  muenchen_indikatorenatlas: { gemeinde: ["ags"] },
+  berlin_lor_ewr_bevoelkerung: {},
 };
 
 /** Grain a Brain row must have to count for that topic level. */

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.12.0
+  version: 0.12.1
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -71,6 +71,16 @@ info:
     `Recommendation.kind` is the Ebene. Admin map coordinates use
     `geom_4326` / `geom_display` (EPSG:4326); `geo.geo_ref_admin.geom`
     is EPSG:3035.
+    `0.12.1` scores kleinräumige Brain yearly series at the hit's own
+    Ebene. `hamburg_stadtteil_regionalstatistik` feeds Ortsteil / Stadtteil
+    (`ortsteil:{id}`, fallback `hamburg_stadtteil:{id}`).
+    `muenchen_indikatorenatlas` feeds Stadtbezirk (`bezirk:{id}`) and the
+    München Stadt AGS. `berlin_lor_ewr_bevoelkerung` feeds LOR
+    (`lor:{RAUMID}`), its own Ebene between Ortsteil and PLZ/Bezirk.
+    Local series beat inherited parent series for the Dreijahrestrend.
+    Missing years stay `absent` (no zero-fill). Embedding is not required.
+    LOR polygons are not invented; keys map via `geo_ref_zielregion_teil`
+    or `metadata.geo_bezirk_id`.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -944,9 +954,13 @@ paths:
 
         - Adresse (`grain=address`) when Brain has docs (currently 0 — skipped)
         - 100-m Raster (`grid100` / `breitband_gitter`)
-        - Ortsteil / Stadtteil (`geo.geo_ref_ortsteil`)
+        - Ortsteil / Stadtteil (`geo.geo_ref_ortsteil`; Hamburg also
+          `hamburg_stadtteil:{id}` yearly series)
+        - LOR (`lor:{RAUMID}` / `berlin_lor_ewr_bevoelkerung`) when those
+          keys map into the Zielregion. No invented LOR polygons.
         - PLZ5 (`geo.geo_ref_plz`)
-        - Stadtbezirk / Bezirk (`geo.geo_ref_bezirk`)
+        - Stadtbezirk / Bezirk (`geo.geo_ref_bezirk`; München
+          `muenchen_indikatorenatlas` on `bezirk:{id}`)
         - Gemeinde (`geo.geo_ref_admin`) when no finer child exists
 
         Parent→child membership prefers `geo.geo_ref_zielregion_teil`
@@ -961,9 +975,12 @@ paths:
         that hit.
 
         Ranking uses the three-year trend where a **local** series exists
-        (`unfallatlas_gebiet` on Ortsteil/Bezirk/PLZ). Snapshot values
-        are labeled `stichtag`. Missing cells are `absent`
-        (`liegt nicht vor`), never `0`.
+        at the hit's own Ebene (`hamburg_stadtteil_regionalstatistik` on
+        Ortsteil, `muenchen_indikatorenatlas` on Stadtbezirk,
+        `berlin_lor_ewr_bevoelkerung` on LOR, plus `unfallatlas_gebiet`
+        on Ortsteil/Bezirk/PLZ). Snapshot values are labeled `stichtag`.
+        Missing cells are `absent` (`liegt nicht vor`), never `0`.
+        Kleinräumige yearlySeries rows may have a null embedding.
 
         An empty `items` array is success only when no sub-area exists
         inside the region (`reason` explains that). `404` when this user
@@ -1861,9 +1878,10 @@ components:
       description: |
         Ebene of a Teilfläche inside the Zielregion. Never the region itself.
         Only the finest matching Ebene is returned (Adresse → Raster →
-        Ortsteil → PLZ5 → Bezirk → Gemeinde). `address` is skipped when
-        Brain has no address docs.
-      enum: [address, grid100, ortsteil, stadtteil, bezirk, stadtbezirk, plz, gemeinde]
+        Ortsteil → LOR → PLZ5 → Bezirk → Gemeinde). `address` is skipped when
+        Brain has no address docs. `lor` is Berlin LOR, between Ortsteil and
+        PLZ/Bezirk, when `lor:{RAUMID}` keys map into the Zielregion.
+      enum: [address, grid100, ortsteil, stadtteil, lor, bezirk, stadtbezirk, plz, gemeinde]
     EvidenceKind:
       type: string
       description: |
@@ -1991,9 +2009,10 @@ components:
         Brain row. `requestedLevel` is the Zielregion or Teilfläche.
         Grain `ags5` and a 5-digit AGS (Köln `05315`) are `kreis`, never
         `gemeinde`. `grid100` and `address` are Stage-1 hit Ebenen.
+        `lor` is Berlin LOR (between Ortsteil and PLZ/Bezirk).
         Gemeinde or Kreis numbers are never labeled as Stadtteil, Ortsteil,
         PLZ, or Stadtbezirk.
-      enum: [address, grid100, plz, bezirk, stadtbezirk, stadtteil, ortsteil, gemeinde, kreis, land]
+      enum: [address, grid100, lor, plz, bezirk, stadtbezirk, stadtteil, ortsteil, gemeinde, kreis, land]
     SeriesGranularity:
       type: string
       enum: [month, year]
@@ -2068,8 +2087,12 @@ components:
           type: string
           description: |
             Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain
-            series theme id (`destatis_wohnungen`, `kba_elektro_pkw`, …).
-            Not store revenue.
+            series theme id (`destatis_wohnungen`, `kba_elektro_pkw`,
+            `hamburg_stadtteil_regionalstatistik`,
+            `muenchen_indikatorenatlas`, `berlin_lor_ewr_bevoelkerung`, …).
+            Not store revenue. Kleinräumige themes score at the hit's own
+            Ebene (Ortsteil, Stadtbezirk, LOR) and do not require an
+            embedding.
         requestedLevel:
           $ref: "#/components/schemas/SeriesLevel"
         requestedGeoKey:
@@ -2292,7 +2315,7 @@ components:
         kind:
           $ref: "#/components/schemas/AreaKind"
           description: |
-            Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, PLZ,
+            Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, LOR, PLZ,
             Bezirk, Gemeinde). Required on new sets.
         location:
           $ref: "#/components/schemas/RecommendationLocation"

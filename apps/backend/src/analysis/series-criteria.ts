@@ -19,6 +19,9 @@ const MAX_CRITERIA = 5;
 const FLAT_BAND = 0.01;
 
 const TREND_METRIC_ORDER = [
+  "hamburg_stadtteil_regionalstatistik",
+  "muenchen_indikatorenatlas",
+  "berlin_lor_ewr_bevoelkerung",
   "unfallatlas",
   "bevoelkerung",
   "wanderungen",
@@ -67,6 +70,9 @@ const METRIC_LABELS: Record<string, string> = {
   wwk: "WWK",
   boris: "Bodenrichtwert",
   pks: "Polizeiliche Kriminalstatistik",
+  hamburg_stadtteil_regionalstatistik: "Bevölkerung (Hamburg Ortsteil)",
+  muenchen_indikatorenatlas: "Indikatorenatlas (Stadtbezirk)",
+  berlin_lor_ewr_bevoelkerung: "Bevölkerung (LOR)",
 };
 
 const LEVEL_RANK: Record<string, number> = {
@@ -74,17 +80,18 @@ const LEVEL_RANK: Record<string, number> = {
   grid100: 1,
   ortsteil: 2,
   stadtteil: 2,
-  plz: 3,
-  bezirk: 4,
-  stadtbezirk: 4,
-  gemeinde: 5,
-  kreis: 6,
-  land: 7,
+  lor: 3,
+  plz: 4,
+  bezirk: 5,
+  stadtbezirk: 5,
+  gemeinde: 6,
+  kreis: 7,
+  land: 8,
 };
 
 /** Signal keys from older heuristic runs → yearlySeries metricId. */
 const METRIC_ALIASES: Record<string, string[]> = {
-  einwohner: ["bevoelkerung", "destatis"],
+  einwohner: ["bevoelkerung", "destatis", "hamburg_stadtteil_regionalstatistik", "berlin_lor_ewr_bevoelkerung"],
   einwohnerzahl: ["bevoelkerung", "destatis"],
   ewz: ["bevoelkerung", "destatis", "zensus2022"],
   bev_insgesamt: ["destatis", "bevoelkerung"],
@@ -139,6 +146,7 @@ export function frameNoun(level: SeriesLevel | string | undefined): string | nul
   if (level === "gemeinde") return "Gemeinde";
   if (level === "plz") return "PLZ";
   if (level === "ortsteil" || level === "stadtteil") return "Ortsteil";
+  if (level === "lor") return "LOR";
   if (level === "bezirk" || level === "stadtbezirk") return "Bezirk";
   if (level === "grid100") return "100-m-Raster";
   if (level === "address") return "Adresse";

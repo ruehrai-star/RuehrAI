@@ -60,6 +60,8 @@ export function catalogLevelOf(value: unknown): CatalogLevel | null {
 export function catalogBadge(source: CatalogBadgeSource): string {
   const level = catalogLevelOf(source.level);
   if (level) return CATALOG_LEVEL_LABELS[level];
+  const geoKey = source.geoKey || source.id || "";
+  if (/^lor:/i.test(geoKey) || source.level === "lor") return "LOR";
   if (source.grain) return grainLabel(source.grain, source.ags || source.geoKey || source.id);
   return "";
 }
@@ -83,7 +85,7 @@ export function catalogParentName(source: unknown): string | null {
 }
 
 const CATALOG_KEY =
-  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil)(?::\S+)+$/i;
+  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor|hamburg_stadtteil)(?::\S+)+$/i;
 
 /**
  * Internal catalog id such as `plz5:12247` or `ortsteil:osm:5712247`.

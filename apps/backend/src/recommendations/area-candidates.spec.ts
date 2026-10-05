@@ -6,6 +6,8 @@ import {
   buildAddressCandidateSql,
   buildAreaCandidateSql,
   buildGrid100CandidateSql,
+  buildHamburgStadtteilFallbackSql,
+  buildLorFeatureCandidateSql,
   buildTeilCatalogSql,
   isRegionAnchor,
   parentMemberships,
@@ -64,6 +66,21 @@ describe("area candidate SQL", () => {
     expect(grid).toContain("breitband_gitter");
     expect(address).not.toContain("<=>");
     expect(grid).not.toContain("<=>");
+  });
+
+  it("loads Berlin LOR and Hamburg fallback keys from feature docs without embeddings or invented polygons", () => {
+    const lor = buildLorFeatureCandidateSql();
+    const hamburg = buildHamburgStadtteilFallbackSql();
+    expect(lor).toContain("berlin_lor_ewr_bevoelkerung");
+    expect(lor).toContain("geo_bezirk_id");
+    expect(lor).toContain("'lor'");
+    expect(lor).not.toContain("<=>");
+    expect(lor).not.toMatch(/embedding/i);
+    expect(lor).not.toContain("geo_ref_lor");
+    expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
+    expect(hamburg).toContain("hamburg_stadtteil:");
+    expect(hamburg).not.toMatch(/embedding/i);
+    expect(buildTeilCatalogSql()).toContain("child_grain)) = 'lor'");
   });
 
   it("keeps an intersect fallback that still avoids treating admin geom as WGS84", () => {
@@ -222,6 +239,51 @@ describe("selectFinestHits", () => {
       regions,
     );
     expect(hits.map((item) => item.kind)).toEqual(["grid100"]);
+  });
+
+  it("keeps LOR over PLZ and Bezirk, and Ortsteil over LOR", () => {
+    const lor = {
+      id: "other:lor:110010101",
+      geoKey: "lor:110010101",
+      grain: "other" as const,
+      kind: "lor" as const,
+      title: "LOR 101",
+      name: "LOR 101",
+      ags: "11000000",
+      plz: null,
+      lon: null,
+      lat: null,
+    };
+    const plz = {
+      id: "plz5:12247",
+      geoKey: "12247",
+      grain: "plz5" as const,
+      kind: "plz" as const,
+      title: "12247",
+      name: "12247",
+      ags: "11000000",
+      plz: "12247",
+      lon: null,
+      lat: null,
+    };
+    const ortsteil = {
+      id: "other:ortsteil:osm:1",
+      geoKey: "ortsteil:osm:1",
+      grain: "other" as const,
+      kind: "ortsteil" as const,
+      title: "Lankwitz",
+      name: "Lankwitz",
+      ags: "11000000",
+      plz: null,
+      lon: 13.3,
+      lat: 52.4,
+    };
+    expect(selectFinestHits([lor, plz], [region({ geoKey: "11000000", ags: "11000000" })]).map((item) => item.kind)).toEqual(
+      ["lor"],
+    );
+    expect(
+      selectFinestHits([lor, ortsteil, plz], [region({ geoKey: "11000000", ags: "11000000" })]).map((item) => item.kind),
+    ).toEqual(["ortsteil"]);
   });
 
   it("never treats the Zielregion geoKey as a hit", () => {

@@ -47,6 +47,28 @@ describe("criteriaFromYearlySeries", () => {
     expect(criteria.find((item) => item.key === "breitband")).toBeUndefined();
   });
 
+  it("maps kleinräumige themes into the trend criteria path", () => {
+    const criteria = criteriaFromYearlySeries([
+      series({
+        metricId: "hamburg_stadtteil_regionalstatistik",
+        sourceLevel: "ortsteil",
+        requestedLevel: "ortsteil",
+        requestedGeoKey: "ortsteil:42",
+        sourceGeoKey: "ortsteil:42",
+      }),
+      series({
+        metricId: "bevoelkerung",
+        sourceLevel: "gemeinde",
+      }),
+    ]);
+    expect(criteria[0]).toMatchObject({
+      key: "hamburg_stadtteil_regionalstatistik",
+      kind: "trend",
+      sourceLevel: "ortsteil",
+    });
+    expect(criteria[0]?.evidence).toContain("Ortsteil");
+  });
+
   it("does not invent 0 when a cell is absent", () => {
     expect(directionFromPoints([{ period: "2023", status: "absent" }])).toBe("unknown");
     const evidence = seriesEvidence(

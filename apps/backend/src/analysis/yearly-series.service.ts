@@ -85,7 +85,12 @@ export class YearlySeriesService {
       .filter((item) => item.requestedLevel === "plz" && !municipalityAgsFrom(item.region))
       .map((item) => item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, ""));
     const needOrtsteil = wanted
-      .filter((item) => item.requestedLevel === "stadtteil" || item.requestedLevel === "ortsteil")
+      .filter(
+        (item) =>
+          item.requestedLevel === "stadtteil" ||
+          item.requestedLevel === "ortsteil" ||
+          /^hamburg_stadtteil:/i.test(item.requestedGeoKey),
+      )
       .flatMap((item) => ortsteilLookupIds(item.requestedGeoKey));
     const needBezirk = wanted
       .filter(
@@ -330,8 +335,10 @@ function gemeindeFromCatalog(
 
 function ortsteilLookupIds(geoKey: string): string[] {
   const ids = [geoKey];
-  const match = /^(stadtteil|ortsteil):(.+)$/i.exec(geoKey.trim());
-  if (match?.[2]) ids.push(match[2]);
+  const match = /^(stadtteil|ortsteil|hamburg_stadtteil):(.+)$/i.exec(geoKey.trim());
+  if (match?.[2]) {
+    ids.push(match[2], `ortsteil:${match[2]}`, `stadtteil:${match[2]}`, `hamburg_stadtteil:${match[2]}`);
+  }
   return unique(ids);
 }
 

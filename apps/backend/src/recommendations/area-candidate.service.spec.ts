@@ -129,6 +129,56 @@ describe("AreaCandidateService", () => {
     expect(loaded.items.map((item) => item.kind)).toEqual(["grid100"]);
   });
 
+  it("lists LOR as finest when Ortsteile are absent and does not require embeddings", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("grain = 'address'") || text.includes("grain = 'grid100'")) return { rows: [] };
+      if (text.includes("hamburg_stadtteil_regionalstatistik")) return { rows: [] };
+      if (text.includes("berlin_lor_ewr_bevoelkerung")) {
+        expect(text).not.toMatch(/embedding/i);
+        return {
+          rows: [
+            {
+              geo_key: "lor:110010101",
+              grain: "other",
+              kind: "lor",
+              name: "LOR 101",
+              ags: "11000000",
+              plz: null,
+              lon: null,
+              lat: null,
+            },
+          ],
+        };
+      }
+      return {
+        rows: [
+          {
+            geo_key: "12247",
+            grain: "plz5",
+            kind: "plz",
+            name: "12247",
+            ags: "11000000",
+            plz: "12247",
+            lon: 13.3,
+            lat: 52.4,
+          },
+        ],
+      };
+    });
+
+    const loaded = await service.load([
+      region({
+        label: "Berlin",
+        geoKey: "11000000",
+        ags: "11000000",
+        geometry: null,
+      }),
+    ]);
+    expect(loaded.items.map((item) => item.kind)).toEqual(["lor"]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["lor:110010101"]);
+  });
+
   it("falls back to intersect SQL when zielregion_teil is missing", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
