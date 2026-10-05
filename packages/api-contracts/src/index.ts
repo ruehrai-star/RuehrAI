@@ -34,6 +34,7 @@ export type AnalysisStore = Schemas["AnalysisStore"];
 export type AnalysisRevenuePoint = Schemas["AnalysisRevenuePoint"];
 export type AnalysisRevenueChange = Schemas["AnalysisRevenueChange"];
 export type RevenueDirection = Schemas["RevenueDirection"];
+export type CriterionDirection = Schemas["CriterionDirection"];
 export type CriterionKind = Schemas["CriterionKind"];
 export type AreaKind = Schemas["AreaKind"];
 export type EvidenceKind = Schemas["EvidenceKind"];
