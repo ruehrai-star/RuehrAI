@@ -596,7 +596,7 @@ function parseOptionalPatternRegion(value: unknown): AnalysisPatternRegion | und
   if (typeof raw.label !== "string" || raw.label.trim().length === 0) return undefined;
   return {
     label: raw.label,
-    geoKey: typeof raw.geoKey === "string" ? raw.geoKey : raw.geoKey === null ? null : undefined,
+    geoKey: typeof raw.geoKey === "string" ? raw.geoKey : null,
     level: catalogLevelOf(raw.level),
     parentLabel: catalogParentName(raw),
     grain: isGrain(raw.grain) ? raw.grain : raw.grain === null ? null : undefined,
