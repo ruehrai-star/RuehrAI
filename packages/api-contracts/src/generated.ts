@@ -1058,7 +1058,9 @@ export interface components {
         SeriesCoverage: "none" | "single" | "multi";
         /**
          * @description `absent` means the period liegt nicht vor. `value` is omitted.
-         *     Never 0, null, or {} as a stand-in. A stored 0 is `present`.
+         *     Never 0, null, or {} as a stand-in. A real stored 0 is `present`.
+         *     Placeholder zeros (KBA Elektro counts of 0 while `pkw_elektro_anteil`
+         *     is positive) are `absent` without `value`.
          * @enum {string}
          */
         SeriesPointStatus: "present" | "absent";
@@ -1071,7 +1073,12 @@ export interface components {
              */
             period: string;
             status: components["schemas"]["SeriesPointStatus"];
-            /** @description Stored Brain cell for this period. Omitted when absent. */
+            /**
+             * @description Stored Brain cell for this period. Omitted when absent.
+             *     Not a geo identifier (`ba_schluessel`, `geo_ags`, `geo_ags5`,
+             *     `geo_key`, `source_theme`). Count-like SGB2 metrics (BG, PERS,
+             *     ELB, NEF, RLB) are whole numbers.
+             */
             value?: number;
         };
         /**

@@ -35,7 +35,9 @@ info:
     `ref_period` tags after `|`, never filters on embedding, always
     recomputes the field on `GET /analysis/pattern` and new runs, and
     anchors a yearly window to the latest Brain year when that year is still
-    within two years of `asOf`.
+    within two years of `asOf`. Placeholder KBA Elektro zeros and geo
+    identifiers (`ba_schluessel`, `geo_ags`) are never series values; SGB2
+    count metrics are whole numbers.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1871,7 +1873,9 @@ components:
       type: string
       description: |
         `absent` means the period liegt nicht vor. `value` is omitted.
-        Never 0, null, or {} as a stand-in. A stored 0 is `present`.
+        Never 0, null, or {} as a stand-in. A real stored 0 is `present`.
+        Placeholder zeros (KBA Elektro counts of 0 while `pkw_elektro_anteil`
+        is positive) are `absent` without `value`.
       enum: [present, absent]
     SeriesPoint:
       type: object
@@ -1890,7 +1894,11 @@ components:
           $ref: "#/components/schemas/SeriesPointStatus"
         value:
           type: number
-          description: Stored Brain cell for this period. Omitted when absent.
+          description: |
+            Stored Brain cell for this period. Omitted when absent.
+            Not a geo identifier (`ba_schluessel`, `geo_ags`, `geo_ags5`,
+            `geo_key`, `source_theme`). Count-like SGB2 metrics (BG, PERS,
+            ELB, NEF, RLB) are whole numbers.
     YearlySeries:
       type: object
       additionalProperties: false

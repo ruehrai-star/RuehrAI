@@ -107,6 +107,76 @@ describe("yearly-series helpers", () => {
     });
   });
 
+  it("treats suppressed kba_elektro_pkw zeros as absent, never as 0", () => {
+    expect(
+      seriesNumber(
+        { pkw_insgesamt: 0.0, pkw_elektro: 0.0, pkw_elektro_anteil: 4.1 },
+        "kba_elektro_pkw",
+      ),
+    ).toBeNull();
+    expect(
+      seriesNumber(
+        { pkw_insgesamt: 0, pkw_elektro: 0, pkw_elektro_anteil: 5.2 },
+        "kba_elektro_pkw",
+      ),
+    ).toBeNull();
+    expect(seriesNumber({ pkw_elektro: 18, pkw_insgesamt: 100, pkw_elektro_anteil: 18 }, "kba_elektro_pkw")).toEqual({
+      value: 18,
+      key: "pkw_elektro",
+    });
+    expect(seriesNumber({ pkw_elektro: 0, pkw_insgesamt: 1000, pkw_elektro_anteil: 0 }, "kba_elektro_pkw")).toEqual({
+      value: 0,
+      key: "pkw_elektro",
+    });
+  });
+
+  it("does not treat ba_schluessel or geo keys as Arbeitsmarkt values", () => {
+    expect(
+      seriesNumber(
+        {
+          ba_schluessel: "11000000",
+          geo_ags: "11000000",
+          geo_ags5: "11000",
+          source_theme: "ba_alo",
+          indicators: { arbeitslose_insgesamt: 223830, arbeitslose_maenner: 120000, arbeitslose_frauen: 103830 },
+        },
+        "arbeitsmarkt",
+      ),
+    ).toEqual({ value: 223830, key: "arbeitslose_insgesamt" });
+    expect(
+      seriesNumber(
+        { ba_schluessel: "11000000", geo_ags: "11000000", geo_ags5: "11000", source_theme: "ba_alo" },
+        "arbeitsmarkt",
+      ),
+    ).toBeNull();
+    expect(seriesNumber({ ba_schluessel: 11000000, geo_ags5: "11000" }, "arbeitsmarkt")).toBeNull();
+  });
+
+  it("rounds ba_sgb2 count-like floats to whole numbers", () => {
+    expect(
+      seriesNumber(
+        {
+          geo_ags5: "11000",
+          indicators: {
+            bedarfsgemeinschaften: 230216.522,
+            personen_sgb2: 435602.637,
+            erwerbsfaehige_leistungsberechtigte: 301234.4,
+            nicht_erwerbsfaehige_leistungsberechtigte: 134368.2,
+            regelleistungsberechtigte: 412000.8,
+          },
+        },
+        "ba_sgb2",
+      ),
+    ).toEqual({ value: 230217, key: "bedarfsgemeinschaften" });
+    expect(
+      seriesNumber(
+        { bg: 230216.522, pers: 435602.637, elb: 301234.4, nef: 134368.2, rlb: 412000.8 },
+        "ba_sgb2",
+      ),
+    ).toEqual({ value: 230217, key: "bg" });
+    expect(seriesNumber({ bg: 230216.0, pers: 435602.0 }, "ba_sgb2")).toEqual({ value: 230216, key: "bg" });
+  });
+
   it("uses year granularity for a single YYYY-MM snapshot", () => {
     expect(detectGranularity([parseRefPeriod("2025-12|bka")!])).toBe("year");
     expect(
@@ -488,6 +558,113 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(gemeindeOnly.sourceLevel).toBe("gemeinde");
     expect(gemeindeOnly.sourceGeoKey).toBe("11000000");
     expect(gemeindeOnly.coverage).toBe("multi");
+  });
+});
+
+describe("yearlySeries STAGE display bugs (Tempelhof / Berlin)", () => {
+  const region = keysForResolvedPlace("ortsteil", "ortsteil:osm:162894", "11000000", "11000", "11", {
+    bezirkOfficial: "11000007",
+  });
+
+  it("marks kba_elektro_pkw placeholder zeros absent without value", () => {
+    const series = buildMetricSeries({
+      metricId: "kba_elektro_pkw",
+      homeLevel: "gemeinde",
+      region,
+      docs: ["2023-01|elektro", "2024-01|elektro", "2025-01|elektro", "2026-07|elektro"].map((period) =>
+        feature({
+          theme: "kba_elektro_pkw",
+          grain: "ags",
+          key: "11000000",
+          period,
+          metadata: { pkw_insgesamt: 0.0, pkw_elektro: 0.0, pkw_elektro_anteil: 4.1 },
+        }),
+      ),
+      asOf,
+    });
+    expect(series.coverage).toBe("none");
+    expect(series.points.every((point) => point.status === "absent")).toBe(true);
+    expect(series.points.every((point) => !("value" in point))).toBe(true);
+  });
+
+  it("uses ba_alo indicators and never formats Berlin AGS 11000000 as the series value", () => {
+    const series = buildMetricSeries({
+      metricId: "arbeitsmarkt",
+      homeLevel: "kreis",
+      region,
+      docs: [
+        feature({
+          theme: "ba_alo",
+          grain: "ags",
+          key: "11000000",
+          period: "2026-09",
+          metadata: {
+            ba_schluessel: "11000000",
+            geo_ags: "11000000",
+            geo_ags5: "11000",
+            source_theme: "ba_alo",
+            indicators: { arbeitslose_insgesamt: 223830, arbeitslose_maenner: 120000, arbeitslose_frauen: 103830 },
+          },
+        }),
+      ],
+      asOf,
+    });
+    expect(series.coverage).toBe("single");
+    expect(series.valueKey).toBe("arbeitslose_insgesamt");
+    expect(series.points.find((point) => point.period === "2026")).toEqual({
+      period: "2026",
+      status: "present",
+      value: 223830,
+    });
+    expect(series.points.some((point) => point.value === 11000000)).toBe(false);
+  });
+
+  it("emits ba_sgb2 2026-09 counts as integers, not metadata floats", () => {
+    const series = buildMetricSeries({
+      metricId: "ba_sgb2",
+      homeLevel: "kreis",
+      region,
+      docs: [
+        feature({
+          theme: "ba_sgb2",
+          grain: "ags5",
+          key: "11000",
+          period: "2026-08|sgb2",
+          metadata: { bedarfsgemeinschaften: 229100.0, personen_sgb2: 434000.0 },
+        }),
+        feature({
+          theme: "ba_sgb2",
+          grain: "ags5",
+          key: "11000",
+          period: "2026-09|sgb2",
+          metadata: {
+            geo_ags5: "11000",
+            indicators: {
+              bedarfsgemeinschaften: 230216.522,
+              personen_sgb2: 435602.637,
+              erwerbsfaehige_leistungsberechtigte: 301234.4,
+              nicht_erwerbsfaehige_leistungsberechtigte: 134368.2,
+              regelleistungsberechtigte: 412000.8,
+            },
+          },
+        }),
+      ],
+      asOf,
+    });
+    expect(series.sourceLevel).toBe("kreis");
+    expect(series.sourceGeoKey).toBe("11000");
+    expect(series.granularity).toBe("month");
+    expect(series.points.find((point) => point.period === "2026-09")).toEqual({
+      period: "2026-09",
+      status: "present",
+      value: 230217,
+    });
+    expect(Number.isInteger(series.points.find((point) => point.period === "2026-09")?.value)).toBe(true);
+    expect(series.points.find((point) => point.period === "2026-08")).toEqual({
+      period: "2026-08",
+      status: "present",
+      value: 229100,
+    });
   });
 });
 
