@@ -6,6 +6,7 @@ import { BrainSearchService } from "./brain-search.service";
 import { PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND } from "./messages";
 import { PatternService } from "./pattern.service";
 import { AnalysisBrain, AnalysisPattern } from "./types";
+import { YearlySeriesService } from "./yearly-series.service";
 
 const brainResult: AnalysisBrain = {
   mode: "sql",
@@ -26,6 +27,7 @@ describe("AnalysisService", () => {
   const search = jest.fn();
   const catalogSearch = jest.fn();
   const derive = jest.fn();
+  const buildSeries = jest.fn();
   let service: AnalysisService;
 
   beforeEach(() => {
@@ -33,14 +35,17 @@ describe("AnalysisService", () => {
     search.mockReset();
     catalogSearch.mockReset();
     derive.mockReset();
+    buildSeries.mockReset();
     search.mockResolvedValue(brainResult);
     catalogSearch.mockResolvedValue([]);
     derive.mockResolvedValue(pattern);
+    buildSeries.mockResolvedValue([]);
     service = new AnalysisService(
       { query } as unknown as DatabaseService,
       { search } as unknown as BrainSearchService,
       { derive } as unknown as PatternService,
       { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
+      { build: buildSeries } as unknown as YearlySeriesService,
     );
   });
 
@@ -97,9 +102,10 @@ describe("AnalysisService", () => {
     ]);
     expect(search).toHaveBeenCalledWith(run.input);
     expect(derive).toHaveBeenCalledWith(run.input, []);
+    expect(buildSeries).toHaveBeenCalledWith(run.input.regions, expect.any(Date));
     expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("INSERT INTO app.analysis_runs"));
     expect(query.mock.calls[2]?.[1]?.[0]).toBe("4");
-    expect(run.pattern).toEqual(pattern);
+    expect(run.pattern).toEqual({ ...pattern, yearlySeries: [] });
   });
 
   it("does not return another user's run", async () => {
@@ -129,7 +135,7 @@ describe("AnalysisService", () => {
     await expect(service.latestPattern("4")).resolves.toEqual({
       runId: "15",
       createdAt: "2026-04-02T00:00:00.000Z",
-      pattern,
+      pattern: { ...pattern, yearlySeries: [] },
     });
     expect(query.mock.calls.at(-1)?.[1]).toEqual(["4"]);
   });

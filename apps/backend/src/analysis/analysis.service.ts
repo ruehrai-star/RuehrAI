@@ -28,7 +28,10 @@ import {
   AnalysisRegion,
   AnalysisRun,
   AnalysisStoreInput,
+  analysisRegions,
 } from "./types";
+import { asOfFrom } from "./yearly-series";
+import { YearlySeriesService } from "./yearly-series.service";
 
 interface RegionRow {
   label: string;
@@ -77,6 +80,7 @@ export class AnalysisService {
     private readonly brain: BrainSearchService,
     private readonly patterns: PatternService,
     private readonly geoCatalog: GeoCatalogService,
+    private readonly yearlySeries: YearlySeriesService,
   ) {}
 
   async getInput(userId: string): Promise<AnalysisInput> {
@@ -91,7 +95,8 @@ export class AnalysisService {
   async createRun(userId: string): Promise<AnalysisRun> {
     const input = await this.loadInput(userId);
     const brain = await this.brain.search(input);
-    const pattern = await this.patterns.derive(input, brain.facts);
+    const derived = await this.patterns.derive(input, brain.facts);
+    const pattern = await this.attachYearlySeries(derived, input);
     const inserted = await this.db.query<{ id: string; created_at: Date | string }>(
       `INSERT INTO app.analysis_runs (user_id, status, input, brain, pattern)
        VALUES ($1::bigint, 'completed', $2::jsonb, $3::jsonb, $4::jsonb)
@@ -120,7 +125,7 @@ export class AnalysisService {
     );
     const row = result.rows[0];
     if (!row) throw new NotFoundException(RUN_NOT_FOUND);
-    return toRun(row);
+    return toRun({ ...row, pattern: await this.withYearlySeries(row.pattern, row.input) });
   }
 
   async latestPattern(userId: string): Promise<AnalysisPatternResponse> {
@@ -138,8 +143,21 @@ export class AnalysisService {
     return {
       runId: row.id,
       createdAt: toIso(row.created_at),
-      pattern: row.pattern,
+      pattern: await this.withYearlySeries(row.pattern, row.input),
     };
+  }
+
+  private async attachYearlySeries(pattern: AnalysisPattern, input: AnalysisInput): Promise<AnalysisPattern> {
+    const yearlySeries = await this.yearlySeries.build(analysisRegions(input), asOfFrom(input.capturedAt));
+    return { ...pattern, yearlySeries };
+  }
+
+  private async withYearlySeries(pattern: AnalysisPattern, input: AnalysisInput | undefined): Promise<AnalysisPattern> {
+    if (Array.isArray(pattern.yearlySeries)) return pattern;
+    if (!input?.region && !(input?.regions && input.regions.length > 0)) {
+      return { ...pattern, yearlySeries: [] };
+    }
+    return this.attachYearlySeries(pattern, input);
   }
 
   private async loadInput(userId: string): Promise<AnalysisInput> {

@@ -1,5 +1,8 @@
 import { LonLatBounds, RegionGeometry } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
+import { YearlySeries } from "./yearly-series";
+
+export type { SeriesCoverage, SeriesGranularity, SeriesLevel, SeriesPoint, YearlySeries } from "./yearly-series";
 
 export type RevenueDirection = "up" | "down" | "flat";
 export type CriterionDirection = RevenueDirection | "unknown";
@@ -112,6 +115,8 @@ export interface AnalysisPattern {
   summary: string;
   revenueDirection: RevenueDirection;
   criteria: PatternCriterion[];
+  /** Three-year Brain series for the Zielregionen. Not store revenue. */
+  yearlySeries?: YearlySeries[];
 }
 
 export interface AnalysisRun {
