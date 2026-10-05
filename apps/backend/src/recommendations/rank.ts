@@ -1,4 +1,5 @@
 import { AnalysisRegion, CriterionDirection, PatternCriterion } from "../analysis/types";
+import { formatMetricNumber, roundCountMetricValue } from "../analysis/count-metrics";
 import { GRAINS, Grain } from "../target-region/dto";
 import { CandidateRow, ScoredLocation } from "./types";
 import { monthKey } from "./window";
@@ -76,7 +77,7 @@ export function rankCandidates(
           label: criterion.label,
           direction,
           patternDirection: criterion.direction,
-          evidence: evidenceFor(criterion.label, periods, direction),
+          evidence: evidenceFor(criterion.key, criterion.label, periods, direction),
         },
       ];
     });
@@ -171,7 +172,7 @@ function walk(value: unknown, prefix: string, key: string, found: number[]): voi
     }
     if (fullKey !== key) continue;
     const numeric = asNumber(nested);
-    if (numeric !== null) found.push(numeric);
+    if (numeric !== null) found.push(roundCountMetricValue(key, numeric));
   }
 }
 
@@ -197,6 +198,7 @@ function directionAcrossPeriods(periods: Map<string, number[]>): CriterionDirect
 }
 
 function evidenceFor(
+  key: string,
   label: string,
   periods: Map<string, number[]>,
   direction: CriterionDirection,
@@ -205,7 +207,7 @@ function evidenceFor(
     .filter(([, values]) => values.length > 0)
     .sort((left, right) => left[0].localeCompare(right[0]));
   const rendered = ordered
-    .map(([period, values]) => `${period}: ${formatNumber(mean(values))}`)
+    .map(([period, values]) => `${period}: ${formatMetricNumber(key, mean(values))}`)
     .join("; ");
   const word = direction === "up" ? "steigt" : direction === "down" ? "fällt" : "bleibt nahezu gleich";
   return `${label} ${word} in den letzten sechs Monaten (${rendered}).`;
@@ -214,10 +216,6 @@ function evidenceFor(
 function mean(values: number[]): number {
   if (values.length === 0) return 0;
   return values.reduce((total, value) => total + value, 0) / values.length;
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
 }
 
 function roundScore(value: number): number {

@@ -19,6 +19,7 @@ import {
   parentMunicipalityAgs,
 } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs, regionalstatistikBerlinBezirkAgs } from "../geo/bezirk-ags";
+import { roundCountMetricValue } from "./count-metrics";
 
 export interface SeriesRegionInput {
   grain?: string | null;
@@ -110,34 +111,13 @@ const NESTED_VALUE_BAGS = ["values", "werte", "indicators"] as const;
 
 const KBA_ELEKTRO_COUNT_KEYS = new Set(["pkw_elektro", "pkw_insgesamt", "pkw_bev", "pkw_phev"]);
 
-const SGB2_COUNT_KEYS = new Set([
-  "bg",
-  "BG",
-  "bedarfsgemeinschaften",
-  "pers",
-  "PERS",
-  "personen_sgb2",
-  "personen",
-  "elb",
-  "ELB",
-  "erwerbsfaehige_leistungsberechtigte",
-  "erwerbsfaehige",
-  "nef",
-  "NEF",
-  "nicht_erwerbsfaehige_leistungsberechtigte",
-  "nicht_erwerbsfaehige",
-  "rlb",
-  "RLB",
-  "regelleistungsberechtigte",
-  "leistungsberechtigte",
-]);
-
 const PREFERRED_VALUE_KEYS = [
   "value",
   "count",
   "anzahl",
   "personen",
   "einwohner",
+  "ewz",
   "arbeitslose",
   "insgesamt",
   "svb_wohnort",
@@ -298,13 +278,16 @@ export function coverageOf(points: SeriesPoint[]): SeriesCoverage {
 /**
  * One stored numeric cell. A real 0 is a value. Missing, unreadable, or
  * placeholder cells are null — never coerced to 0 or {}. Geo identifiers
- * (`ba_schluessel`, `geo_ags`, …) are not metric numbers.
+ * (`ba_schluessel`, `geo_ags`, …) are not metric numbers. Count-like keys
+ * (wohnungen, ewz, SGB2 BG/PERS, …) are rounded; rates stay fractional.
  */
 export function seriesNumber(metadata: unknown, metricId?: string): { value: number; key?: string } | null {
-  if (typeof metadata === "number" && Number.isFinite(metadata)) return { value: metadata };
+  if (typeof metadata === "number" && Number.isFinite(metadata)) {
+    return { value: roundCountMetricValue("", metadata, metricId) };
+  }
   if (typeof metadata === "string") {
     const numeric = asFiniteNumber(metadata);
-    return numeric === null ? null : { value: numeric };
+    return numeric === null ? null : { value: roundCountMetricValue("", numeric, metricId) };
   }
   if (!isRecord(metadata)) return null;
   const cleaned = storedRowValue(metadata);
@@ -723,14 +706,7 @@ function finalizeSeriesNumber(
   metricId?: string,
 ): { value: number; key?: string } | null {
   if (isSuppressedKbaElektroZero(hit, numeric, metricId)) return null;
-  if (isSgb2CountMetric(hit.key, metricId)) return { key: hit.key, value: Math.round(hit.value) };
-  return hit;
-}
-
-function isSgb2CountMetric(key: string, metricId?: string): boolean {
-  if (!SGB2_COUNT_KEYS.has(key)) return false;
-  if (metricId === "ba_sgb2") return true;
-  return key !== "personen";
+  return { key: hit.key, value: roundCountMetricValue(hit.key, hit.value, metricId) };
 }
 
 function isSuppressedKbaElektroZero(

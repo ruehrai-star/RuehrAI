@@ -87,6 +87,34 @@ describe("pattern", () => {
     expect(pattern.criteria[0]?.evidence).toContain("2023-05");
   });
 
+  it("formats count-like heuristic values as whole German numbers", () => {
+    const pattern = buildHeuristicPattern(input(), [
+      fact({
+        id: "1",
+        refPeriod: "2024|wohnungen",
+        signals: [
+          { key: "wohnungen", value: "413771.33" },
+          { key: "ewz", value: "742286.33" },
+        ],
+      }),
+    ]);
+    const wohnungen = pattern.criteria.find((criterion) => criterion.key === "wohnungen");
+    const ewz = pattern.criteria.find((criterion) => criterion.key === "ewz");
+    expect(wohnungen?.evidence).toContain("413.771");
+    expect(wohnungen?.evidence).not.toContain("413.771,33");
+    expect(ewz?.evidence).toContain("742.286");
+    expect(ewz?.evidence).not.toContain("742.286,33");
+  });
+
+  it("keeps rate-like heuristic values fractional", () => {
+    const pattern = buildHeuristicPattern(input(), [
+      fact({
+        signals: [{ key: "pkw_elektro_anteil", value: "4.1" }],
+      }),
+    ]);
+    expect(pattern.criteria[0]?.evidence).toContain("4,1");
+  });
+
   it("accepts an LLM pattern only when every criterion is grounded", () => {
     const facts = [fact()];
     const raw = JSON.stringify({
