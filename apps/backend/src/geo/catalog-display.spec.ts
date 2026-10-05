@@ -57,7 +57,7 @@ describe("fillMissingCatalogDisplay", () => {
         },
         search,
       ),
-    ).resolves.toMatchObject({ level: null });
+    ).resolves.toMatchObject({ level: "ortsteil" });
   });
 
   it("sets stadtbezirk and catalog parent on an official AGS district", async () => {

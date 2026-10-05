@@ -390,6 +390,25 @@ describe("buildMetricSeries", () => {
       }),
     ).toBe("gemeinde" satisfies CatalogLevel);
   });
+
+  it("classifies Tempelhof from the Ortsteil geo key even without a stored level", () => {
+    expect(
+      requestedLevelOf({
+        grain: "other",
+        geoKey: "ortsteil:osm:162894",
+        ags: "11000000",
+        plz: null,
+      }),
+    ).toBe("ortsteil" satisfies CatalogLevel);
+    expect(
+      requestedLevelOf({
+        grain: "other",
+        geoKey: "ortsteil:osm:162894",
+        ags: null,
+        plz: null,
+      }),
+    ).toBe("ortsteil" satisfies CatalogLevel);
+  });
 });
 
 describe("Tempelhof Brain series (inventory 2026-10-05)", () => {

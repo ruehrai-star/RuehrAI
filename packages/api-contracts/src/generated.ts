@@ -1090,8 +1090,10 @@ export interface components {
          *     trend exists. `sourceLevel` / `sourceGeoKey` are the Brain row, not
          *     the picker grain. Unfallatlas Gebiet may be Ortsteil, Bezirk, or
          *     PLZ when that key exists; Gemeinde/Kreis/Land AGS series stay on
-         *     grain `ags` / `ags5` / `other` and are labeled as such. Missing
-         *     cells are `absent` without `value`. Store revenue is not included.
+         *     grain `ags` / `ags5` / `other` and are labeled as such. An Ortsteil
+         *     or Stadtteil picker still produces this array: missing local rows
+         *     fall back to Gemeinde / Kreis / Land. Missing cells are `absent`
+         *     without `value`. Store revenue is not included.
          */
         YearlySeries: {
             /**

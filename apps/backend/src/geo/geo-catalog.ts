@@ -100,6 +100,19 @@ export function isMunicipalityPlace(input: {
   return grain === "ags" || grain == null;
 }
 
+/**
+ * Catalog token already stored on the geo key (`ortsteil:osm:…`, `plz5:…`).
+ * Not a guess of Gemeinde. `ags:` stays unresolved so AGS digit rules apply.
+ */
+export function catalogLevelFromGeoKey(geoKey: string | null | undefined): CatalogLevel | null {
+  if (!geoKey) return null;
+  const match = /^(plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk):/i.exec(geoKey.trim());
+  if (!match?.[1]) return null;
+  const prefix = match[1].toLowerCase();
+  if (prefix === "plz5" || prefix === "plz8") return "plz";
+  return prefix as CatalogLevel;
+}
+
 /** Catalog sub-area token wins. A municipality without one is `gemeinde`. */
 export function catalogLevelForPlace(input: {
   grain?: string | null;
@@ -108,6 +121,8 @@ export function catalogLevelForPlace(input: {
   level?: string | null;
 }): CatalogLevel | null {
   if (isGeoCatalogLevel(input.level)) return input.level;
+  const fromKey = catalogLevelFromGeoKey(input.geoKey);
+  if (fromKey) return fromKey;
   const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
   if (key && isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return "bezirk";
   if (isAgsDistrictPlace(input)) return "stadtbezirk";
@@ -132,7 +147,13 @@ export function applyAdminCatalogDisplay(
 ): { level: CatalogLevel | null; parentLabel: string | null } {
   const key = officialAgsKey(input.geoKey) ?? officialAgsKey(input.ags);
   const parentKey = parentMunicipalityAgs(key);
-  if (key && adminNames.has(key) && !isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) {
+  const subarea = catalogLevelFromGeoKey(input.geoKey);
+  if (
+    key &&
+    adminNames.has(key) &&
+    !isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key)) &&
+    !subarea
+  ) {
     return { level: "gemeinde", parentLabel: null };
   }
   const level = catalogLevelForPlace(input);
