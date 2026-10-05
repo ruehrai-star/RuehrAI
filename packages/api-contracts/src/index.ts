@@ -64,6 +64,7 @@ export type PatternLevelRole = Schemas["PatternLevelRole"];
 export type PatternLevelProfile = Schemas["PatternLevelProfile"];
 export type PatternDatasetProfile = Schemas["PatternDatasetProfile"];
 export type SeriesBaseline = Schemas["SeriesBaseline"];
+export type BaselineMethod = Schemas["BaselineMethod"];
 export type AddressPairRequest = Schemas["AddressPairRequest"];
 export type AddressInput = Schemas["AddressInput"];
 export type AddressPairResult = Schemas["AddressPairResult"];

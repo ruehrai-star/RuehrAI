@@ -19,6 +19,7 @@ import {
   parentMunicipalityAgs,
 } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs, regionalstatistikBerlinBezirkAgs } from "../geo/bezirk-ags";
+import type { BaselineMethod } from "./area-baseline";
 import { roundCountMetricValue } from "./count-metrics";
 
 export interface SeriesRegionInput {
@@ -40,6 +41,8 @@ export interface SeriesPoint {
   value?: number;
   /** Rohwert / Bezugsgröße. Omitted when the Bezugsgröße liegt nicht vor. */
   normalizedValue?: number;
+  /** Method of the divisor from `geo.area_baseline`. Omitted on feature fallback. */
+  baselineMethod?: BaselineMethod;
 }
 
 export interface YearlySeries {

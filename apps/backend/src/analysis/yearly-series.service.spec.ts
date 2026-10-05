@@ -1,5 +1,6 @@
 import { DatabaseService } from "../database/database.service";
 import { AnalysisRegion } from "./types";
+import { AreaBaselineService } from "./area-baseline.service";
 import { SERIES_METRICS } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
 
@@ -11,7 +12,10 @@ describe("YearlySeriesService", () => {
 
   beforeEach(() => {
     queryReadingFeatures.mockReset();
-    service = new YearlySeriesService({ queryReadingFeatures } as unknown as DatabaseService);
+    service = new YearlySeriesService(
+      { queryReadingFeatures } as unknown as DatabaseService,
+      { normalize: async (items) => items } as unknown as AreaBaselineService,
+    );
   });
 
   it("resolves a PLZ through geo_ref_plz and labels the source as Gemeinde", async () => {

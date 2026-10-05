@@ -193,9 +193,16 @@ export function grainMatchesTopic(grain: string | null, id: SeriesMetricId, leve
   return allowed.includes(grain);
 }
 
-function themesForMetric(id: SeriesMetricId): readonly string[] {
+export function sourceThemesForMetric(id: string): readonly string[] {
   if (isExtraSeriesMetric(id)) return EXTRA_SERIES_SOURCE_THEMES[id];
-  return TOPIC_SOURCE_THEMES[id];
+  if (Object.prototype.hasOwnProperty.call(TOPIC_SOURCE_THEMES, id)) {
+    return TOPIC_SOURCE_THEMES[id as TopicId];
+  }
+  return id ? [id] : [];
+}
+
+function themesForMetric(id: SeriesMetricId): readonly string[] {
+  return sourceThemesForMetric(id);
 }
 
 function grainsForMetric(id: SeriesMetricId): Partial<Record<TopicLevel, readonly string[]>> {

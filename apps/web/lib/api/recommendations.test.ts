@@ -163,6 +163,7 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
         baseline: "per_1000_inhabitants",
         sourceLevel: "plz",
         sourceGeoKey: "80801",
+        baselineMethod: "official",
         yearlySeries: {
           metricId: "kba_elektro_pkw",
           requestedLevel: "plz",
@@ -172,9 +173,9 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
           granularity: "year",
           coverage: "multi",
           points: [
-            { period: "2023", status: "present", value: 10, normalizedValue: 1 },
+            { period: "2023", status: "present", value: 10, normalizedValue: 1, baselineMethod: "official" },
             { period: "2024", status: "absent" },
-            { period: "2025", status: "present", value: 20, normalizedValue: 2 },
+            { period: "2025", status: "present", value: 20, normalizedValue: 2, baselineMethod: "official" },
           ],
         },
         criterion: {
@@ -188,6 +189,7 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
           rawValue: 20,
           normalizedValue: 2,
           sourceLevel: "plz",
+          baselineMethod: "official",
         },
       },
     ],
@@ -202,6 +204,7 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
             rawValue: 20,
             normalizedValue: 2,
             sourceLevel: "plz",
+            baselineMethod: "official",
           },
         ],
       },
@@ -216,7 +219,14 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
   assert.equal(latest?.patternByDataset?.[0]?.metricId, "kba_elektro_pkw");
   assert.equal(latest?.patternByDataset?.[0]?.baseline, "per_1000_inhabitants");
   assert.equal(latest?.patternByDataset?.[0]?.criterion.normalizedValue, 2);
+  assert.equal(latest?.patternByDataset?.[0]?.criterion.baselineMethod, "official");
+  assert.equal(latest?.patternByDataset?.[0]?.baselineMethod, "official");
+  assert.equal(
+    latest?.patternByDataset?.[0]?.yearlySeries.points.find((point) => point.period === "2025")?.baselineMethod,
+    "official",
+  );
   assert.equal(latest?.items[0]?.criteriaEvidence[0]?.rawValue, 20);
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.baselineMethod, "official");
   assert.equal(
     latest?.patternByDataset?.[0]?.yearlySeries.points.find((point) => point.period === "2024")?.normalizedValue,
     undefined,

@@ -1,8 +1,10 @@
 import { PatternCriterion } from "./types";
 import { criteriaFromYearlySeries, seriesLevelRank } from "./series-criteria";
+import type { BaselineMethod } from "./area-baseline";
 import {
   attachNormalizedValues,
   baselineForMetric,
+  latestBaselineMethod,
   SeriesBaseline,
 } from "./series-baseline";
 import {
@@ -44,6 +46,7 @@ export interface PatternDatasetProfile {
   sourceGeoKey: string;
   yearlySeries: YearlySeries;
   criterion: PatternCriterion;
+  baselineMethod?: BaselineMethod;
 }
 
 const LEVEL_ALIASES: Record<string, PatternLevel> = {
@@ -124,13 +127,15 @@ export function buildPatternByDataset(series: YearlySeries[]): PatternDatasetPro
       normalized.find((entry) => entry.metricId === criterion.key);
     const yearlySeries = item ?? emptySeries(criterion.key);
     const baseline = criterion.baseline ?? baselineForMetric(criterion.key);
+    const baselineMethod = criterion.baselineMethod ?? latestBaselineMethod(yearlySeries.points);
     return {
       metricId: criterion.metricId ?? criterion.key,
       baseline,
       sourceLevel: (criterion.sourceLevel ?? yearlySeries.sourceLevel) as SeriesLevel,
       sourceGeoKey: criterion.sourceGeoKey ?? yearlySeries.sourceGeoKey,
       yearlySeries,
-      criterion: { ...criterion, metricId: criterion.metricId ?? criterion.key, baseline },
+      criterion: { ...criterion, metricId: criterion.metricId ?? criterion.key, baseline, baselineMethod },
+      baselineMethod,
     };
   });
 }

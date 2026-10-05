@@ -1,3 +1,14 @@
+import { sourceThemesForMetric } from "../address-pair/topics";
+import {
+  AreaBaselineRow,
+  BaselineMethod,
+  MetricCatalogEntry,
+  areaDivisor,
+  buildAreaBaselineIndex,
+  catalogSeriesBaseline,
+  findAreaBaseline,
+  isBaselineMethod,
+} from "./area-baseline";
 import { isCountMetricKey } from "./count-metrics";
 import { SeriesPoint, YearlySeries } from "./yearly-series";
 
@@ -52,6 +63,12 @@ export interface BaselineLookup {
   km2: Map<string, number>;
 }
 
+/** Brain `geo.area_baseline` + catalog. Catalog-first when the theme is listed. */
+export interface AreaBaselineContext {
+  catalog: Map<string, MetricCatalogEntry>;
+  rows: AreaBaselineRow[];
+}
+
 export function buildBaselineLookup(series: YearlySeries[]): BaselineLookup {
   const inhabitants = new Map<string, number>();
   const households = new Map<string, number>();
@@ -77,14 +94,50 @@ export function buildBaselineLookup(series: YearlySeries[]): BaselineLookup {
   return { inhabitants, households, km2 };
 }
 
-/** Copy series and attach `normalizedValue` when the Bezugsgröße is present. Never invent 0. */
-export function attachNormalizedValues(series: YearlySeries[]): YearlySeries[] {
+export function catalogEntryForMetric(
+  catalog: Map<string, MetricCatalogEntry> | undefined,
+  metricId: string,
+  valueKey?: string,
+): MetricCatalogEntry | undefined {
+  if (!catalog || catalog.size === 0) return undefined;
+  const keys = [metricId, ...sourceThemesForMetric(metricId)];
+  const entries: MetricCatalogEntry[] = [];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const entry = catalog.get(key);
+    if (entry) entries.push(entry);
+  }
+  if (entries.length === 0) return undefined;
+  if (HOUSEHOLD_VALUE.test(valueKey ?? "") || HOUSEHOLD_VALUE.test(metricId)) {
+    return entries.find((entry) => entry.recommendedBaseline === "haushalte") ?? entries[0];
+  }
+  return entries[0];
+}
+
+/**
+ * Copy series and attach `normalizedValue` when the Bezugsgröße is present.
+ * Never invent 0. Catalog themes never fall back to sibling series or divide by 1.
+ * A prior `baselineMethod: missing` is kept on a second attach.
+ */
+export function attachNormalizedValues(series: YearlySeries[], area?: AreaBaselineContext): YearlySeries[] {
   const lookup = buildBaselineLookup(series);
+  const index = area ? buildAreaBaselineIndex(area.rows) : null;
   return series.map((item) => {
-    const baseline = baselineForMetric(item.metricId, item.valueKey);
+    const catalog = catalogEntryForMetric(area?.catalog, item.metricId, item.valueKey);
+    const fromCatalog = catalog ? catalogSeriesBaseline(catalog) : null;
+    const baseline = fromCatalog?.baseline ?? baselineForMetric(item.metricId, item.valueKey);
+    const scale = fromCatalog?.scale ?? (baseline === "per_1000_inhabitants" ? 1000 : 1);
     return {
       ...item,
-      points: item.points.map((point) => normalizePoint(point, item, baseline, lookup)),
+      points: item.points.map((point) =>
+        normalizePoint(point, item, baseline, lookup, {
+          catalog,
+          scale,
+          index,
+        }),
+      ),
     };
   });
 }
@@ -94,22 +147,31 @@ export function normalizePoint(
   series: Pick<YearlySeries, "metricId" | "valueKey" | "sourceGeoKey" | "requestedGeoKey">,
   baseline: SeriesBaseline,
   lookup: BaselineLookup,
+  area?: {
+    catalog?: MetricCatalogEntry;
+    scale: number;
+    index: Map<string, AreaBaselineRow> | null;
+  },
 ): SeriesPoint {
   if (point.status !== "present" || typeof point.value !== "number" || !Number.isFinite(point.value)) {
     return { period: point.period, status: point.status === "absent" ? "absent" : point.status };
   }
+  if (area?.catalog && area.index) {
+    return normalizeFromArea(point, series, area.catalog, area.scale, area.index);
+  }
+  if (point.baselineMethod === "missing") {
+    return presentRaw(point.period, point.value, "missing");
+  }
+  if (isBaselineMethod(point.baselineMethod)) {
+    return copyCatalogPoint(point);
+  }
   const year = yearOf(point.period);
   const divisor = year == null ? null : baselineDivisor(baseline, series, year, lookup);
   if (divisor == null || !(divisor > 0)) {
-    return { period: point.period, status: "present", value: point.value };
+    return presentRaw(point.period, point.value);
   }
   const scale = baseline === "per_1000_inhabitants" ? 1000 : 1;
-  return {
-    period: point.period,
-    status: "present",
-    value: point.value,
-    normalizedValue: roundNormalized((point.value / divisor) * scale),
-  };
+  return presentRaw(point.period, point.value, undefined, roundNormalized((point.value / divisor) * scale));
 }
 
 export function presentNormalizedPoints(
@@ -133,6 +195,57 @@ export function latestRawValue(points: SeriesPoint[]): number | undefined {
 export function latestNormalizedValue(points: SeriesPoint[]): number | undefined {
   const present = presentNormalizedPoints(points);
   return present.length === 0 ? undefined : present[present.length - 1]!.normalizedValue;
+}
+
+export function latestBaselineMethod(points: SeriesPoint[]): BaselineMethod | undefined {
+  const present = presentRawPoints(points);
+  for (let index = present.length - 1; index >= 0; index -= 1) {
+    const method = present[index]!.baselineMethod;
+    if (isBaselineMethod(method)) return method;
+  }
+  return undefined;
+}
+
+function normalizeFromArea(
+  point: SeriesPoint,
+  series: Pick<YearlySeries, "sourceGeoKey" | "requestedGeoKey">,
+  catalog: MetricCatalogEntry,
+  scale: number,
+  index: Map<string, AreaBaselineRow>,
+): SeriesPoint {
+  const year = yearOf(point.period);
+  if (year == null) return presentRaw(point.period, point.value!, "missing");
+  const row = findAreaBaseline(index, [series.sourceGeoKey, series.requestedGeoKey], year, catalog.recommendedBaseline);
+  const divisor = areaDivisor(row, catalog.recommendedBaseline);
+  if (divisor == null) {
+    return presentRaw(point.period, point.value!, "missing");
+  }
+  return presentRaw(
+    point.period,
+    point.value!,
+    divisor.method,
+    roundNormalized((point.value! / divisor.value) * scale),
+  );
+}
+
+function copyCatalogPoint(point: SeriesPoint): SeriesPoint {
+  const next = presentRaw(point.period, point.value!, point.baselineMethod);
+  if (typeof point.normalizedValue === "number" && Number.isFinite(point.normalizedValue)) {
+    next.normalizedValue = point.normalizedValue;
+  }
+  return next;
+}
+
+function presentRaw(
+  period: string,
+  value: number,
+  baselineMethod?: BaselineMethod,
+  normalizedValue?: number,
+): SeriesPoint {
+  const point: SeriesPoint = { period, status: "present", value };
+  if (baselineMethod) point.baselineMethod = baselineMethod;
+  if (normalizedValue != null) point.normalizedValue = normalizedValue;
+  return point;
 }
 
 function baselineDivisor(

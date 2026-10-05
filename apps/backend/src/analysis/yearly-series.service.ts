@@ -8,6 +8,7 @@ import {
 } from "../database/pg-error";
 import { officialAgsKey } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
+import { AreaBaselineService } from "./area-baseline.service";
 import {
   RegionSourceKeys,
   SERIES_METRICS,
@@ -46,17 +47,21 @@ interface BezirkRow {
 export class YearlySeriesService {
   private readonly logger = new Logger(YearlySeriesService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly areaBaseline: AreaBaselineService,
+  ) {}
 
   /**
    * Stored Brain values for the last three years on each Zielregion.
-   * Never interpolates. Store revenue is not included.
+   * Never interpolates. Store revenue is not included. Catalog-listed
+   * themes are baselined from `geo.area_baseline` (method on each point).
    */
   async build(regions: SeriesRegionInput[], asOf = new Date()): Promise<YearlySeries[]> {
     const resolved = await this.resolveRegions(regions);
     if (resolved.length === 0) return [];
     const docs = await this.readFeatureDocs(allLookupKeys(resolved));
-    return resolved.flatMap((region) =>
+    const series = resolved.flatMap((region) =>
       SERIES_METRICS.map((metric) =>
         buildMetricSeries({
           metricId: metric.id,
@@ -67,6 +72,7 @@ export class YearlySeriesService {
         }),
       ),
     );
+    return this.areaBaseline.normalize(series);
   }
 
   private async resolveRegions(regions: SeriesRegionInput[]): Promise<RegionSourceKeys[]> {

@@ -7,6 +7,7 @@ import {
   baselineForMetric,
   baselineNoun,
   isPopulationMetric,
+  latestBaselineMethod,
   latestNormalizedValue,
   latestRawValue,
   presentNormalizedPoints,
@@ -302,6 +303,7 @@ function toCriterion(series: YearlySeries): PatternCriterion {
     baseline,
     rawValue: latestRawValue(series.points),
     normalizedValue: latestNormalizedValue(series.points),
+    baselineMethod: latestBaselineMethod(series.points),
   };
 }
 

@@ -1,5 +1,6 @@
 import { Grain } from "../target-region/dto";
 import { PatternLevelProfile, PatternDatasetProfile } from "../analysis/pattern-profile";
+import type { BaselineMethod } from "../analysis/area-baseline";
 import { SeriesBaseline } from "../analysis/series-baseline";
 import { AnalysisPattern, CriterionDirection, PatternSource } from "../analysis/types";
 import { SeriesCoverage, SeriesPoint, SeriesPointStatus } from "../analysis/yearly-series";
@@ -39,6 +40,7 @@ export interface RecommendationEvidence {
   baseline?: SeriesBaseline;
   rawValue?: number;
   normalizedValue?: number;
+  baselineMethod?: BaselineMethod;
 }
 
 export interface ScoredLocation {

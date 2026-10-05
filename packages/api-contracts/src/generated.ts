@@ -1164,8 +1164,14 @@ export interface components {
              * @description Raw `value` divided by the area Bezugsgröße (`per_1000_inhabitants`
              *     is per 1.000 inhabitants). Omitted when the Bezugsgröße for that
              *     Fläche and year liegt nicht vor. Never invented as `0`.
+             *     `baselineMethod: missing` always omits this field.
              */
             normalizedValue?: number;
+            /**
+             * @description Method of the divisor actually used from `geo.area_baseline`.
+             *     Omitted on older stored sets and on feature-derived fallback.
+             */
+            baselineMethod?: components["schemas"]["BaselineMethod"];
         };
         /**
          * @description Bezugsgröße used to baseline a dataset on its own Fläche.
@@ -1176,6 +1182,15 @@ export interface components {
          * @enum {string}
          */
         SeriesBaseline: "per_1000_inhabitants" | "per_km2" | "per_household";
+        /**
+         * @description Method of the Bezugsgröße from Brain `geo.area_baseline`.
+         *     Einwohner: `official` | `estimate_lor_sum` | `estimate_address` |
+         *     `missing` (never a silent NULL). Fläche: `geom` | `official` |
+         *     `fixed_grid`. `missing` means `normalizedValue` is absent; never
+         *     divide by 1.
+         * @enum {string}
+         */
+        BaselineMethod: "official" | "estimate_lor_sum" | "estimate_address" | "missing" | "geom" | "fixed_grid";
         /**
          * @description One topic on one Zielregion over the last three UTC calendar years
          *     (`year`) or the last 36 UTC months (`month`). When the newest Brain
@@ -1288,6 +1303,11 @@ export interface components {
              *     Bezugsgröße liegt nicht vor. Never `0` as a stand-in.
              */
             normalizedValue?: number;
+            /**
+             * @description Method of the latest present Bezugsgröße. `missing` when the
+             *     catalog theme has no usable divisor for that year.
+             */
+            baselineMethod?: components["schemas"]["BaselineMethod"];
         };
         /**
          * @description Canonical Ebene of a store-surroundings Musterprofil.
@@ -1332,6 +1352,8 @@ export interface components {
             sourceGeoKey: string;
             yearlySeries: components["schemas"]["YearlySeries"];
             criterion: components["schemas"]["PatternCriterion"];
+            /** @description Method of the Bezugsgröße on this dataset profile. Additive. */
+            baselineMethod?: components["schemas"]["BaselineMethod"];
         };
         /**
          * @description Snapshot place this pattern belongs to, for the Stand line
@@ -1516,6 +1538,8 @@ export interface components {
              *     liegt nicht vor. Never invented as `0`.
              */
             normalizedValue?: number;
+            /** @description Method of the divisor used on this Teilfläche. Additive. */
+            baselineMethod?: components["schemas"]["BaselineMethod"];
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

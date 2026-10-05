@@ -1,6 +1,7 @@
 import { LonLatBounds, RegionGeometry } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
 import { SeriesCoverage, SeriesLevel, YearlySeries } from "./yearly-series";
+import type { BaselineMethod } from "./area-baseline";
 import { SeriesBaseline } from "./series-baseline";
 
 export type { SeriesCoverage, SeriesGranularity, SeriesLevel, SeriesPoint, YearlySeries } from "./yearly-series";
@@ -124,6 +125,8 @@ export interface PatternCriterion {
   baseline?: SeriesBaseline;
   rawValue?: number;
   normalizedValue?: number;
+  /** Method of the Bezugsgröße used (`geo.area_baseline`). Additive. */
+  baselineMethod?: BaselineMethod;
 }
 
 export interface AnalysisPattern {

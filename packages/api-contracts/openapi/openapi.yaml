@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.15.0
+  version: 0.16.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -113,6 +113,16 @@ info:
     hit (intersection of those Flächen). `patternByDataset` is the
     compare profile; `patternByLevel` stays a geography inventory.
     Hierarchy Adresse→…→Gemeinde still chooses Flächen. Additive.
+    `0.16.0` takes Bezugsgrößen from Brain `geo.area_baseline` (PK
+    `geo_key`, `grain`, `ref_year`) and `geo.baseline_metric_catalog`
+    (`source_theme` → `einwohner` / `flaeche_km2` / `haushalte`).
+    `baselineMethod` on `SeriesPoint`, `PatternCriterion`,
+    `PatternDatasetProfile`, and `RecommendationEvidence` is the method
+    of the divisor (`official`, `estimate_lor_sum`, `estimate_address`,
+    `missing`, `geom`, `fixed_grid`). `einwohner_method` is never a
+    silent NULL; `missing` omits `normalizedValue` and never divides by
+    1. Catalog-first per theme. Zensus-Gitter-EW is not in v1 (grid100
+    often `estimate_address` or absent). Additive.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -2102,6 +2112,12 @@ components:
             Raw `value` divided by the area Bezugsgröße (`per_1000_inhabitants`
             is per 1.000 inhabitants). Omitted when the Bezugsgröße for that
             Fläche and year liegt nicht vor. Never invented as `0`.
+            `baselineMethod: missing` always omits this field.
+        baselineMethod:
+          $ref: "#/components/schemas/BaselineMethod"
+          description: |
+            Method of the divisor actually used from `geo.area_baseline`.
+            Omitted on older stored sets and on feature-derived fallback.
     SeriesBaseline:
       type: string
       description: |
@@ -2111,6 +2127,15 @@ components:
         `per_household` — je Haushalt.
         Missing divisor → `normalizedValue` omitted, status `absent`.
       enum: [per_1000_inhabitants, per_km2, per_household]
+    BaselineMethod:
+      type: string
+      description: |
+        Method of the Bezugsgröße from Brain `geo.area_baseline`.
+        Einwohner: `official` | `estimate_lor_sum` | `estimate_address` |
+        `missing` (never a silent NULL). Fläche: `geom` | `official` |
+        `fixed_grid`. `missing` means `normalizedValue` is absent; never
+        divide by 1.
+      enum: [official, estimate_lor_sum, estimate_address, missing, geom, fixed_grid]
     YearlySeries:
       type: object
       additionalProperties: false
@@ -2269,6 +2294,11 @@ components:
           description: |
             Latest present `rawValue` after baselining. Omitted when the
             Bezugsgröße liegt nicht vor. Never `0` as a stand-in.
+        baselineMethod:
+          $ref: "#/components/schemas/BaselineMethod"
+          description: |
+            Method of the latest present Bezugsgröße. `missing` when the
+            catalog theme has no usable divisor for that year.
     PatternLevel:
       type: string
       description: |
@@ -2335,6 +2365,10 @@ components:
           $ref: "#/components/schemas/YearlySeries"
         criterion:
           $ref: "#/components/schemas/PatternCriterion"
+        baselineMethod:
+          $ref: "#/components/schemas/BaselineMethod"
+          description: |
+            Method of the Bezugsgröße on this dataset profile. Additive.
     AnalysisPatternRegion:
       type: object
       additionalProperties: false
@@ -2607,6 +2641,10 @@ components:
           description: |
             Latest present baselined value. Omitted when the Bezugsgröße
             liegt nicht vor. Never invented as `0`.
+        baselineMethod:
+          $ref: "#/components/schemas/BaselineMethod"
+          description: |
+            Method of the divisor used on this Teilfläche. Additive.
     AddressPairRequest:
       type: object
       additionalProperties: false

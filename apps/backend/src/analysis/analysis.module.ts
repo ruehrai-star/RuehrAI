@@ -6,6 +6,7 @@ import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
 import { OmlxClient } from "./omlx.client";
 import { PatternService } from "./pattern.service";
+import { AreaBaselineService } from "./area-baseline.service";
 import { StoreSurroundingsService } from "./store-surroundings.service";
 import { YearlySeriesService } from "./yearly-series.service";
 
@@ -17,6 +18,7 @@ import { YearlySeriesService } from "./yearly-series.service";
     BrainSearchService,
     StoreSurroundingsService,
     PatternService,
+    AreaBaselineService,
     YearlySeriesService,
     AnalysisService,
   ],

@@ -13,6 +13,7 @@ import {
 import {
   attachNormalizedValues,
   baselineForMetric,
+  latestBaselineMethod,
   latestNormalizedValue,
   latestRawValue,
   presentNormalizedPoints,
@@ -189,6 +190,7 @@ function evidenceForCandidate(
     baseline,
     rawValue: latestRawValue(series.points),
     normalizedValue: latestNormalizedValue(series.points),
+    baselineMethod: latestBaselineMethod(series.points) ?? criterion.baselineMethod,
     points: withoutInventedZero(series.points),
   };
 }
@@ -264,6 +266,7 @@ function withoutInventedZero(points: SeriesPoint[]): SeriesPoint[] {
     const next: SeriesPoint = { period: point.period, status: "present" };
     if (typeof point.value === "number") next.value = point.value;
     if (typeof point.normalizedValue === "number") next.normalizedValue = point.normalizedValue;
+    if (point.baselineMethod) next.baselineMethod = point.baselineMethod;
     return next;
   });
 }

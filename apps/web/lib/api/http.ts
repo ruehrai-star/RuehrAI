@@ -458,6 +458,14 @@ const PATTERN_LEVELS = new Set([
 const PATTERN_LEVEL_ROLES = new Set(["pattern", "frame"] as const);
 const EVIDENCE_SCOPES = new Set(["local", "inherited"] as const);
 const SERIES_BASELINES = new Set<string>(["per_1000_inhabitants", "per_km2", "per_household"]);
+const BASELINE_METHODS = new Set<string>([
+  "official",
+  "estimate_lor_sum",
+  "estimate_address",
+  "missing",
+  "geom",
+  "fixed_grid",
+]);
 const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
 const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
 const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
@@ -584,6 +592,9 @@ function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
     if (point.normalizedValue !== undefined && typeof point.normalizedValue !== "number") {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (point.baselineMethod !== undefined && !BASELINE_METHODS.has(point.baselineMethod)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
@@ -733,6 +744,9 @@ function parsePatternDatasetProfile(body: PatternDatasetProfile, route: string):
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseCriterionDatasetFields(criterion, route);
+  if (body.baselineMethod !== undefined && !BASELINE_METHODS.has(body.baselineMethod)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
 }
 
 function parseRecommendation(body: Recommendation, route: string): Recommendation {
@@ -788,6 +802,7 @@ function parseCriterionDatasetFields(
     baseline?: string;
     rawValue?: number;
     normalizedValue?: number;
+    baselineMethod?: string;
   },
   route: string,
 ): void {
@@ -801,6 +816,9 @@ function parseCriterionDatasetFields(
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.normalizedValue !== undefined && typeof body.normalizedValue !== "number") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.baselineMethod !== undefined && !BASELINE_METHODS.has(body.baselineMethod)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
 }
