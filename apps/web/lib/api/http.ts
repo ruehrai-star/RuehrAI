@@ -240,7 +240,12 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       const body = await request<AnalysisRun>("/analysis/runs", {
         method: "POST",
         auth: true,
+        // Marked Zielregion in the JSON body (and as ?geoKey=). Nest 9545ce2
+        // still snapshots every saved row and ignores both; the body is what
+        // a backend that honors the mark must read. Never send another
+        // region's key or an empty list default.
         query: geoKey ? { geoKey } : undefined,
+        body: geoKey ? JSON.stringify({ geoKey }) : undefined,
       });
       return parseAnalysisRun(body, { allowIncomplete: true });
     },

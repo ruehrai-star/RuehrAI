@@ -101,12 +101,14 @@ export function runMatchesMarkedRegion(run: Pick<AnalysisRun, "input">, marked: 
 export function runIsForMarkedRegion(
   run: Pick<AnalysisRun, "id" | "input">,
   marked: PlaceRef,
-  startedRunId?: string | null,
+  _startedRunId?: string | null,
 ): boolean {
   if (!runMatchesMarkedRegion(run, marked)) return false;
-  if (startedRunId && startedRunId === run.id) return true;
   const listed = regionsFromRunInput(run.input);
   if (listed.length > 0 && listed.every((item) => samePlace(item, marked))) return true;
+  // Primary `input.region` is the run's Zielregion. Presence in
+  // `input.regions` is not enough: POST still snapshots every saved row
+  // (newest first), so an Innenstadt run also lists Tempelhof.
   return Boolean(run.input.region && samePlace(run.input.region, marked));
 }
 

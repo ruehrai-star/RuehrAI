@@ -292,7 +292,7 @@ test("a rewritten pattern.region does not bind another region's run", async () =
   assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), false);
   assert.equal(runMatchesMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), true);
   assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof, "47"), false);
-  assert.equal(runIsForMarkedRegion({ ...runFor(munich, [munich, tempelhof]), id: "47" }, tempelhof, "47"), true);
+  assert.equal(runIsForMarkedRegion({ ...runFor(munich, [munich, tempelhof]), id: "47" }, tempelhof, "47"), false);
 });
 
 test("Stand for the marked region stays singular and does not use another name", async () => {

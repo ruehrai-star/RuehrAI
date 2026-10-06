@@ -272,4 +272,8 @@ test("Trefferliste bind is GET-only; start is an explicit button", () => {
   assert.match(empfehlungen, /disabled=\{startLocked\}/);
   assert.match(empfehlungen, /RECOMMENDATION_COPY\.loadFailed/);
   assert.match(empfehlungen, /RunRegionLabel/);
+  const karte = readFileSync(new URL("../../components/map-page.tsx", import.meta.url), "utf8");
+  assert.match(karte, /loadRecommendationsForRun/);
+  assert.match(karte, /loadPatternForMarkedRegion/);
+  assert.equal(karte.includes("getRecommendations()"), false);
 });

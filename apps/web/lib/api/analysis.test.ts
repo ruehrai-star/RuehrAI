@@ -126,19 +126,24 @@ test("analysis calls send the bearer token and follow the OpenAPI paths", async 
   assert.equal(calls[1]?.body, undefined);
 });
 
-test("POST /analysis/runs sends the marked geoKey as a query", async () => {
-  const seen: string[] = [];
+test("POST /analysis/runs sends the marked geoKey in the JSON body", async () => {
+  const seen: { url: string; body: string | undefined }[] = [];
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
-    fetch: async (inputUrl) => {
-      seen.push(String(inputUrl));
+    fetch: async (inputUrl, init) => {
+      seen.push({
+        url: String(inputUrl),
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
       return json({ ...run, status: "queued" }, 202);
     },
   });
   await api.createAnalysisRun({ geoKey: "ortsteil:osm:162894" });
-  assert.equal(seen[0], "http://localhost:3000/analysis/runs?geoKey=ortsteil%3Aosm%3A162894");
+  assert.equal(seen[0]?.url, "http://localhost:3000/analysis/runs?geoKey=ortsteil%3Aosm%3A162894");
+  assert.equal(seen[0]?.body, JSON.stringify({ geoKey: "ortsteil:osm:162894" }));
   await api.createAnalysisRun();
-  assert.equal(seen[1], "http://localhost:3000/analysis/runs");
+  assert.equal(seen[1]?.url, "http://localhost:3000/analysis/runs");
+  assert.equal(seen[1]?.body, undefined);
 });
 
 test("GET /analysis/pattern maps 404 to no pattern", async () => {

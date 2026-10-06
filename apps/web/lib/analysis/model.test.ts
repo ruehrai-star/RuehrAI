@@ -134,3 +134,9 @@ test("Musteranalyse start uses the same lock as Empfehlungen while a run is in f
   assert.match(page, /async function onStart\(\) \{[\s\S]*if \(startGate\.current \|\| startLocked\) return;[\s\S]*createAnalysisRun/);
   assert.match(page, /createAnalysisRun\(\{ geoKey: markedGeoKey \}\)/);
 });
+
+test("Empfehlungen start sends the marked geoKey, not a list default", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /createAnalysisRun\(\{ geoKey: current\.geoKey \}\)/);
+  assert.doesNotMatch(page, /createAnalysisRun\(\)/);
+});
