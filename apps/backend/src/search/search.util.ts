@@ -30,7 +30,7 @@ export function isPlzHit(hit: { level?: string | null; grain?: string | null }):
   return hit.level === "plz" || hit.grain === "plz5" || hit.grain === "plz8";
 }
 
-/** Shared `$1`–`$8` for catalog, feature-view, and seed search SQL. */
+/** Shared `$1`–`$9` for catalog, feature-view, and seed search SQL. `$9` is token patterns (AND). */
 export function searchFilterParams(query: SearchQueryDto): unknown[] {
   return [
     query.ags ?? null,
@@ -41,5 +41,22 @@ export function searchFilterParams(query: SearchQueryDto): unknown[] {
     query.geoKey ?? null,
     query.grain ?? null,
     allowPlzHits(query.q),
+    searchTokenPatterns(query.q),
   ];
+}
+
+/** Split free-text `q` into tokens matched in any order against name or Gemeinde. */
+export function searchQueryTokens(q?: string): string[] {
+  if (!q) return [];
+  return q
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+export function searchTokenPatterns(q?: string): string[] | null {
+  const tokens = searchQueryTokens(q);
+  if (tokens.length === 0) return null;
+  return tokens.map(toContainsPattern);
 }

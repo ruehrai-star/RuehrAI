@@ -2,13 +2,14 @@ import { Injectable, Logger } from "@nestjs/common";
 import { AnalysisRegion } from "../analysis/types";
 import { toCoord } from "../customer/values";
 import { parseRegionGeometry, RegionGeometry } from "../geo/region-geometry";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
   isGeoCatalogUnavailable,
   isMissingFeaturesRelation,
 } from "../database/pg-error";
 import { Grain } from "../target-region/dto";
+import { pushAll } from "../common/safe-array";
 import {
   AREA_CANDIDATE_LIMIT,
   AreaCandidate,
@@ -29,6 +30,7 @@ import {
   lorPlrFeatureCandidateQuery,
   parentMemberships,
   selectCatalogHits,
+  skipAddressAndGridForRegion,
   teilCatalogQuery,
 } from "./area-candidates";
 
@@ -60,7 +62,7 @@ export class AreaCandidateService {
       for (const region of regions) {
         const loaded = await this.loadRegion(region);
         if (loaded.truncated) truncated = true;
-        collected.push(...selectCatalogHits(loaded.items, [region, ...regions]));
+        pushAll(collected, selectCatalogHits(loaded.items, [region, ...regions]));
       }
       const out: AreaCandidate[] = [];
       for (const candidate of collected) {
@@ -79,9 +81,16 @@ export class AreaCandidateService {
   }
 
   private async loadRegion(region: AnalysisRegion): Promise<AreaCandidateLoad> {
-    const geoAddress = await this.readOptionalQuery(geoAddressCandidateQuery(region));
-    const address = await this.readOptionalQuery(addressCandidateQuery(region));
-    const grid = await this.readOptionalQuery(grid100CandidateQuery(region));
+    const skipFine = skipAddressAndGridForRegion(region);
+    const geoAddress = skipFine
+      ? { items: [], truncated: false }
+      : await this.readOptionalQuery(geoAddressCandidateQuery(region));
+    const address = skipFine
+      ? { items: [], truncated: false }
+      : await this.readOptionalQuery(addressCandidateQuery(region));
+    const grid = skipFine
+      ? { items: [], truncated: false }
+      : await this.readOptionalQuery(grid100CandidateQuery(region));
     const lorPlrCatalog = await this.readOptionalQuery(lorPlrCatalogQuery(region));
     const lorPlrFeatures = await this.readOptionalQuery(lorPlrFeatureCandidateQuery(region));
     const quartier = await this.readOptionalQuery(koelnQuartierCandidateQuery(region));
@@ -179,7 +188,7 @@ export class AreaCandidateService {
 
   private async readQuery(query: CandidateQuery): Promise<AreaCandidateLoad> {
     assertCandidateQueryArity(query);
-    const result = await this.db.queryReadingFeatures<AreaCandidateSqlRow>(query.sql, query.params);
+    const result = await featuresReadQuery(this.db)<AreaCandidateSqlRow>(query.sql, query.params);
     const items: AreaCandidate[] = [];
     for (const row of result.rows) {
       const candidate = toCandidate(row);

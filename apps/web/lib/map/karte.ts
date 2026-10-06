@@ -452,7 +452,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function hitDisplayName(item: Recommendation): string {
-  return visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
+  return visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
 }
 
 function visiblePlaceText(value: string | null | undefined): string {

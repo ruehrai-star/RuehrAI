@@ -26,6 +26,7 @@ import type {
   YearlySeries,
 } from "@ruehrai/api-contracts";
 import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
+import { isAnalysisRunFailureReason } from "../analysis/failure.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import { parseAddressPair } from "../addresses/parse.ts";
@@ -234,12 +235,12 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
 
     async createAnalysisRun(): Promise<AnalysisRun> {
       const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
-      return parseAnalysisRun(body);
+      return parseAnalysisRun(body, { allowIncomplete: true });
     },
 
     async getAnalysisRun(id: string): Promise<AnalysisRun> {
       const body = await request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { auth: true });
-      return parseAnalysisRun(body);
+      return parseAnalysisRun(body, { allowIncomplete: true });
     },
 
     async getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null> {
@@ -436,6 +437,7 @@ function parseHits(body: SearchResponse): SearchHit[] {
 
 const REVENUE_DIRECTIONS = new Set<RevenueDirection>(["up", "down", "flat"]);
 const CRITERION_DIRECTIONS = new Set<CriterionDirection>(["up", "down", "flat", "unknown"]);
+const ANALYSIS_RUN_STATUSES = new Set<AnalysisRun["status"]>(["queued", "running", "completed", "failed"]);
 const BRAIN_MODES = new Set<AnalysisBrain["mode"]>(["vector", "sql"]);
 const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason"]>>([
   "embeddings_disabled",
@@ -520,15 +522,69 @@ function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"):
   };
 }
 
-function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
+const STUB_ANALYSIS_INPUT: AnalysisInput = {
+  region: {
+    label: "",
+    grain: null,
+    geoKey: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  },
+  stores: [],
+  revenueDirection: "flat",
+  capturedAt: "1970-01-01T00:00:00.000Z",
+};
+
+const STUB_ANALYSIS_BRAIN: AnalysisBrain = {
+  mode: "sql",
+  vectorUnavailableReason: null,
+  factCount: 0,
+  facts: [],
+};
+
+const STUB_ANALYSIS_PATTERN: AnalysisPattern = {
+  source: "heuristic",
+  summary: "",
+  revenueDirection: "flat",
+  criteria: [],
+};
+
+function parseAnalysisRun(body: AnalysisRun, options: { allowIncomplete?: boolean } = {}): AnalysisRun {
   const route = "/analysis/runs";
-  if (!body || typeof body.id !== "string" || body.status !== "completed" || typeof body.createdAt !== "string") {
+  if (!body || typeof body.id !== "string" || !ANALYSIS_RUN_STATUSES.has(body.status)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
-  parseAnalysisInput(body.input, route);
-  parseAnalysisBrain(body.brain, route);
-  parseAnalysisPattern(body.pattern, route);
-  return body;
+  const incompleteOk = Boolean(options.allowIncomplete) && body.status !== "completed";
+  const createdAt =
+    typeof body.createdAt === "string" ? body.createdAt : incompleteOk ? "1970-01-01T00:00:00.000Z" : null;
+  if (!createdAt) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.failureReason != null && !isAnalysisRunFailureReason(body.failureReason)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.startedAt != null && typeof body.startedAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.completedAt != null && typeof body.completedAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.input) parseAnalysisInput(body.input, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  if (body.brain) parseAnalysisBrain(body.brain, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  if (body.pattern) parseAnalysisPattern(body.pattern, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  return {
+    ...body,
+    createdAt,
+    input: body.input ?? STUB_ANALYSIS_INPUT,
+    brain: body.brain ?? STUB_ANALYSIS_BRAIN,
+    pattern: body.pattern ?? STUB_ANALYSIS_PATTERN,
+  };
 }
 
 function parseAnalysisBrain(body: AnalysisBrain, route: string): AnalysisBrain {
@@ -810,13 +866,42 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
+  if (body.grain !== undefined && !isGrain(body.grain)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.name != null && typeof body.name !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.parentLabel != null && typeof body.parentLabel !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.intersectionOf !== undefined) {
+    if (!Array.isArray(body.intersectionOf)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const part of body.intersectionOf) {
+      if (
+        !part ||
+        typeof part.geoKey !== "string" ||
+        !isGrain(part.grain) ||
+        !(part.name === null || typeof part.name === "string") ||
+        (part.datasetKey !== undefined && typeof part.datasetKey !== "string")
+      ) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
+  const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
     ...body,
+    grain: body.grain ?? body.location.grain,
+    name: typeof body.name === "string" || body.name === null ? body.name : body.location.name,
+    parentLabel,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),
-      parentLabel: catalogParentName(rawLocation),
+      parentLabel,
     },
   };
 }

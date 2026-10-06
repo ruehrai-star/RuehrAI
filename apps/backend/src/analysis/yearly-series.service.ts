@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { sourceThemesForSeries } from "../address-pair/topics";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
   isGeoCatalogUnavailable,
@@ -199,7 +199,7 @@ export class YearlySeriesService {
                       OR metadata->>'geo_land' = ANY($2::text[])
                     )`;
     try {
-      const result = await this.db.queryReadingFeatures<SeriesFeatureRow>(sql, [themes, keys]);
+      const result = await featuresReadQuery(this.db)<SeriesFeatureRow>(sql, [themes, keys]);
       return result.rows;
     } catch (error) {
       if (isMissingFeaturesRelation(error) && /location_feature_docs/i.test(messageOf(error))) {
@@ -228,7 +228,7 @@ export class YearlySeriesService {
                       OR metadata->>'geo_land' = ANY($2::text[])
                     )`;
     try {
-      const result = await this.db.queryReadingFeatures<SeriesFeatureRow>(sql, [themes, keys]);
+      const result = await featuresReadQuery(this.db)<SeriesFeatureRow>(sql, [themes, keys]);
       return result.rows;
     } catch (error) {
       if (isCatalogMiss(error)) {
@@ -241,7 +241,7 @@ export class YearlySeriesService {
 
   private async readCatalog<T extends object>(sql: string, params: unknown[]): Promise<T[]> {
     try {
-      const result = await this.db.queryReadingFeatures<T>(sql, params);
+      const result = await featuresReadQuery(this.db)<T>(sql, params);
       return result.rows;
     } catch (error) {
       if (isCatalogMiss(error)) {

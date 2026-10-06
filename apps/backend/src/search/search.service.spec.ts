@@ -56,7 +56,7 @@ describe("SearchService", () => {
     expect(sql).toContain("ESCAPE '\\'");
     expect(sql).not.toContain("München");
     expect(sql).not.toContain("09162000");
-    expect(params).toEqual(["09162000", null, null, "%München\\%%", "ags", null, null, false]);
+    expect(params).toEqual(["09162000", null, null, "%München\\%%", "ags", null, null, false, ["%München\\%%"]]);
     expect(result.hits).toEqual([
       {
         id: "ags:09162000",
@@ -97,7 +97,7 @@ describe("SearchService", () => {
     expect(sql).toContain("features.v_location_search");
     expect(sql).not.toContain("Alpha");
     expect(sql).not.toContain("04011000");
-    expect(params).toEqual([null, null, null, "%Alpha\\%%", null, "04011000", "ags", false]);
+    expect(params).toEqual([null, null, null, "%Alpha\\%%", null, "04011000", "ags", false, ["%Alpha\\%%"]]);
     expect(query).not.toHaveBeenCalled();
     expect(result.hits).toEqual([
       {
@@ -238,18 +238,8 @@ describe("SearchService", () => {
         lon: 13.37,
         lat: 52.53,
       },
-      {
-        id: "stadtteil:schwabing",
-        label: "Schwabing",
-        grain: "other",
-        geoKey: "stadtteil:schwabing",
-        level: "stadtteil",
-        parentLabel: "München",
-        geoAgs: "09162000",
-        lon: 11.58,
-        lat: 48.16,
-      },
     ]);
+    expect(result.hits.some((hit) => hit.label === "Schwabing")).toBe(false);
   });
 
   it("keeps PLZ 12247 for a digit query and drops osm-key Ortsteile and nameless rows", async () => {
@@ -461,6 +451,72 @@ describe("SearchService", () => {
         }),
       ]),
     );
+  });
+
+  it("matches Innenstadt Köln in any token order and keeps the area name as label", async () => {
+    queryReadingFeatures.mockReset().mockResolvedValue({ rows: [{ has_rows: false }] });
+    query.mockResolvedValue({ rows: [] });
+    geoSearch.mockResolvedValue([
+      {
+        id: "stadtbezirk:osm:2613798",
+        label: "Innenstadt",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:2613798",
+        level: "bezirk",
+        parentLabel: "Köln",
+        geoAgs: "05315000",
+        lon: 6.96,
+        lat: 50.94,
+      },
+      {
+        id: "stadtbezirk:osm:muenchen-innenstadt",
+        label: "Altstadt-Lehel",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:muenchen",
+        level: "stadtbezirk",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.58,
+        lat: 48.14,
+      },
+      {
+        id: "stadtbezirk:02000002",
+        label: "Altona",
+        grain: "other",
+        geoKey: "stadtbezirk:02000002",
+        level: "stadtbezirk",
+        parentLabel: "Hamburg",
+        geoAgs: "02000000",
+        lon: 9.94,
+        lat: 53.55,
+      },
+    ]);
+
+    const koeln = await service.search({ q: "Innenstadt Köln" });
+    expect(geoSearch).toHaveBeenCalledWith({ q: "Innenstadt Köln" });
+    expect(koeln.hits).toEqual([
+      expect.objectContaining({
+        label: "Innenstadt",
+        parentLabel: "Köln",
+        level: "bezirk",
+      }),
+    ]);
+    expect(koeln.hits.find((hit) => hit.label === "Innenstadt")?.label).toBe("Innenstadt");
+    expect(koeln.hits.find((hit) => hit.parentLabel === "Köln")?.label).not.toMatch(/Köln/);
+    expect(koeln.hits.some((hit) => hit.parentLabel === "München")).toBe(false);
+
+    const reversed = await service.search({ q: "Köln Innenstadt" });
+    expect(reversed.hits[0]).toMatchObject({ label: "Innenstadt", parentLabel: "Köln" });
+
+    const hamburg = await service.search({ q: "Altona Hamburg" });
+    expect(hamburg.hits[0]).toMatchObject({ label: "Altona", parentLabel: "Hamburg" });
+    expect(hamburg.hits[0]?.label).not.toMatch(/Hamburg/);
+
+    const hamburgReversed = await service.search({ q: "Hamburg Altona" });
+    expect(hamburgReversed.hits[0]).toMatchObject({ label: "Altona", parentLabel: "Hamburg" });
+
+    const muenchen = await service.search({ q: "Lehel München" });
+    expect(muenchen.hits[0]).toMatchObject({ label: "Altstadt-Lehel", parentLabel: "München" });
   });
 });
 

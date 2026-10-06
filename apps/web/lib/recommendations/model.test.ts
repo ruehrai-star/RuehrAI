@@ -16,7 +16,9 @@ import {
   hasDrawableGeometry,
   headingForMarkedRegion,
   hitBadge,
+  hitName,
   inheritedLabel,
+  intersectionLine,
   rankLabel,
   recommendationEmptyCopy,
   recommendationStatus,
@@ -25,6 +27,7 @@ import {
   shortCriteria,
   stichtagCopy,
   topHits,
+  trefferStatusCopy,
   trendSummary,
   visibleHits,
 } from "./model.ts";
@@ -152,6 +155,8 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
+  assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
+  assert.equal(RECOMMENDATION_COPY.analysisDeadline, "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.");
   assert.equal(RECOMMENDATION_COPY.missingGeometry, "Die Fläche kann noch nicht gezeichnet werden.");
   assert.equal(RECOMMENDATION_COPY.missingValue, "liegt nicht vor");
   assert.equal(rankLabel(1), "Rang 1");
@@ -544,13 +549,37 @@ test("coverage single without a value is only liegt nicht vor and never reads a 
   assert.equal(stichtagCopy(card.criteria[0]?.stichtagValue ?? null, card.criteria[0]?.stichtagYear ?? null), "liegt nicht vor");
 });
 
-test("loading copy stays neutral; Analyse läuft is not the bind/load line", () => {
+test("loading copy stays neutral; Analyse läuft is only the in-flight line", () => {
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
-  assert.match(page, /RECOMMENDATION_COPY\.loading/);
-  assert.equal(page.includes("RECOMMENDATION_COPY.analysisRunning"), false);
+  assert.match(page, /trefferStatusCopy/);
+  assert.match(page, /status\.text/);
   assert.equal(page.includes("Analyse läuft"), false);
+  assert.deepEqual(trefferStatusCopy({ pageLoading: true, bindLoading: false, runStatus: "queued" }), {
+    text: "Wird geladen …",
+    tone: "loading",
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: true, runStatus: "running" }), {
+    text: "Wird geladen …",
+    tone: "loading",
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "queued" }), {
+    text: "Analyse läuft …",
+    tone: "running",
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "running" }), {
+    text: "Analyse läuft …",
+    tone: "running",
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "idle" }), {
+    text: null,
+    tone: null,
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "deadline" }), {
+    text: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
+    tone: "error",
+  });
 });
 
 test("pattern profile lists datasets without ids or method codes", () => {
@@ -638,4 +667,58 @@ test("three matches hide the thin hint and a null reason", () => {
     item({ id: "c", rank: 3 }),
   ]);
   assert.deepEqual(recommendationStatus(full), { empty: false, thin: false, reason: null });
+});
+
+test("top-level name and grain win over the deprecated location fields", () => {
+  const hit = item({
+    id: "ortsteil:osm:1",
+    rank: 1,
+    name: "Innenstadt",
+    grain: "other",
+    parentLabel: "Köln",
+    title: "ortsteil:osm:1",
+    location: { geoKey: "ortsteil:osm:1", grain: "other", lon: null, lat: null, name: "Altname" },
+  });
+  assert.equal(hitName(hit), "Innenstadt");
+  const card = buildTrefferCard(hit, undefined);
+  assert.equal(card.name, "Innenstadt");
+  assert.equal(card.parentLabel, "Köln");
+  const fallback = item({
+    id: "ortsteil:osm:2",
+    rank: 1,
+    title: "Titel",
+    location: { geoKey: "ortsteil:osm:2", grain: "other", lon: null, lat: null, name: "Lankwitz" },
+  });
+  assert.equal(hitName(fallback), "Lankwitz");
+});
+
+test("intersectionOf names the Schnittfläche and ignores title or parts heuristics", () => {
+  const named = item({
+    id: "cut:1",
+    rank: 1,
+    title: "Schnittfläche aus X und Y",
+    name: "Schnitt",
+    intersectionOf: [
+      { geoKey: "ags:1", grain: "ags", name: "Mitte" },
+      { geoKey: "plz5:10115", grain: "plz5", name: "10115" },
+    ],
+  });
+  const keyed = item({
+    id: "cut:2",
+    rank: 2,
+    title: "Schnittfläche aus A und B",
+    intersectionOf: [
+      { geoKey: "ags:1", grain: "ags", name: "ags:1" },
+      { geoKey: "plz5:10115", grain: "plz5", name: null },
+    ],
+  });
+  const withParts = {
+    ...item({ id: "cut:3", rank: 3, title: "Schnittfläche aus Alt und Heuristik" }),
+    parts: ["Alt", "Heuristik"],
+  } as Recommendation;
+  assert.equal(intersectionLine(named), "Schnittfläche aus Mitte und 10115");
+  assert.equal(buildTrefferCard(named, undefined).intersection, "Schnittfläche aus Mitte und 10115");
+  assert.equal(intersectionLine(keyed), null);
+  assert.equal(intersectionLine(withParts), null);
+  assert.equal(JSON.stringify(buildTrefferCard(named, undefined)).includes("ags:1"), false);
 });

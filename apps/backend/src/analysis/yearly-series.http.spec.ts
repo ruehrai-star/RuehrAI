@@ -6,7 +6,9 @@ import { AppModule } from "../app.module";
 import { configureApp } from "../configure-app";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
+import { RecommendationsService } from "../recommendations/recommendations.service";
 import { BrainSearchService } from "./brain-search.service";
+import { AnalysisService } from "./analysis.service";
 import { SERIES_METRICS } from "./yearly-series";
 
 describe("analysis yearlySeries HTTP", () => {
@@ -32,6 +34,13 @@ describe("analysis yearlySeries HTTP", () => {
       })
       .overrideProvider(GeoCatalogService)
       .useValue({ search: async () => [], lookupAdminNames: async () => new Map() })
+      .overrideProvider(RecommendationsService)
+      .useValue({
+        create: async () => ({ id: "28", runId: "15" }),
+        latest: async () => {
+          throw new Error("GET /recommendations is not used in this spec");
+        },
+      })
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -67,21 +76,97 @@ describe("analysis yearlySeries HTTP", () => {
     });
   });
 
-  it("stores yearlySeries on POST /analysis/runs with coverage single", async () => {
-    query
-      .mockResolvedValueOnce({ rows: [stadtteilRow()] })
-      .mockResolvedValueOnce({
+  it("stores yearlySeries after POST /analysis/runs 202 and polling completes", async () => {
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [stadtteilRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.00" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "15", created_at: new Date("2026-10-05T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        const completed = query.mock.calls.some((call) => String(call[0]).includes("'completed'"));
+        return {
+          rows: [
+            {
+              id: "15",
+              status: completed ? "completed" : "running",
+              input: {
+                region: {
+                  label: "Schwabing",
+                  grain: "other",
+                  geoKey: "stadtteil:osm:123",
+                  level: "stadtteil",
+                  ags: "09162000",
+                  plz: null,
+                  lon: null,
+                  lat: null,
+                  bounds: null,
+                  geometry: null,
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                },
+                regions: [
+                  {
+                    label: "Schwabing",
+                    grain: "other",
+                    geoKey: "stadtteil:osm:123",
+                    level: "stadtteil",
+                    ags: "09162000",
+                    plz: null,
+                    lon: null,
+                    lat: null,
+                    bounds: null,
+                    geometry: null,
+                    updatedAt: "2026-01-01T00:00:00.000Z",
+                  },
+                ],
+                stores: [],
+                revenueDirection: "up",
+                capturedAt: "2026-10-05T00:00:00.000Z",
+              },
+              brain: {
+                mode: "sql",
+                vectorUnavailableReason: "features_unavailable",
+                factCount: 0,
+                facts: [],
+              },
+              pattern: { source: "heuristic", summary: "", revenueDirection: "up", criteria: [] },
+              created_at: new Date("2026-10-05T00:00:00.000Z"),
+              started_at: new Date("2026-10-05T00:00:01.000Z"),
+              completed_at: completed ? new Date("2026-10-05T00:00:02.000Z") : null,
+              failure_reason: null,
+            },
+          ],
+        };
+      }
+      return {
         rows: [
-          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
-          storeRow({ year: 2025, month: 2, revenue_eur: "130.00" }),
+          {
+            started_at: new Date("2026-10-05T00:00:01.000Z"),
+            completed_at: new Date("2026-10-05T00:00:02.000Z"),
+          },
         ],
-      })
-      .mockResolvedValueOnce({ rows: [{ id: "15", created_at: new Date("2026-10-05T00:00:00.000Z") }] });
+      };
+    });
 
-    const response = await request(app.getHttpServer())
+    const accepted = await request(app.getHttpServer())
       .post("/analysis/runs")
       .set("authorization", `Bearer ${token}`)
-      .expect(201);
+      .expect(202);
+    expect(accepted.body.status).toBe("queued");
+    await app.get(AnalysisService).whenIdle();
+
+    const response = await request(app.getHttpServer())
+      .get("/analysis/runs/15")
+      .set("authorization", `Bearer ${token}`)
+      .expect(200);
 
     expect(response.body.pattern.yearlySeries).toHaveLength(SERIES_METRICS.length);
     const bevoelkerung = response.body.pattern.yearlySeries.find(
@@ -102,7 +187,10 @@ describe("analysis yearlySeries HTTP", () => {
       { period: "2025", status: "present", value: 1488202 },
     ]);
     expect(bevoelkerung.points[0].value).toBeUndefined();
-    const stored = JSON.parse(query.mock.calls[2]?.[1]?.[3] as string);
+    expect(response.body.status).toBe("completed");
+    const stored = JSON.parse(
+      (query.mock.calls.find((call) => String(call[0]).includes("'completed'"))?.[1]?.[3] as string) ?? "{}",
+    );
     expect(stored.yearlySeries[0].coverage).toBeDefined();
     expect(response.body.pattern.yearlySeries.some((item: { metricId: string }) => item.metricId === "umsatz")).toBe(
       false,

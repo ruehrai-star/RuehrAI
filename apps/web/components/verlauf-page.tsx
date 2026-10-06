@@ -18,9 +18,8 @@ import {
   VERLAUF_COPY,
   buildVerlaufHero,
   optionalRevenueCount,
-  regionView,
 } from "@/lib/verlauf/model";
-import { CatalogParentName } from "./catalog-parent-name";
+import { CatalogHitLabel } from "./catalog-hit-label";
 import { ProofMap } from "./proof-map";
 import { useSession } from "./session-provider";
 
@@ -217,7 +216,6 @@ export function VerlaufPage() {
         {visibleRegions.length > 0 ? (
           <ul className="verlauf-region-list">
             {visibleRegions.map((region) => {
-              const view = regionView(region);
               const key = regionListKey(region);
               const selected = marked != null && key === regionListKey(marked);
               return (
@@ -228,11 +226,7 @@ export function VerlaufPage() {
                     aria-pressed={selected}
                     onClick={() => setMarkedKey(key)}
                   >
-                    <span className="hit-label">
-                      {view.label}
-                      <CatalogParentName source={region} />
-                    </span>
-                    {view.badge ? <span className="badge">{view.badge}</span> : null}
+                    <CatalogHitLabel source={region} />
                   </button>
                 </li>
               );

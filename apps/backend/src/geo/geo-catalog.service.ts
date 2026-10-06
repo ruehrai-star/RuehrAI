@@ -44,7 +44,9 @@ export class GeoCatalogService {
     } catch (error) {
       if (!this.skipAdminJoin && isMissingAdmin(error)) {
         this.skipAdminJoin = true;
-        this.logger.log("GET /search reads geo.* without geo.geo_ref_admin; parentLabel is filled only for Berlin.");
+        this.logger.log(
+          "GET /search reads geo.* without geo.geo_ref_admin; parentLabel uses AGS-prefix fallbacks for Berlin, München, Hamburg, and Köln.",
+        );
         return this.runSearch(GEO_CATALOG_SEARCH_SQL_NO_ADMIN, params);
       }
       if (isGeoCatalogUnavailable(error)) {

@@ -130,10 +130,28 @@ export function catalogLevelForPlace(input: {
   return null;
 }
 
+const SUBAREA_PARENT_LEVELS = new Set(["bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
+
+/**
+ * Known kreisfreie Städte / Stadtstaaten when `geo_ref_admin` has no row.
+ * Matches the catalog SQL `PARENT_LABEL` AGS-prefix fallbacks.
+ */
+export function gemeindeDisplayNameFromAgs(value: string | null | undefined): string | null {
+  const key = officialAgsKey(value);
+  if (!key) return null;
+  if (key === "11000000" || key.startsWith("11000")) return "Berlin";
+  if (key.startsWith("09162")) return "München";
+  if (key.startsWith("02")) return "Hamburg";
+  if (key.startsWith("05315")) return "Köln";
+  return null;
+}
+
 /**
  * When `geo.geo_ref_admin` lists an AGS, that row is a municipality (`gemeinde`).
  * A key that is only a child of such a municipality stays `stadtbezirk`/`bezirk`.
- * Missing admin names leave `parentLabel` empty — never invent one.
+ * Bezirk / Stadtbezirk / Stadtteil / Ortsteil `parentLabel` is the Gemeinde
+ * name: admin row, then the child's own municipality AGS, then AGS-prefix
+ * fallbacks for Berlin / München / Hamburg / Köln.
  */
 export function applyAdminCatalogDisplay(
   input: {
@@ -157,9 +175,37 @@ export function applyAdminCatalogDisplay(
     return { level: "gemeinde", parentLabel: null };
   }
   const level = catalogLevelForPlace(input);
-  const parentLabel =
-    emptyToNull(input.parentLabel) ?? (parentKey ? emptyToNull(adminNames.get(parentKey)) : null);
+  const parentLabel = subareaParentLabel(input, adminNames, level, key, parentKey);
   return { level, parentLabel };
+}
+
+function subareaParentLabel(
+  input: {
+    geoKey?: string | null;
+    ags?: string | null;
+    parentLabel?: string | null;
+  },
+  adminNames: Map<string, string | null>,
+  level: CatalogLevel | null,
+  key: string | null,
+  parentKey: string | null,
+): string | null {
+  const existing = emptyToNull(input.parentLabel);
+  if (existing) return existing;
+  if (!level || !SUBAREA_PARENT_LEVELS.has(level)) return null;
+  if (parentKey) {
+    const fromParent = emptyToNull(adminNames.get(parentKey));
+    if (fromParent) return fromParent;
+  }
+  if (key?.endsWith("000")) {
+    const fromOwnAgs = emptyToNull(adminNames.get(key));
+    if (fromOwnAgs) return fromOwnAgs;
+  }
+  return (
+    gemeindeDisplayNameFromAgs(key) ??
+    gemeindeDisplayNameFromAgs(input.ags) ??
+    gemeindeDisplayNameFromAgs(input.geoKey)
+  );
 }
 
 export function catalogLevelForBezirk(id: string): "bezirk" | "stadtbezirk" {
@@ -334,17 +380,48 @@ const BERLIN_BEZIRK = `geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$'`;
 const PARENT_LABEL = `
   COALESCE(
     NULLIF(btrim(admin.name), ''),
-    CASE WHEN src.geo_ags = '11000000' THEN 'Berlin' END
+    CASE
+      WHEN src.geo_ags::text = '11000000' OR src.geo_ags::text LIKE '11000%' THEN 'Berlin'
+      WHEN src.geo_ags::text LIKE '09162%' THEN 'München'
+      WHEN src.geo_ags::text LIKE '02%' THEN 'Hamburg'
+      WHEN src.geo_ags::text LIKE '05315%' THEN 'Köln'
+      ELSE NULL
+    END
   )
+`;
+
+const GEMEINDE_AGS = `
+  CASE
+    WHEN src.geo_ags::text ~ '^110000(0[1-9]|1[0-2])$' THEN '11000000'
+    WHEN src.geo_ags::text ~ '^[0-9]{8}$' AND right(src.geo_ags::text, 3) <> '000'
+      THEN left(src.geo_ags::text, 5) || '000'
+    ELSE src.geo_ags::text
+  END
 `;
 
 /**
  * Visible free-text fields only. `id`, `geo_key`, and `geo_ags` are catalog
  * keys (`plz5:…`, `ortsteil:osm:…`, `ags:…`) and must not participate in `q`.
+ * Tokens in `$9` must each match the area name or the Gemeinde parentLabel
+ * (any order), so "Innenstadt Köln" finds the Köln Bezirk.
  */
 const VISIBLE_TEXT_MATCH = `
   src.label ILIKE $4 ESCAPE '\\'
   OR COALESCE(${PARENT_LABEL}, '') ILIKE $4 ESCAPE '\\'
+`;
+
+const TOKEN_AND_MATCH = `
+  CASE
+    WHEN $9::text[] IS NOT NULL AND cardinality($9::text[]) > 0 THEN
+      (
+        SELECT bool_and(
+          src.label ILIKE tok ESCAPE '\\'
+          OR COALESCE(${PARENT_LABEL}, '') ILIKE tok ESCAPE '\\'
+        )
+        FROM unnest($9::text[]) AS tok
+      )
+    ELSE (${VISIBLE_TEXT_MATCH})
+  END
 `;
 
 /**
@@ -423,7 +500,7 @@ export const GEO_CATALOG_SEARCH_SQL = `
     ST_X(ST_PointOnSurface(src.geom)) AS lon,
     ST_Y(ST_PointOnSurface(src.geom)) AS lat
   FROM catalog src
-  LEFT JOIN geo.geo_ref_admin admin ON admin.geo_ags = src.geo_ags
+  /* admin_join */ LEFT JOIN geo.geo_ref_admin admin ON admin.geo_ags::text = (${GEMEINDE_AGS})
   WHERE src.label IS NOT NULL
     AND ($1::text IS NULL OR src.geo_ags = $1 OR src.geo_key = $1 OR src.id = ('ags:' || $1) OR src.id = ('stadtbezirk:' || $1))
     AND ($2::text IS NULL OR (src.level = 'plz' AND src.geo_key = $2))
@@ -439,20 +516,20 @@ export const GEO_CATALOG_SEARCH_SQL = `
     AND ($7::text IS NULL OR src.grain = $7)
     AND ($8::boolean OR src.level <> 'plz')
     AND (
-      $4::text IS NULL
+      ($4::text IS NULL AND $9::text[] IS NULL)
       OR (
         $5::text = 'plz'
         AND src.level = 'plz'
-        AND src.label ILIKE $4 ESCAPE '\\'
+        AND (${TOKEN_AND_MATCH})
       )
       OR (
         $5::text = 'ags'
         AND src.level IN ('bezirk', 'stadtbezirk')
-        AND (${VISIBLE_TEXT_MATCH})
+        AND (${TOKEN_AND_MATCH})
       )
       OR (
         $5::text IS NULL
-        AND (${VISIBLE_TEXT_MATCH})
+        AND (${TOKEN_AND_MATCH})
       )
     )
   ORDER BY src.label ASC, parent_label ASC NULLS LAST, src.id ASC
@@ -461,7 +538,7 @@ export const GEO_CATALOG_SEARCH_SQL = `
 
 /** Same filter without `geo.geo_ref_admin` when that table is not installed. */
 export const GEO_CATALOG_SEARCH_SQL_NO_ADMIN = GEO_CATALOG_SEARCH_SQL.replace(
-  /\s+LEFT JOIN geo\.geo_ref_admin admin ON admin\.geo_ags = src\.geo_ags/g,
+  /\/\* admin_join \*\/ LEFT JOIN geo\.geo_ref_admin admin ON admin\.geo_ags::text = \([\s\S]*?END\n  \)/,
   "",
 ).replace(/NULLIF\(btrim\(admin\.name\), ''\)/g, "NULL");
 

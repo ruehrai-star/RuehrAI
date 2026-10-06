@@ -21,6 +21,7 @@ import {
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs, regionalstatistikBerlinBezirkAgs } from "../geo/bezirk-ags";
 import type { BaselineMethod } from "./area-baseline";
 import { roundCountMetricValue } from "./count-metrics";
+import { maxNumber } from "../common/safe-array";
 
 export interface SeriesRegionInput {
   grain?: string | null;
@@ -175,7 +176,7 @@ const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
   kba_neuzulassungen: ["kfz_insgesamt", "pkw"],
   kba_bestand: ["kfz_insgesamt", "pkw"],
   baugenehmigungen: ["wohnungen", "bauten", "value"],
-  unfallatlas: ["unfaelle_gesamt", "count"],
+  unfallatlas: ["unfaelle_je_1000_ew", "unfaelle_gesamt", "count"],
   vgrdl: ["einw"],
   gerda: ["value", "count", "personen"],
   hamburg_stadtteil_regionalstatistik: ["insgesamt", "personen", "einwohner", "ewz", "bev_insgesamt"],
@@ -299,7 +300,7 @@ export function parseRefPeriod(raw: string | null | undefined): ParsedPeriod | n
 
 export function yearWindow(asOf: Date, availableYears: number[] = []): string[] {
   const asOfYear = asOf.getUTCFullYear();
-  const latest = availableYears.length > 0 ? Math.max(...availableYears) : asOfYear;
+  const latest = availableYears.length > 0 ? maxNumber(availableYears) : asOfYear;
   const end = latest < asOfYear && latest >= asOfYear - 2 ? latest : asOfYear;
   return [String(end - 2), String(end - 1), String(end)];
 }
@@ -307,7 +308,7 @@ export function yearWindow(asOf: Date, availableYears: number[] = []): string[] 
 /** Last three calendar years of a kleinräumige series, even when older than asOf. */
 export function yearWindowFromAvailable(availableYears: number[], asOf: Date): string[] {
   if (availableYears.length === 0) return yearWindow(asOf, []);
-  const latest = Math.max(...availableYears);
+  const latest = maxNumber(availableYears);
   return [String(latest - 2), String(latest - 1), String(latest)];
 }
 
@@ -792,8 +793,8 @@ function isLor2006Row(row: SeriesFeatureRow): boolean {
 
 /** Prefer 2021 PLR; never concatenate with 2006 into one trend. */
 function partitionLorVersion(metricId: SeriesMetricId, rows: SeriesFeatureRow[]): SeriesFeatureRow[] {
-  if (metricId !== "berlin_lor_ewr_bevoelkerung") return rows;
-  const plr = rows.filter((row) => isLorPlrRow(row));
+  if (metricId !== "berlin_lor_ewr_bevoelkerung" && metricId !== "unfallatlas") return rows;
+  const plr = rows.filter((row) => isLorPlrRow(row) || row.grain === "lor_plr");
   if (plr.length > 0) return plr;
   return rows.filter((row) => isLor2006Row(row) || !/^lor:/i.test(row.geo_key?.trim() ?? ""));
 }

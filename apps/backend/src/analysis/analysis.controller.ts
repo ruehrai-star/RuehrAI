@@ -14,7 +14,7 @@ export class AnalysisController {
   }
 
   @Post("runs")
-  @HttpCode(201)
+  @HttpCode(202)
   createRun(@CurrentUser() user: AuthUser) {
     return this.analysis.createRun(user.id);
   }

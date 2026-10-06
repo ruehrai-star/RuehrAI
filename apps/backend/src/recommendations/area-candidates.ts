@@ -3,6 +3,7 @@ import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
 import { catalogLevelFromGeoKey, officialAgsKey } from "../geo/geo-catalog";
 import { Grain } from "../target-region/dto";
+import { minNumber } from "../common/safe-array";
 
 /** Cap the geo_ref / feature-doc read. Ranking still returns every loaded Teilfläche. */
 export const AREA_CANDIDATE_LIMIT = 200;
@@ -85,6 +86,24 @@ export function isKoelnQuartierKey(value: string | null | undefined): boolean {
   return /^koeln:sq:/i.test(value?.trim() ?? "");
 }
 
+const COARSE_REGION_LEVELS = new Set(["bezirk", "stadtbezirk"]);
+
+/**
+ * Address and 100-m grid scans are skipped for Bezirk / Stadtbezirk /
+ * Kreis Zielregionen. Stufe-1 hits are the finest named sub-areas, not
+ * 200 arbitrary addresses. Gemeinde still reads address/grid when present.
+ */
+export function skipAddressAndGridForRegion(
+  region: Pick<AnalysisRegion, "level" | "grain" | "geoKey">,
+): boolean {
+  const level = region.level?.trim().toLowerCase();
+  if (level && COARSE_REGION_LEVELS.has(level)) return true;
+  if (region.grain === "ags5") return true;
+  const geoKey = region.geoKey?.trim() ?? "";
+  if (/^(?:bezirk|stadtbezirk):/i.test(geoKey)) return true;
+  return false;
+}
+
 function finestKindOrderSql(): string {
   return `CASE kind
        WHEN 'address' THEN 0
@@ -118,7 +137,7 @@ export function selectFinestHits(
     candidates.filter((candidate) => !regions.some((region) => isRegionAnchor(candidate, region))),
   );
   if (withoutAnchor.length === 0) return [];
-  const finest = Math.min(...withoutAnchor.map((candidate) => areaKindRank(candidate.kind)));
+  const finest = minNumber(withoutAnchor.map((candidate) => areaKindRank(candidate.kind)));
   return withoutAnchor.filter((candidate) => areaKindRank(candidate.kind) === finest);
 }
 
@@ -474,25 +493,28 @@ export function buildGrid100CandidateSql(): string {
  * $5 plz (nullable)
  */
 export function buildGeoAddressCandidateSql(): string {
-  const geom = geom4326("a");
+  const hitGeom = addressGeom4326("a");
   return `
   WITH region_geom AS (
     SELECT ${regionGeomExpr()} AS geom
   )
   SELECT
-    NULLIF(btrim(a.geo_key::text), '') AS geo_key,
+    COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) AS geo_key,
     'address'::text AS grain,
     'address'::text AS kind,
-    COALESCE(NULLIF(btrim(a.name), ''), NULLIF(btrim(a.geo_key::text), '')) AS name,
+    COALESCE(
+      NULLIF(btrim(a.geo_key::text), ''),
+      'address:' || a.geo_addr_id::text
+    ) AS name,
     NULLIF(btrim(a.geo_ags::text), '') AS ags,
     NULLIF(btrim(a.geo_plz5::text), '') AS plz,
-    ST_X(ST_PointOnSurface(${geom})) AS lon,
-    ST_Y(ST_PointOnSurface(${geom})) AS lat,
-    ${clippedHitGeoJsonSql(geom)} AS geometry_geojson
+    ST_X(ST_PointOnSurface(${hitGeom})) AS lon,
+    ST_Y(ST_PointOnSurface(${hitGeom})) AS lat,
+    ${clippedHitGeoJsonSql(hitGeom)} AS geometry_geojson
   FROM geo.geo_ref_address a, region_geom g
-  WHERE NULLIF(btrim(a.geo_key::text), '') IS NOT NULL
-    AND NOT (a.geo_key::text = ANY($4::text[]))
-    AND ${hasArea("a")}
+  WHERE COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) IS NOT NULL
+    AND NOT (COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) = ANY($4::text[]))
+    AND a.geom_3035 IS NOT NULL AND NOT ST_IsEmpty(a.geom_3035)
     AND (
       ($2::text IS NOT NULL AND (
         a.geo_ags::text = $2
@@ -500,9 +522,9 @@ export function buildGeoAddressCandidateSql(): string {
       ))
       OR ($3::text IS NOT NULL AND a.geo_ags::text LIKE $3 || '%')
       OR ($5::text IS NOT NULL AND a.geo_plz5::text = $5)
-      OR (g.geom IS NOT NULL AND ST_Intersects(${geom}, g.geom))
+      OR (g.geom IS NOT NULL AND ST_Intersects(a.geom_3035, ST_Transform(g.geom, 3035)))
     )
-  ORDER BY a.geo_key ASC
+  ORDER BY COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) ASC
   LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
@@ -733,23 +755,24 @@ function berlinLorMembershipSql(): string {
  */
 export function buildLorPlrCatalogSql(): string {
   const geom = geom4326("l");
+  const plrKey = `'lor:plr:' || l.geo_lor_id::text`;
   return `
   WITH region_geom AS (
     SELECT ${regionGeomFromParam("$4")} AS geom
   )
   SELECT
-    l.geo_key::text AS geo_key,
+    ${plrKey} AS geo_key,
     'other'::text AS grain,
     'lor'::text AS kind,
-    COALESCE(NULLIF(btrim(l.name), ''), l.geo_key::text) AS name,
+    COALESCE(NULLIF(btrim(l.name), ''), ${plrKey}) AS name,
     NULLIF(btrim(l.geo_ags::text), '') AS ags,
     NULL::text AS plz,
     ST_X(ST_PointOnSurface(${geom})) AS lon,
     ST_Y(ST_PointOnSurface(${geom})) AS lat,
     ${clippedHitGeoJsonSql(geom)} AS geometry_geojson
   FROM geo.geo_ref_lor l, region_geom g
-  WHERE l.geo_key LIKE 'lor:plr:%'
-    AND NOT (l.geo_key = ANY($2::text[]))
+  WHERE COALESCE(l.lor_version::text, '2021') IN ('2021', '21')
+    AND NOT (${plrKey} = ANY($2::text[]))
     AND ${hasArea("l")}
     AND (
       ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
@@ -765,7 +788,7 @@ export function buildLorPlrCatalogSql(): string {
         OR l.geo_ags::text LIKE $1 || '%'
       ))
     )
-  ORDER BY l.geo_key ASC
+  ORDER BY ${plrKey} ASC
   LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
@@ -1048,6 +1071,11 @@ function geom4326(alias: string): string {
       ELSE ST_Transform(${alias}.geom, 4326)
     END
   `;
+}
+
+/** Addresses: map coords from geom_3035 (GiST) without transforming the indexed column for the hit test. */
+function addressGeom4326(alias: string): string {
+  return `ST_Transform(${alias}.geom_3035, 4326)`;
 }
 
 /**

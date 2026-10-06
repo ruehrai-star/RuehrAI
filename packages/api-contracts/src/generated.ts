@@ -455,13 +455,20 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Snapshot input, search Brain, and persist a pattern
-         * @description Same preconditions as `GET /analysis/input`. On success the run is
-         *     stored for this user and includes the Brain facts used (region filter,
-         *     plus store postal codes) and the derived pattern. When Zielregion(en)
-         *     are marked, a recommendation set for those regions is stored and
-         *     bound to this `runId`. `GET /recommendations` never computes a set.
-         *     Marking another Zielregion later does not start a run.
+         * Snapshot input, enqueue Brain search, and persist a pattern
+         * @description Same preconditions as `GET /analysis/input`. The call answers
+         *     `202 Accepted` with the full `AnalysisRun` (`status` `queued`)
+         *     and the same schema as `GET /analysis/runs/{id}`. Computation
+         *     continues in the background (`running`, then `completed` after
+         *     the recommendation set is stored, or `failed`). Clients poll
+         *     `GET /analysis/runs/{id}` every ~2 s until `completed` or
+         *     `failed`. The overall deadline is `ANALYSIS_RUN_DEADLINE_MS`
+         *     (default 120000). When Zielregion(en) are marked, a
+         *     recommendation set for those regions is stored and bound to
+         *     this `runId`. `GET /recommendations` never computes a set.
+         *     Marking another Zielregion later does not start a run. Failed
+         *     runs keep `failureReason` (closed enum) and stay readable on
+         *     `GET /analysis/runs/{id}`.
          */
         post: operations["createAnalysisRun"];
         delete?: never;
@@ -477,7 +484,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read one analysis run of the signed-in user */
+        /**
+         * Read one analysis run of the signed-in user
+         * @description Returns the full `AnalysisRun` (`id`, `status`
+         *     `queued` | `running` | `completed` | `failed`, optional
+         *     `failureReason`, `startedAt`, `completedAt`, plus input, Brain,
+         *     and pattern). Clients poll this path every ~2 s after
+         *     `POST /analysis/runs` until `completed` or `failed`. Unknown
+         *     ids and another user's runs are `404`.
+         */
         get: operations["getAnalysisRun"];
         put?: never;
         post?: never;
@@ -1056,13 +1071,51 @@ export interface components {
          * @enum {string}
          */
         EvidenceScope: "local" | "inherited";
+        /**
+         * @description Lifecycle of a Musteranalyse run. `POST /analysis/runs` answers
+         *     `202` with `queued`. The row becomes `running` while Brain,
+         *     pattern, and recommendation-set ranking run, then `completed`
+         *     or `failed`. Clients poll `GET /analysis/runs/{id}` every ~2 s.
+         *     Older stored rows are `completed`.
+         * @enum {string}
+         */
+        AnalysisRunStatus: "queued" | "running" | "completed" | "failed";
+        /**
+         * @description Closed reason when `status` is `failed`. Null otherwise.
+         *     `timeout` — overall run deadline (`ANALYSIS_RUN_DEADLINE_MS`,
+         *     default 120000) or a statement timeout. `pattern_failed` —
+         *     Brain search or pattern derivation. `set_save_failed` —
+         *     recommendation-set computation or persist. `interrupted` —
+         *     a `queued`/`running` row still open at process start.
+         *     `internal_error` — anything else. Technical detail stays in
+         *     the server log, never in this field.
+         * @enum {string}
+         */
+        AnalysisRunFailureReason: "timeout" | "pattern_failed" | "set_save_failed" | "interrupted" | "internal_error";
         AnalysisRun: {
             /** @description Run id as a decimal string. */
             id: string;
-            /** @enum {string} */
-            status: "completed";
+            status: components["schemas"]["AnalysisRunStatus"];
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: date-time
+             * @description When computation started (`running`). Null on a queued row
+             *     that has not started. Completed rows from before 0.19.0 may
+             *     omit this or repeat `createdAt`.
+             */
+            startedAt?: string | null;
+            /**
+             * Format: date-time
+             * @description When the run finished (`completed` or `failed`). Null while
+             *     queued or running. Older completed rows may omit this.
+             */
+            completedAt?: string | null;
+            /**
+             * @description Closed enum when `status` is `failed`. Null otherwise.
+             *     Missing values stay null — never a key, German sentence, or `0`.
+             */
+            failureReason?: components["schemas"]["AnalysisRunFailureReason"] | null;
             input: components["schemas"]["AnalysisInput"];
             brain: components["schemas"]["AnalysisBrain"];
             pattern: components["schemas"]["AnalysisPattern"];
@@ -1477,6 +1530,32 @@ export interface components {
              *     Bezirk, Gemeinde). Required on new sets.
              */
             kind: components["schemas"]["AreaKind"];
+            /**
+             * @description Official grain of this hit (same token as `location.grain`).
+             *     Present on new sets from 0.19.0. Older stored sets may omit
+             *     it — then read `location.grain`.
+             */
+            grain?: components["schemas"]["Grain"];
+            /**
+             * @description Display name of this hit. Never a catalog key (`plz5:…`,
+             *     `ortsteil:osm:…`). Null when the place name liegt nicht vor
+             *     — never `0`, never the geoKey as a stand-in.
+             */
+            name?: string | null;
+            /**
+             * @description Display name of the parent area (Ortsteil → Bezirk), never a
+             *     key and never a second name for this hit. Null when unknown
+             *     or the hit is the top area (Gemeinde).
+             */
+            parentLabel?: string | null;
+            /**
+             * @description Named parts of a Schnittfläche so clients can show
+             *     „Schnittfläche aus A und B“ without parsing `title`.
+             *     Each part is one dataset Fläche (`geoKey` is the id, `name`
+             *     is the display name). Empty or omitted when this hit is a
+             *     single Fläche.
+             */
+            intersectionOf?: components["schemas"]["RecommendationIntersectionPart"][];
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
@@ -1535,14 +1614,43 @@ export interface components {
              */
             summary: string;
         };
+        /**
+         * @description One Fläche that forms a Schnittfläche hit. `geoKey` is only the
+         *     id. `name` is the display name — never a catalog key. Missing
+         *     names are null (liegt nicht vor).
+         */
+        RecommendationIntersectionPart: {
+            /** @description Catalog / Brain id of this part. Not for display. */
+            geoKey: string;
+            grain: components["schemas"]["Grain"];
+            /**
+             * @description Display name of this part. Null when the name liegt nicht
+             *     vor. Never `0` and never the geoKey as a stand-in.
+             */
+            name: string | null;
+            /**
+             * @description Pattern / Brain metric id that lives on this Fläche.
+             *     Omitted when the part is not tied to one dataset.
+             */
+            datasetKey?: string;
+        };
         RecommendationLocation: {
             geoKey: string;
+            /**
+             * @deprecated
+             * @description Deprecated. Use top-level `Recommendation.grain`. Kept for
+             *     compatibility.
+             */
             grain: components["schemas"]["Grain"];
             /** Format: double */
             lon: number | null;
             /** Format: double */
             lat: number | null;
-            /** @description Brain place name when the row has one. */
+            /**
+             * @deprecated
+             * @description Deprecated. Use top-level `Recommendation.name`. Brain place
+             *     name when the row has one. Null when the name liegt nicht vor.
+             */
             name: string | null;
         };
         /**
@@ -2454,8 +2562,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Completed analysis run. */
-            201: {
+            /**
+             * @description Accepted. Body is the full `AnalysisRun` with `status`
+             *     `queued`. Poll `GET /analysis/runs/{id}` every ~2 s.
+             */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

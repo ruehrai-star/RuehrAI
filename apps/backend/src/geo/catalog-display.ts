@@ -48,7 +48,9 @@ export function catalogPlaceQuery(input: {
 /**
  * Fill missing `level` / `parentLabel` from the same catalog search POST uses.
  * Never invents a label. A municipality with no catalog parent stays empty.
- * A municipality without a catalog level is `gemeinde`.
+ * A municipality without a catalog level is `gemeinde`. Bezirk / Stadtbezirk /
+ * Stadtteil / Ortsteil get the Gemeinde name from catalog, `geo_ref_admin`,
+ * or the AGS-prefix fallbacks Berlin / München / Hamburg / Köln.
  */
 export async function fillMissingCatalogDisplay<T extends CatalogDisplayPlace>(
   region: T,
@@ -67,13 +69,11 @@ export async function fillMissingCatalogDisplay<T extends CatalogDisplayPlace>(
   let level = fromCatalog ?? catalogLevelForPlace(region);
   const key = officialAgsKey(region.geoKey) ?? officialAgsKey(region.ags);
   const parentKey = parentMunicipalityAgs(key);
-  if (lookupAdmin) {
-    const adminKeys = [key, parentKey].filter((value): value is string => Boolean(value));
-    const admin = adminKeys.length > 0 ? await lookupAdmin(adminKeys) : new Map();
-    const applied = applyAdminCatalogDisplay({ ...region, level, parentLabel }, admin);
-    level = fromCatalog ?? applied.level;
-    parentLabel = parentLabel ?? applied.parentLabel;
-  }
+  const adminKeys = [key, parentKey].filter((value): value is string => Boolean(value));
+  const admin = lookupAdmin && adminKeys.length > 0 ? await lookupAdmin(adminKeys) : new Map();
+  const applied = applyAdminCatalogDisplay({ ...region, level, parentLabel }, admin);
+  level = fromCatalog ?? applied.level;
+  parentLabel = parentLabel ?? applied.parentLabel;
   if (level === "stadtbezirk" && !parentLabel && parentKey) {
     const parentHits = await search({ ags: parentKey });
     parentLabel = emptyToNull(parentHits.find((row) => row.parentLabel)?.parentLabel);

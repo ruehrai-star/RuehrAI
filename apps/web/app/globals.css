@@ -301,10 +301,12 @@ input {
 
 .hit-label {
   font-weight: 620;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .hit-parent {
-  margin-left: 0.4em;
   font-weight: 500;
   color: var(--ink-soft);
 }

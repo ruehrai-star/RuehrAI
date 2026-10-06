@@ -56,8 +56,12 @@ describe("searchFilterParams", () => {
       "plz5:12247",
       null,
       true,
+      ["%12247%"],
     ]);
     expect(searchFilterParams({ q: "München" })[7]).toBe(false);
+    expect(searchFilterParams({ q: "Innenstadt Köln" })[8]).toEqual(["%Innenstadt%", "%Köln%"]);
+    expect(searchFilterParams({ q: "Altona Hamburg" })[8]).toEqual(["%Altona%", "%Hamburg%"]);
+    expect(searchFilterParams({ q: "Hamburg Altona" })[8]).toEqual(["%Hamburg%", "%Altona%"]);
   });
 });
 

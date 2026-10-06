@@ -83,22 +83,68 @@ describe("fillMissingCatalogDisplay", () => {
     expect(filled.label).toBe("Bezirk München Schwabing-West");
   });
 
-  it("does not invent a parent name when the catalog has none", async () => {
+  it("fills München and Hamburg Gemeinde parentLabel from the AGS prefix when catalog and admin are empty", async () => {
     const search = jest.fn().mockResolvedValue([]);
-    const filled = await fillMissingCatalogDisplay(
-      {
-        label: "Bezirk München Schwabing-West",
-        grain: "ags",
-        geoKey: "09162004",
-        ags: "09162004",
-        plz: null,
-        level: null,
-        parentLabel: null,
-      },
-      search,
-    );
-    expect(filled.level).toBe("stadtbezirk");
-    expect(filled.parentLabel).toBeNull();
+    await expect(
+      fillMissingCatalogDisplay(
+        {
+          label: "Bezirk München Schwabing-West",
+          grain: "ags",
+          geoKey: "09162004",
+          ags: "09162004",
+          plz: null,
+          level: null,
+          parentLabel: null,
+        },
+        search,
+      ),
+    ).resolves.toMatchObject({
+      label: "Bezirk München Schwabing-West",
+      level: "stadtbezirk",
+      parentLabel: "München",
+    });
+    await expect(
+      fillMissingCatalogDisplay(
+        {
+          label: "Altona",
+          grain: "other",
+          geoKey: "stadtbezirk:02000002",
+          ags: "02000002",
+          plz: null,
+          level: "stadtbezirk",
+          parentLabel: null,
+        },
+        search,
+      ),
+    ).resolves.toMatchObject({ label: "Altona", level: "stadtbezirk", parentLabel: "Hamburg" });
+    await expect(
+      fillMissingCatalogDisplay(
+        {
+          label: "Innenstadt",
+          grain: "other",
+          geoKey: "stadtbezirk:osm:2613798",
+          ags: "05315000",
+          plz: null,
+          level: "bezirk",
+          parentLabel: null,
+        },
+        search,
+      ),
+    ).resolves.toMatchObject({ label: "Innenstadt", level: "bezirk", parentLabel: "Köln" });
+    await expect(
+      fillMissingCatalogDisplay(
+        {
+          label: "Weststadt",
+          grain: "ags",
+          geoKey: "06412004",
+          ags: "06412004",
+          plz: null,
+          level: null,
+          parentLabel: null,
+        },
+        search,
+      ),
+    ).resolves.toMatchObject({ level: "stadtbezirk", parentLabel: null });
   });
 
   it("reclassifies an official AGS district that arrived as gemeinde", async () => {

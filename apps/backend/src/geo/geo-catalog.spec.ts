@@ -3,6 +3,7 @@ import {
   GEO_BEZIRK_OUTLINE_SQL,
   GEO_CATALOG_LEVELS,
   GEO_CATALOG_SEARCH_SQL,
+  GEO_CATALOG_SEARCH_SQL_NO_ADMIN,
   GEO_ORTSTEIL_OUTLINE_SQL,
   GEO_PLZ_OUTLINE_SQL,
   catalogDedupKey,
@@ -12,6 +13,7 @@ import {
   catalogLevelForPlace,
   catalogLookupPlan,
   catalogNameDedupKey,
+  gemeindeDisplayNameFromAgs,
   isAgsDistrictPlace,
   isMunicipalityPlace,
   parentMunicipalityAgs,
@@ -62,7 +64,36 @@ describe("geo catalog contract", () => {
         { grain: "other", geoKey: "ortsteil:osm:162894", ags: "11000000" },
         new Map([["11000000", "Berlin"]]),
       ),
-    ).toEqual({ level: "ortsteil", parentLabel: null });
+    ).toEqual({ level: "ortsteil", parentLabel: "Berlin" });
+    expect(
+      applyAdminCatalogDisplay({ grain: "ags", geoKey: "09162004" }, new Map()),
+    ).toEqual({ level: "stadtbezirk", parentLabel: "München" });
+    expect(
+      applyAdminCatalogDisplay(
+        { grain: "other", geoKey: "stadtbezirk:02000002", ags: "02000002" },
+        new Map(),
+      ),
+    ).toEqual({ level: "stadtbezirk", parentLabel: "Hamburg" });
+    expect(
+      applyAdminCatalogDisplay(
+        { grain: "other", geoKey: "stadtteil:osm:altona", ags: "02000000", level: "stadtteil" },
+        new Map(),
+      ),
+    ).toEqual({ level: "stadtteil", parentLabel: "Hamburg" });
+    expect(
+      applyAdminCatalogDisplay(
+        { grain: "other", geoKey: "stadtbezirk:osm:2613798", ags: "05315000", level: "bezirk" },
+        new Map(),
+      ),
+    ).toEqual({ level: "bezirk", parentLabel: "Köln" });
+    expect(
+      applyAdminCatalogDisplay({ grain: "ags", geoKey: "06412004" }, new Map()),
+    ).toEqual({ level: "stadtbezirk", parentLabel: null });
+    expect(gemeindeDisplayNameFromAgs("09162004")).toBe("München");
+    expect(gemeindeDisplayNameFromAgs("02000002")).toBe("Hamburg");
+    expect(gemeindeDisplayNameFromAgs("05315000")).toBe("Köln");
+    expect(gemeindeDisplayNameFromAgs("11000001")).toBe("Berlin");
+    expect(gemeindeDisplayNameFromAgs("06412004")).toBeNull();
     expect(isMunicipalityPlace({ grain: "plz5", geoKey: "80331" })).toBe(false);
     expect(catalogLevelForBezirk("11000001")).toBe("bezirk");
     expect(catalogLevelForBezirk("11000012")).toBe("bezirk");
@@ -210,7 +241,15 @@ describe("geo catalog contract", () => {
     expect(GEO_CATALOG_SEARCH_SQL).not.toMatch(/src\.id ILIKE \$4/);
     expect(GEO_CATALOG_SEARCH_SQL).not.toMatch(/src\.geo_key ILIKE \$4/);
     expect(GEO_CATALOG_SEARCH_SQL).not.toContain("src.geo_ags, '') ILIKE $4");
-    expect(GEO_CATALOG_SEARCH_SQL).toContain("$8::boolean OR src.level <> 'plz'");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("$9::text[]");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("left(src.geo_ags::text, 5) || '000'");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("'Köln'");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("'München'");
+    expect(GEO_CATALOG_SEARCH_SQL).toContain("'Hamburg'");
+    expect(GEO_CATALOG_SEARCH_SQL_NO_ADMIN).toContain("'München'");
+    expect(GEO_CATALOG_SEARCH_SQL_NO_ADMIN).toContain("'Hamburg'");
+    expect(GEO_CATALOG_SEARCH_SQL_NO_ADMIN).toContain("'Köln'");
+    expect(GEO_CATALOG_SEARCH_SQL_NO_ADMIN).not.toContain("admin.name");
     expect(GEO_CATALOG_SEARCH_SQL).toContain("src.label IS NOT NULL");
     expect(GEO_CATALOG_SEARCH_SQL).toContain("$6::text IS NULL");
     expect(GEO_CATALOG_SEARCH_SQL).toContain("src.geo_key = $6");

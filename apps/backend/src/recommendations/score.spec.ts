@@ -401,6 +401,45 @@ describe("rankTeilflaechen", () => {
 
     expect(ranked.map((item) => item.kind)).toEqual(["plz"]);
     expect(ranked[0]?.title).toBe("10115");
+    expect(ranked[0]?.grain).toBe("plz5");
+    expect(ranked[0]?.name).toBe("10115");
+    expect(ranked[0]?.parentLabel).toBe("Mitte");
+    expect(ranked[0]?.intersectionOf).toEqual([
+      { geoKey: "11000001", grain: "other", name: "Mitte", datasetKey: "kba_elektro_pkw" },
+      { geoKey: "10115", grain: "plz5", name: "10115", datasetKey: "wanderungen" },
+    ]);
+  });
+
+  it("omits intersectionOf when the hit is a single Fläche", () => {
+    const ranked = rankTeilflaechen(
+      [candidate({ geoKey: "ortsteil:osm:1", kind: "ortsteil", title: "Schwabing" })],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:1",
+          requestedLevel: "ortsteil",
+          sourceLevel: "ortsteil",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:1"),
+      ],
+      [
+        {
+          key: "unfallatlas",
+          metricId: "unfallatlas",
+          label: "Unfälle",
+          direction: "down",
+          evidence: "fällt",
+          kind: "trend",
+        },
+      ],
+    );
+    expect(ranked[0]?.intersectionOf).toBeUndefined();
+    expect(ranked[0]?.name).toBe("Schwabing");
+    expect(ranked[0]?.grain).toBe("other");
   });
 
   it("treats a missing Bezugsgröße as absent and never invents 0", () => {
@@ -526,6 +565,35 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toMatch(/liegt nicht vor/);
     expect(ranked[0]?.score).toBe(0);
     expect(ranked[0]?.trend).toEqual({ direction: "unknown", summary: "" });
+  });
+
+  it("ranks a Bezirk-scale candidate pool without RangeError and under a few seconds", () => {
+    const started = Date.now();
+    const pool: AreaCandidate[] = [];
+    for (let index = 0; index < 8_000; index += 1) {
+      pool.push(
+        candidate({
+          geoKey: `ortsteil:osm:${index}`,
+          kind: "ortsteil",
+          title: `Teil ${index}`,
+          name: `Teil ${index}`,
+          ags: "05315000",
+        }),
+      );
+    }
+    const yearly: YearlySeries[] = pool.slice(0, 50).map((item) =>
+      series({
+        metricId: "unfallatlas",
+        requestedGeoKey: item.geoKey,
+        requestedLevel: "ortsteil",
+        sourceLevel: "ortsteil",
+        sourceGeoKey: item.geoKey,
+      }),
+    );
+    const ranked = rankTeilflaechen(pool, yearly, [trendUp]);
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked.length).toBeLessThanOrEqual(200);
+    expect(Date.now() - started).toBeLessThan(4_000);
   });
 });
 

@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.18.1");
+  assert.equal(doc.info.version, "0.19.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -92,6 +92,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.16.0"));
   assert.ok(doc.info.description.includes("0.18.0"));
   assert.ok(doc.info.description.includes("0.18.1"));
+  assert.ok(doc.info.description.includes("0.19.0"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
     doc.paths["/recommendations"].get.description.includes("Never ranks"));
   assert.equal(
@@ -266,6 +267,57 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.deepEqual(doc.components.schemas.RecommendationTrend.required, ["direction", "summary"]);
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.baselineMatch.type, "boolean");
   assert.equal(doc.components.schemas.PatternDatasetProfile.properties.baselineMatch.type, "boolean");
+  assert.equal(recommendation.properties.grain.$ref, "#/components/schemas/Grain");
+  assert.equal(recommendation.properties.name.nullable, true);
+  assert.equal(recommendation.properties.parentLabel.nullable, true);
+  assert.equal(recommendation.required.includes("grain"), false);
+  assert.equal(recommendation.required.includes("name"), false);
+  assert.equal(recommendation.required.includes("parentLabel"), false);
+  assert.equal(recommendation.required.includes("intersectionOf"), false);
+  assert.equal(
+    recommendation.properties.intersectionOf.items.$ref,
+    "#/components/schemas/RecommendationIntersectionPart",
+  );
+  assert.deepEqual(doc.components.schemas.RecommendationIntersectionPart.required, ["geoKey", "grain", "name"]);
+  assert.equal(doc.components.schemas.RecommendationIntersectionPart.properties.name.nullable, true);
+  assert.equal(doc.components.schemas.RecommendationIntersectionPart.required.includes("datasetKey"), false);
+  assert.equal(doc.components.schemas.RecommendationLocation.properties.grain.deprecated, true);
+  assert.equal(doc.components.schemas.RecommendationLocation.properties.name.deprecated, true);
+  assert.deepEqual(doc.components.schemas.AnalysisRunStatus.enum, [
+    "queued",
+    "running",
+    "completed",
+    "failed",
+  ]);
+  assert.equal(
+    doc.components.schemas.AnalysisRun.properties.status.$ref,
+    "#/components/schemas/AnalysisRunStatus",
+  );
+  assert.ok(doc.info.description.includes("202 Accepted"));
+  assert.ok(doc.info.description.includes("every ~2 s"));
+  assert.ok(doc.info.description.includes("ANALYSIS_RUN_DEADLINE_MS"));
+  assert.ok(doc.paths["/analysis/runs"].post.responses["202"]);
+  assert.equal(doc.paths["/analysis/runs"].post.responses["201"], undefined);
+  assert.ok(doc.paths["/analysis/runs"].post.description.includes("every ~2 s"));
+  assert.ok(doc.paths["/analysis/runs/{id}"].get.description.includes("404"));
+  assert.deepEqual(doc.components.schemas.AnalysisRunFailureReason.enum, [
+    "timeout",
+    "pattern_failed",
+    "set_save_failed",
+    "interrupted",
+    "internal_error",
+  ]);
+  assert.equal(
+    doc.components.schemas.AnalysisRun.properties.failureReason.allOf[0].$ref,
+    "#/components/schemas/AnalysisRunFailureReason",
+  );
+  assert.equal(doc.components.schemas.AnalysisRun.properties.failureReason.nullable, true);
+  assert.equal(doc.components.schemas.AnalysisRun.properties.startedAt.nullable, true);
+  assert.equal(doc.components.schemas.AnalysisRun.properties.completedAt.nullable, true);
+  assert.equal(doc.components.schemas.AnalysisRun.required.includes("failureReason"), false);
+  assert.ok(doc.info.description.includes("intersectionOf"));
+  assert.ok(doc.info.description.includes("parentLabel"));
+  assert.ok(doc.info.description.includes("queued"));
 
   assert.deepEqual(doc.components.schemas.SeriesGranularity.enum, ["month", "year"]);
   assert.deepEqual(doc.components.schemas.SeriesPointStatus.enum, ["present", "absent"]);

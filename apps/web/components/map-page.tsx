@@ -12,8 +12,7 @@ import {
   toMapFeatureCollection,
   type SearchHit,
 } from "@/lib/api";
-import { CatalogParentName } from "@/components/catalog-parent-name";
-import { catalogBadge, catalogPlaceName } from "@/lib/format";
+import { CatalogHitLabel } from "@/components/catalog-hit-label";
 import { ensureMarkedKey } from "@/lib/locations/regions";
 import {
   LEGEND_LABEL,
@@ -267,9 +266,7 @@ export function MapPage() {
         ) : null}
         {selection ? (
           <div className="callout">
-            <span className="badge">{catalogBadge({ ...selection, geoKey: selection.geoKey || selection.id })}</span>
-            {catalogPlaceName(selection) ? <strong>{catalogPlaceName(selection)}</strong> : null}
-            <CatalogParentName source={selection} />
+            <CatalogHitLabel source={selection} />
             {selectionPoint ? (
               <span className="callout-coords">
                 {selectionPoint.lat.toFixed(4)}° N, {selectionPoint.lon.toFixed(4)}° E

@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
 import { buildPatternByDataset, buildPatternByLevel } from "../analysis/pattern-profile";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
@@ -12,8 +12,10 @@ import { AreaCandidateService } from "./area-candidate.service";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
 import { RationaleService } from "./rationale.service";
 import { rankTeilflaechen } from "./score";
-import { RecommendationPayload, RecommendationSet } from "./types";
+import { visibleAreaName } from "./hit-display";
+import { RecommendationItem, RecommendationPayload, RecommendationSet } from "./types";
 import { threeYearWindow } from "./window";
+import { yieldEventLoop } from "../common/safe-array";
 
 interface RunRow {
   id: string;
@@ -29,6 +31,8 @@ interface SetRow {
 
 @Injectable()
 export class RecommendationsService {
+  private readonly logger = new Logger(RecommendationsService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly areas: AreaCandidateService,
@@ -58,9 +62,15 @@ export class RecommendationsService {
     };
 
     const loaded = await this.areas.load(analysisRegions(run.input));
+    this.logger.log(
+      `Recommendation set for run ${run.id}: candidateCount=${loaded.items.length} truncated=${loaded.truncated}`,
+    );
+    await yieldEventLoop();
     const candidateSeries =
       loaded.items.length === 0 ? [] : await this.yearlySeries.build(loaded.items.map(toSeriesRegion), asOfDate);
-    const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria);
+    await yieldEventLoop();
+    const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria, analysisRegions(run.input));
+    await yieldEventLoop();
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
     const written = await this.rationales.write(pattern, window, ranked);
     const payload: RecommendationPayload = {
@@ -122,7 +132,7 @@ export class RecommendationsService {
          FROM app.analysis_runs
          WHERE id = $1::bigint
            AND user_id = $2::bigint
-           AND status = 'completed'`,
+           AND status IN ('running', 'completed')`,
         [runId, userId],
       );
       const row = result.rows[0];
@@ -172,5 +182,24 @@ function toSet(id: string, createdAt: Date | string, payload: RecommendationPayl
     id,
     createdAt: toIso(createdAt),
     ...payload,
+    items: payload.items.map(hydrateHitDisplay),
+  };
+}
+
+function hydrateHitDisplay(item: RecommendationItem): RecommendationItem {
+  if (!item.location) return item;
+  const name = item.name !== undefined ? item.name : visibleAreaName(item.location.name);
+  const grain = item.grain ?? item.location.grain;
+  const parentLabel = item.parentLabel !== undefined ? item.parentLabel : null;
+  return {
+    ...item,
+    grain,
+    name: name ?? null,
+    parentLabel: parentLabel ?? null,
+    location: {
+      ...item.location,
+      grain,
+      name: name ?? item.location.name,
+    },
   };
 }

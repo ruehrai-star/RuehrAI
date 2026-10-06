@@ -396,4 +396,39 @@ describe("AreaCandidateService", () => {
     );
     await expect(service.load([region()])).resolves.toEqual({ items: [], truncated: false });
   });
+
+  it("does not scan addresses or 100-m grid for a Bezirk Zielregion", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      expect(text).not.toContain("geo.geo_ref_address");
+      expect(text).not.toContain("grain = 'grid100'");
+      if (text.includes("geo_ref_zielregion_teil")) {
+        return {
+          rows: [
+            {
+              geo_key: "ortsteil:osm:1",
+              grain: "other",
+              kind: "ortsteil",
+              name: "Altstadt-Süd",
+              ags: "05315000",
+              plz: null,
+              lon: 6.96,
+              lat: 50.93,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const loaded = await service.load([
+      region({
+        label: "Innenstadt",
+        grain: "other",
+        geoKey: "bezirk:osm:2613798",
+        level: "bezirk",
+        ags: "05315000",
+      }),
+    ]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["ortsteil:osm:1"]);
+  });
 });

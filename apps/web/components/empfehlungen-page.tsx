@@ -4,26 +4,28 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendationSet, TargetRegion } from "@/lib/api";
+import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
+import { analysisFailureFromHttp } from "@/lib/analysis/failure";
+import { isInFlightStatus } from "@/lib/analysis/poll";
 import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildTrefferlisteKarte } from "@/lib/map/karte";
-import { getRecommendationApi } from "@/lib/recommendations/api";
 import {
   RECOMMENDATION_COPY,
   buildPatternProfile,
   buildTrefferlisteCards,
   headingForMarkedRegion,
   stichtagCopy,
+  trefferStatusCopy,
   type SparkPoint,
   type TrefferCardView,
   type TrefferCriterionRow,
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { formatStandLine, loadPatternForMarkedRegion, type BoundVerlauf } from "@/lib/verlauf/bind";
-import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
-import { regionView } from "@/lib/verlauf/model";
-import { CatalogParentName } from "./catalog-parent-name";
+import { formatStandLine, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { bindTrefferlisteForRegion, loadTrefferlisteAfterCompletedRun, pollTrefferlisteRun } from "@/lib/recommendations/bind";
+import { CatalogHitLabel } from "./catalog-hit-label";
 import { useSession } from "./session-provider";
 
 const MapView = dynamic(() => import("./map-view").then((mod) => mod.MapView), {
@@ -32,11 +34,11 @@ const MapView = dynamic(() => import("./map-view").then((mod) => mod.MapView), {
 });
 
 type PagePhase = "loading" | "idle" | "failed";
+type RunPhase = "idle" | "queued" | "running" | "failed" | "deadline";
 
 export function EmpfehlungenPage() {
   const { session } = useSession();
   const analysisApi = getAnalysisApi();
-  const recommendationApi = getRecommendationApi();
   const locationApi = getLocationApi();
   const [pagePhase, setPagePhase] = useState<PagePhase>("loading");
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
@@ -47,9 +49,14 @@ export function EmpfehlungenPage() {
   const [regions, setRegions] = useState<TargetRegion[]>([]);
   const [markedKey, setMarkedKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [runPhase, setRunPhase] = useState<RunPhase>("idle");
+  const [runError, setRunError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [showPattern, setShowPattern] = useState(false);
   const [selectedHitId, setSelectedHitId] = useState<string | null>(null);
   const bindRequest = useRef(0);
+  const inflightByKey = useRef(new Map<string, string>());
+  const pollAbort = useRef<AbortController | null>(null);
 
   const visible = Boolean(session && loadedEmail === session.email && pagePhase !== "loading");
   const visibleRegions = visible ? regions : [];
@@ -63,26 +70,48 @@ export function EmpfehlungenPage() {
       : bound
         ? "ready"
         : "empty";
+  const status = trefferStatusCopy({
+    pageLoading: pagePhase === "loading",
+    bindLoading: bindPhase === "loading" || starting,
+    runStatus: runPhase,
+  });
+  const inFlight = runPhase === "queued" || runPhase === "running";
   const boundRecommendations =
-    bindPhase === "ready" && bound && recommendationSet && recommendationSet.runId === bound.runId
+    bindPhase === "ready" &&
+    !inFlight &&
+    bound &&
+    recommendationSet &&
+    recommendationSet.runId === bound.runId
       ? recommendationSet
       : null;
   const cards = useMemo(
-    () => (bindPhase === "ready" ? buildTrefferlisteCards(boundRecommendations, marked) : []),
-    [bindPhase, boundRecommendations, marked],
+    () => (bindPhase === "ready" && !inFlight ? buildTrefferlisteCards(boundRecommendations, marked) : []),
+    [bindPhase, boundRecommendations, marked, inFlight],
   );
   const patternRows = useMemo(
-    () => (bindPhase === "ready" ? buildPatternProfile(boundRecommendations?.patternByDataset) : []),
-    [bindPhase, boundRecommendations],
+    () =>
+      bindPhase === "ready" && !inFlight ? buildPatternProfile(boundRecommendations?.patternByDataset) : [],
+    [bindPhase, boundRecommendations, inFlight],
   );
-  const standLine = bindPhase === "ready" && bound ? formatStandLine(bound.createdAt, bound.region) : null;
+  const standLine =
+    bindPhase === "ready" && !inFlight && bound ? formatStandLine(bound.createdAt, bound.region) : null;
   const heading = headingForMarkedRegion(marked);
   const showEmptyRun =
     visible &&
     pagePhase === "idle" &&
+    !inFlight &&
+    runPhase === "idle" &&
+    !starting &&
+    bindPhase !== "loading" &&
     (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations)) &&
     visibleRegions.length > 0;
-  const showEmptyHits = bindPhase === "ready" && Boolean(boundRecommendations) && cards.length === 0;
+  const showEmptyHits = bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0;
+  const showRestart = runPhase === "failed" || runPhase === "deadline";
+
+  function stopPolling() {
+    pollAbort.current?.abort();
+    pollAbort.current = null;
+  }
 
   useEffect(() => {
     if (!session) return;
@@ -98,6 +127,9 @@ export function EmpfehlungenPage() {
       setRegions([]);
       setMarkedKey(null);
       setLoadError(null);
+      setRunPhase("idle");
+      setRunError(null);
+      setStarting(false);
       try {
         const nextRegions = await locationApi.listTargetRegions();
         if (cancelled) return;
@@ -116,6 +148,7 @@ export function EmpfehlungenPage() {
     return () => {
       cancelled = true;
       bindRequest.current += 1;
+      stopPolling();
     };
   }, [session, locationApi]);
 
@@ -125,37 +158,199 @@ export function EmpfehlungenPage() {
     const key = current ? regionListKey(current) : null;
     const token = bindRequest.current + 1;
     bindRequest.current = token;
+    stopPolling();
 
     void (async () => {
       try {
-        const next = await loadPatternForMarkedRegion(analysisApi, current);
-        const recs = next ? await loadRecommendationsForRun(recommendationApi, next.runId) : null;
+        const inflight = key ? inflightByKey.current.get(key) : undefined;
+        const next = await bindTrefferlisteForRegion(analysisApi, current, inflight);
         if (bindRequest.current !== token) return;
-        setBound(next);
-        setRecommendationSet(recs);
+        setStarting(false);
+        if (next.kind === "in_flight") {
+          setBound(null);
+          setRecommendationSet(null);
+          setBoundKey(key);
+          setBindFailed(false);
+          setSelectedHitId(null);
+          setRunPhase(next.status);
+          const controller = new AbortController();
+          pollAbort.current = controller;
+          const settled = await pollTrefferlisteRun(analysisApi, next.runId, current, {
+            signal: controller.signal,
+            onStatus: (status) => {
+              if (bindRequest.current !== token) return;
+              setRunPhase(status);
+            },
+          });
+          if (bindRequest.current !== token || settled.kind === "aborted") return;
+          if (key) inflightByKey.current.delete(key);
+          if (settled.kind === "deadline") {
+            setRunPhase("deadline");
+            setRunError(RECOMMENDATION_COPY.analysisDeadline);
+            return;
+          }
+          if (settled.kind === "failed") {
+            setRunPhase("failed");
+            setRunError(settled.message);
+            return;
+          }
+          if (settled.kind === "ready") {
+            setBound(settled.bound);
+            setRecommendationSet(settled.set);
+            setBoundKey(key);
+            setBindFailed(false);
+            setRunPhase("idle");
+            setRunError(null);
+            setSelectedHitId(null);
+            return;
+          }
+          setBound(null);
+          setRecommendationSet(null);
+          setBoundKey(key);
+          setRunPhase("idle");
+          return;
+        }
+        if (next.kind === "failed") {
+          setBound(null);
+          setRecommendationSet(null);
+          setBoundKey(key);
+          setBindFailed(false);
+          setSelectedHitId(null);
+          setRunPhase("failed");
+          setRunError(next.message);
+          if (key) inflightByKey.current.delete(key);
+          return;
+        }
+        if (next.kind === "ready") {
+          setBound(next.bound);
+          setRecommendationSet(next.set);
+          setBoundKey(key);
+          setBindFailed(false);
+          setSelectedHitId(null);
+          setRunPhase("idle");
+          if (key) inflightByKey.current.delete(key);
+          return;
+        }
+        setBound(null);
+        setRecommendationSet(null);
         setBoundKey(key);
         setBindFailed(false);
         setSelectedHitId(null);
+        setRunPhase("idle");
       } catch {
         if (bindRequest.current !== token) return;
+        setStarting(false);
         setBound(null);
         setRecommendationSet(null);
         setBoundKey(key);
         setBindFailed(true);
         setSelectedHitId(null);
+        setRunPhase("idle");
       }
     })();
-  }, [session, pagePhase, regions, markedKey, analysisApi, recommendationApi]);
+  }, [session, pagePhase, regions, markedKey, analysisApi]);
+
+  async function onStartAnalysis() {
+    const current = markedRegion(regions, markedKey);
+    const key = current ? regionListKey(current) : null;
+    if (!current || !key) return;
+    const token = bindRequest.current + 1;
+    bindRequest.current = token;
+    stopPolling();
+    setStarting(true);
+    setRunError(null);
+    setBindFailed(false);
+    setRunPhase("idle");
+    try {
+      const created = await analysisApi.createAnalysisRun();
+      setStarting(false);
+      if (bindRequest.current !== token) return;
+      if (isInFlightStatus(created.status)) {
+        inflightByKey.current.set(key, created.id);
+        setRunPhase(created.status);
+        setBound(null);
+        setRecommendationSet(null);
+        setBoundKey(key);
+        const controller = new AbortController();
+        pollAbort.current = controller;
+        const settled = await pollTrefferlisteRun(analysisApi, created.id, current, {
+          signal: controller.signal,
+          onStatus: (status) => {
+            if (bindRequest.current !== token) return;
+            setRunPhase(status);
+          },
+        });
+        if (bindRequest.current !== token || settled.kind === "aborted") return;
+        if (key) inflightByKey.current.delete(key);
+        if (settled.kind === "deadline") {
+          setRunPhase("deadline");
+          setRunError(RECOMMENDATION_COPY.analysisDeadline);
+          return;
+        }
+        if (settled.kind === "failed") {
+          setRunPhase("failed");
+          setRunError(settled.message);
+          return;
+        }
+        if (settled.kind === "ready") {
+          setBound(settled.bound);
+          setRecommendationSet(settled.set);
+          setBoundKey(key);
+          setRunPhase("idle");
+          setRunError(null);
+          setSelectedHitId(null);
+          return;
+        }
+        setBound(null);
+        setRecommendationSet(null);
+        setRunPhase("idle");
+        return;
+      }
+      if (created.status === "failed") {
+        if (key) inflightByKey.current.delete(key);
+        setRunPhase("failed");
+        setRunError(analysisFailureFromHttp(0, created.failureReason));
+        setBoundKey(key);
+        return;
+      }
+      if (key) inflightByKey.current.delete(key);
+      const loaded = await loadTrefferlisteAfterCompletedRun(analysisApi, created.id, current);
+      if (bindRequest.current !== token) return;
+      if (loaded.kind === "ready") {
+        setBound(loaded.bound);
+        setRecommendationSet(loaded.set);
+        setBoundKey(key);
+        setRunPhase("idle");
+        setSelectedHitId(null);
+        return;
+      }
+      setBound(null);
+      setRecommendationSet(null);
+      setBoundKey(key);
+      setRunPhase("idle");
+    } catch (caught) {
+      if (bindRequest.current !== token) return;
+      setStarting(false);
+      setRunPhase("failed");
+      const status = caught instanceof ApiError ? caught.status : 0;
+      const message = caught instanceof ApiError ? caught.message : null;
+      setRunError(analysisFailureFromHttp(status, message));
+      setBoundKey(key);
+    }
+  }
 
   const karte = useMemo(
     () =>
       buildTrefferlisteKarte({
         region: marked,
-        items: cards.map((card) => boundRecommendations?.items.find((item) => item.id === card.id)).filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        items: cards
+          .map((card) => boundRecommendations?.items.find((item) => item.id === card.id))
+          .filter((item): item is NonNullable<typeof item> => Boolean(item)),
       }),
     [marked, cards, boundRecommendations],
   );
   const cameraKey = !session || (visible && pagePhase !== "loading") ? karte.cameraKey : null;
+  const busy = pagePhase === "loading" || bindPhase === "loading" || starting || inFlight;
 
   if (!session) {
     return (
@@ -176,13 +371,12 @@ export function EmpfehlungenPage() {
   }
 
   return (
-    <div className="treffer-page" id="inhalt" aria-busy={pagePhase === "loading" || bindPhase === "loading"}>
+    <div className="treffer-page" id="inhalt" aria-busy={busy}>
       <div className="treffer-list">
         <p className="stub-kicker">Empfehlung</p>
         {visibleRegions.length > 0 ? (
           <ul className="treffer-region-list">
             {visibleRegions.map((region) => {
-              const view = regionView(region);
               const key = regionListKey(region);
               const selected = marked != null && key === regionListKey(marked);
               return (
@@ -193,11 +387,7 @@ export function EmpfehlungenPage() {
                     aria-pressed={selected}
                     onClick={() => setMarkedKey(key)}
                   >
-                    <span className="hit-label">
-                      {view.label}
-                      <CatalogParentName source={region} />
-                    </span>
-                    {view.badge ? <span className="badge">{view.badge}</span> : null}
+                    <CatalogHitLabel source={region} />
                   </button>
                 </li>
               );
@@ -212,19 +402,29 @@ export function EmpfehlungenPage() {
             {standLine}
           </p>
         ) : null}
-        {heading && bindPhase === "ready" ? <h1>{heading}</h1> : <h1>{RECOMMENDATION_COPY.title}</h1>}
+        {heading && bindPhase === "ready" && !inFlight ? <h1>{heading}</h1> : <h1>{RECOMMENDATION_COPY.title}</h1>}
 
-        {pagePhase === "loading" || bindPhase === "loading" ? (
-          <p className="message">{RECOMMENDATION_COPY.loading}</p>
+        {status.text ? (
+          <p
+            className={status.tone === "error" ? "message message-error" : "message"}
+            role={status.tone === "error" ? "alert" : "status"}
+          >
+            {status.text}
+          </p>
         ) : null}
         {loadError ? (
           <p className="message message-error" role="alert">
             {loadError}
           </p>
         ) : null}
-        {bindPhase === "failed" ? (
+        {bindPhase === "failed" && !inFlight ? (
           <p className="message message-error" role="alert">
             {RECOMMENDATION_COPY.analysisFailed}
+          </p>
+        ) : null}
+        {runPhase === "failed" && runError ? (
+          <p className="message message-error" role="alert">
+            {runError}
           </p>
         ) : null}
 
@@ -234,10 +434,18 @@ export function EmpfehlungenPage() {
               {RECOMMENDATION_COPY.missingRun}
             </p>
             <div className="auth-actions">
-              <Link href="/musteranalyse" className="button">
+              <button type="button" className="button" onClick={() => void onStartAnalysis()}>
                 {RECOMMENDATION_COPY.startAnalysis}
-              </Link>
+              </button>
             </div>
+          </div>
+        ) : null}
+
+        {showRestart ? (
+          <div className="auth-actions">
+            <button type="button" className="button" onClick={() => void onStartAnalysis()}>
+              {RECOMMENDATION_COPY.restartAnalysis}
+            </button>
           </div>
         ) : null}
 
@@ -247,7 +455,7 @@ export function EmpfehlungenPage() {
           </p>
         ) : null}
 
-        {bindPhase === "ready" && patternRows.length > 0 ? (
+        {bindPhase === "ready" && !inFlight && patternRows.length > 0 ? (
           <div className="treffer-pattern-toggle">
             <button
               type="button"
