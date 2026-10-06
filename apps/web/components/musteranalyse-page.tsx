@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AnalysisInput, AnalysisPattern, AnalysisRun, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
 import { rememberStartedRun } from "@/lib/analysis/started-runs";
-import { clearMarkedKey, readMarkedKey } from "@/lib/locations/marked-region";
+import { clearMarkedKey, persistedMarkedKey, readMarkedKey } from "@/lib/locations/marked-region";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import { markedRegion } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
@@ -43,7 +43,7 @@ export function MusteranalysePage() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey] = usePersistedMarkedKey(regions);
+  const [markedKey, , markedMissing] = usePersistedMarkedKey(regions);
   const [input, setInput] = useState<AnalysisInput | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
   const [run, setRun] = useState<AnalysisRun | null>(null);
@@ -61,7 +61,8 @@ export function MusteranalysePage() {
   const visibleRun = visible && phase !== "running" ? run : null;
   const visiblePattern = visible && phase !== "running" ? pattern : null;
   const status = statusText(phase, visible, Boolean(visiblePattern));
-  const showMarkedRegionMissing = phase === "failed" && isMarkedTargetRegionMissingCopy(actionError);
+  const showMarkedRegionMissing =
+    markedMissing || (phase === "failed" && isMarkedTargetRegionMissingCopy(actionError));
   const startLocked = analysisStartLocked({
     starting: phase === "loading",
     runStatus: phase === "running" ? "running" : "idle",
@@ -90,7 +91,7 @@ export function MusteranalysePage() {
         if (cancelled) return;
         setRegions([]);
       }
-      const current = markedRegion(nextRegions, readMarkedKey());
+      const current = markedRegion(nextRegions, persistedMarkedKey(nextRegions, readMarkedKey()));
 
       try {
         const nextInput = await api.getAnalysisInput();

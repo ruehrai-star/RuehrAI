@@ -61,7 +61,7 @@ export function EmpfehlungenPage() {
   const [bindFailed, setBindFailed] = useState(false);
   const [recommendationSet, setRecommendationSet] = useState<RecommendationSet | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
+  const [markedKey, setMarkedKey, markedMissing] = usePersistedMarkedKey(regions);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runPhase, setRunPhase] = useState<RunPhase>("idle");
   const [runError, setRunError] = useState<string | null>(null);
@@ -120,6 +120,7 @@ export function EmpfehlungenPage() {
     bindPhase === "ready" && !inFlight && bound ? formatStandPrefix(bound.createdAt) : null;
   const heading = headingForMarkedRegion(marked);
   const legacySet = Boolean(boundRecommendations && isLegacyTargetRegionSet(boundRecommendations.items));
+  const showMarkedRegionMissing = markedMissing || isMarkedTargetRegionMissingCopy(runError);
   const showEmptyRun =
     visible &&
     pagePhase === "idle" &&
@@ -128,15 +129,15 @@ export function EmpfehlungenPage() {
     !starting &&
     bindPhase !== "loading" &&
     (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations)) &&
-    visibleRegions.length > 0;
+    visibleRegions.length > 0 &&
+    !showMarkedRegionMissing;
   const showLegacySet = bindPhase === "ready" && !inFlight && legacySet;
   const showEmptyHits =
     bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0 && !legacySet;
   const showRestart =
     (runPhase === "failed" || runPhase === "deadline") &&
     !showLegacySet &&
-    !isMarkedTargetRegionMissingCopy(runError);
-  const showMarkedRegionMissing = isMarkedTargetRegionMissingCopy(runError);
+    !showMarkedRegionMissing;
 
   function stopPolling() {
     pollAbort.current?.abort();
@@ -444,7 +445,13 @@ export function EmpfehlungenPage() {
                     type="button"
                     className={selected ? "hit is-active" : "hit"}
                     aria-pressed={selected}
-                    onClick={() => setMarkedKey(key)}
+                    onClick={() => {
+                      if (isMarkedTargetRegionMissingCopy(runError)) {
+                        setRunError(null);
+                        setRunPhase("idle");
+                      }
+                      setMarkedKey(key);
+                    }}
                   >
                     <CatalogHitLabel source={region} />
                   </button>
