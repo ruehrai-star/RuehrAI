@@ -74,19 +74,32 @@ export interface EmpfehlungPin {
 
 export type MapCamera = { kind: "germany" } | { kind: "bounds"; bounds: Bounds };
 
+export interface HitOutline {
+  id: string;
+  rank: number;
+  title: string;
+  ariaLabel: string;
+  lon: number;
+  lat: number;
+}
+
 export interface KarteModel {
   pins: StorePin[];
   empfehlungen: EmpfehlungPin[];
+  hits: FeatureCollection;
+  hitMarkers: HitOutline[];
   region: FeatureCollection;
   showLegend: boolean;
   showEmptyAddresses: boolean;
   coordinateGapLabel: string | null;
   /** Kept for the Karte notices slot; missing-area copy now lives on the list row. */
   missingAreaLabel: string | null;
+  regionFrameOnly: boolean;
   camera: MapCamera;
   cameraKey: string;
   markerKey: string;
   regionKey: string;
+  hitKey: string;
 }
 
 const EMPTY_REGION: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -107,16 +120,104 @@ export function buildKarte(input: {
   return {
     pins,
     empfehlungen,
+    hits: EMPTY_REGION,
+    hitMarkers: [],
     region: overlay.collection,
     showLegend: drawable,
     showEmptyAddresses: input.addressesKnownEmpty && input.stores.length === 0,
     coordinateGapLabel: input.stores.length > 0 ? coordinateGapLabel(input.stores) : null,
     missingAreaLabel: null,
+    regionFrameOnly: false,
     camera,
     cameraKey: cameraKey(camera, signature),
     markerKey: JSON.stringify({ pins, empfehlungen }),
     regionKey: JSON.stringify(overlay.collection),
+    hitKey: "[]",
   };
+}
+
+/**
+ * Trefferliste map: only `items[].geometry` plus a thin Zielregion frame.
+ * Lon/lat and bounds never become a stand-in outline or point.
+ */
+export function buildTrefferlisteKarte(input: {
+  region: TargetRegion | null;
+  items: Recommendation[];
+}): KarteModel {
+  const overlay = regionsOverlay(input.region ? [input.region] : [], input.region ? regionListKey(input.region) : null);
+  const drawn = hitOutlines(input.items);
+  const camera = cameraForHits(drawn.bounds, overlay.bounds);
+  const signature = `${JSON.stringify(overlay.collection)}#${JSON.stringify(drawn.collection)}`;
+  return {
+    pins: [],
+    empfehlungen: [],
+    hits: drawn.collection,
+    hitMarkers: drawn.markers,
+    region: overlay.collection,
+    showLegend: overlay.collection.features.length > 0,
+    showEmptyAddresses: false,
+    coordinateGapLabel: null,
+    missingAreaLabel: null,
+    regionFrameOnly: true,
+    camera,
+    cameraKey: cameraKey(camera, signature),
+    markerKey: JSON.stringify(drawn.markers),
+    regionKey: JSON.stringify(overlay.collection),
+    hitKey: JSON.stringify(drawn.collection),
+  };
+}
+
+export function hitOutlines(items: readonly Recommendation[]): {
+  collection: FeatureCollection;
+  markers: HitOutline[];
+  bounds: Bounds | null;
+} {
+  const features: Feature[] = [];
+  const markers: HitOutline[] = [];
+  let bounds: Bounds | null = null;
+  for (const item of items) {
+    const geometry = readRegionGeometry(item.geometry);
+    if (!geometry) continue;
+    const title = item.title.trim() || item.location.name?.trim() || "Treffer";
+    features.push({
+      type: "Feature",
+      id: item.id,
+      properties: { id: item.id, rank: item.rank, name: title, marked: false },
+      geometry:
+        geometry.type === "Polygon"
+          ? { type: "Polygon", coordinates: geometry.coordinates }
+          : { type: "MultiPolygon", coordinates: geometry.coordinates },
+    });
+    for (const position of positionsOf(geometry)) {
+      bounds = extendBounds(bounds, position.lon, position.lat);
+    }
+    const label = geometryLabelPoint(geometry);
+    if (label) {
+      markers.push({
+        id: item.id,
+        rank: item.rank,
+        title,
+        ariaLabel: `${title}, Rang ${item.rank}`,
+        lon: label.lon,
+        lat: label.lat,
+      });
+    }
+  }
+  return {
+    collection: { type: "FeatureCollection", features },
+    markers,
+    bounds,
+  };
+}
+
+/** Label position from the official outline. Never a lon/lat substitute. */
+export function geometryLabelPoint(geometry: RegionGeometry): { lon: number; lat: number } | null {
+  const positions = positionsOf(geometry);
+  if (positions.length === 0) return null;
+  const lon = positions.reduce((sum, point) => sum + point.lon, 0) / positions.length;
+  const lat = positions.reduce((sum, point) => sum + point.lat, 0) / positions.length;
+  if (!inLon(lon) || !inLat(lat)) return null;
+  return { lon, lat };
 }
 
 export function regionHasDrawableArea(region: TargetRegion): boolean {
@@ -231,6 +332,22 @@ function cameraFor(pins: StorePin[], regionBounds: Bounds | null): MapCamera {
   let bounds = regionBounds;
   for (const pin of pins) {
     bounds = extendBounds(bounds, pin.lon, pin.lat);
+  }
+  if (!bounds) return { kind: "germany" };
+  return { kind: "bounds", bounds };
+}
+
+function cameraForHits(hitBounds: Bounds | null, regionBounds: Bounds | null): MapCamera {
+  let bounds = regionBounds;
+  if (hitBounds) {
+    bounds = bounds
+      ? {
+          west: Math.min(bounds.west, hitBounds.west),
+          south: Math.min(bounds.south, hitBounds.south),
+          east: Math.max(bounds.east, hitBounds.east),
+          north: Math.max(bounds.north, hitBounds.north),
+        }
+      : hitBounds;
   }
   if (!bounds) return { kind: "germany" };
   return { kind: "bounds", bounds };

@@ -25,6 +25,7 @@ import {
   REGION_FILL_OPACITY,
   REGION_LINE,
   type EmpfehlungPin,
+  type HitOutline,
   type MapCamera,
   type StorePin,
 } from "@/lib/map/karte";
@@ -41,13 +42,19 @@ interface MapViewProps {
   fitNonce?: number;
   pins: StorePin[];
   empfehlungen: EmpfehlungPin[];
+  hits?: FeatureCollection;
+  hitMarkers?: HitOutline[];
   region: FeatureCollection;
   /** Null while Filialadressen and the Zielregion are still loading. */
   cameraKey: string | null;
   camera: MapCamera;
   markerKey: string;
   regionKey: string;
+  hitKey?: string;
+  selectedHitId?: string | null;
+  regionFrameOnly?: boolean;
   onMarkRegion?: (geoKey: string) => void;
+  onSelectHit?: (id: string) => void;
 }
 
 function walkPositions(coordinates: unknown, visit: (position: Position) => void): void {
@@ -212,6 +219,30 @@ function addEmpfehlungPin(map: Map, pin: EmpfehlungPin): Marker {
     .addTo(map);
 }
 
+function hitButton(marker: HitOutline, selected: boolean, onSelect?: (id: string) => void): HTMLButtonElement {
+  const button = empfehlungButton({
+    kind: "empfehlung",
+    id: marker.id,
+    rank: marker.rank,
+    lon: marker.lon,
+    lat: marker.lat,
+    title: marker.title,
+    ariaLabel: marker.ariaLabel,
+  });
+  button.classList.toggle("is-selected", selected);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onSelect?.(marker.id);
+  });
+  return button;
+}
+
+function addHitMarker(map: Map, marker: HitOutline, selected: boolean, onSelect?: (id: string) => void): Marker {
+  return new Marker({ element: hitButton(marker, selected, onSelect), anchor: "center" })
+    .setLngLat([marker.lon, marker.lat])
+    .addTo(map);
+}
+
 function applyCamera(map: Map, camera: MapCamera, animate: boolean): void {
   const duration = animate && !prefersReducedMotion() ? 700 : 0;
   if (camera.kind === "germany") {
@@ -240,24 +271,34 @@ export function MapView({
   fitNonce = 0,
   pins,
   empfehlungen,
+  hits = EMPTY,
+  hitMarkers = [],
   region,
   cameraKey,
   camera,
   markerKey,
   regionKey,
+  hitKey = "",
+  selectedHitId = null,
+  regionFrameOnly = false,
   onMarkRegion,
+  onSelectHit,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const selectionRef = useRef(selection);
   const selectedFeatureId = useRef<string | number | null>(null);
+  const selectedHitRef = useRef<string | number | null>(null);
   const onSelectRef = useRef(onSelect);
   const onMarkRegionRef = useRef(onMarkRegion);
+  const onSelectHitRef = useRef(onSelectHit);
   const layerRef = useRef(layer);
   const regionRef = useRef(region);
+  const hitsRef = useRef(hits);
   const pinsRef = useRef(pins);
   const empfehlungenRef = useRef(empfehlungen);
+  const hitMarkersRef = useRef(hitMarkers);
   const cameraRef = useRef(camera);
   const cameraKeyRef = useRef(cameraKey);
   const appliedCamera = useRef<string | null>(null);
@@ -276,13 +317,19 @@ export function MapView({
   }, [onMarkRegion]);
 
   useEffect(() => {
+    onSelectHitRef.current = onSelectHit;
+  }, [onSelectHit]);
+
+  useEffect(() => {
     layerRef.current = layer;
     regionRef.current = region;
+    hitsRef.current = hits;
     pinsRef.current = pins;
     empfehlungenRef.current = empfehlungen;
+    hitMarkersRef.current = hitMarkers;
     cameraRef.current = camera;
     cameraKeyRef.current = cameraKey;
-  }, [layer, region, pins, empfehlungen, camera, cameraKey]);
+  }, [layer, region, hits, pins, empfehlungen, hitMarkers, camera, cameraKey]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -353,7 +400,7 @@ export function MapView({
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
           "fill-color": REGION_FILL,
-          "fill-opacity": ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
+          "fill-opacity": regionFrameOnly ? 0 : ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
         },
       });
       map.addLayer({
@@ -363,7 +410,30 @@ export function MapView({
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
           "line-color": ["case", ["==", ["get", "marked"], true], "#0f2a4d", REGION_LINE],
-          "line-width": ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
+          "line-width": regionFrameOnly
+            ? 1.25
+            : ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
+        },
+      });
+      map.addSource("treffer", { type: "geojson", data: hitsRef.current, promoteId: "id" });
+      map.addLayer({
+        id: "treffer-fill",
+        type: "fill",
+        source: "treffer",
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "fill-color": EMPFEHLUNG_COLOR,
+          "fill-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.42, 0.22],
+        },
+      });
+      map.addLayer({
+        id: "treffer-line",
+        type: "line",
+        source: "treffer",
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#8a3414", EMPFEHLUNG_COLOR],
+          "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3, 1.75],
         },
       });
       map.addSource("selection", { type: "geojson", data: EMPTY });
@@ -401,6 +471,20 @@ export function MapView({
       };
       for (const layerId of ["zielregion-fill", "zielregion-line"]) {
         map.on("click", layerId, markOutline);
+        map.on("mouseenter", layerId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layerId, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
+      const selectHit = (event: { features?: MapGeoJSONFeature[] }) => {
+        const feature = event.features?.[0];
+        const id = feature?.properties?.id ?? feature?.id;
+        if (typeof id === "string" && id.length > 0) onSelectHitRef.current?.(id);
+      };
+      for (const layerId of ["treffer-fill", "treffer-line"]) {
+        map.on("click", layerId, selectHit);
         map.on("mouseenter", layerId, () => {
           map.getCanvas().style.cursor = "pointer";
         });
@@ -448,12 +532,21 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    const source = map.getSource("treffer");
+    if (source && "setData" in source) (source as GeoJSONSource).setData(hits);
+    applyHitSelection(map, selectedHitId, selectedHitRef);
+  }, [hits, hitKey, selectedHitId, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
     for (const marker of markersRef.current) marker.remove();
     markersRef.current = [
       ...pinsRef.current.map((pin) => addStorePin(map, pin)),
       ...empfehlungenRef.current.map((pin) => addEmpfehlungPin(map, pin)),
+      ...hitMarkersRef.current.map((marker) => addHitMarker(map, marker, marker.id === selectedHitId, onSelectHitRef.current)),
     ];
-  }, [markerKey, mapReady]);
+  }, [markerKey, selectedHitId, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -513,4 +606,18 @@ function applySelection(
   } else {
     map.flyTo({ ...view, essential: true });
   }
+}
+
+function applyHitSelection(
+  map: Map,
+  selectedHitId: string | null,
+  selectedHitRef: { current: string | number | null },
+): void {
+  if (selectedHitRef.current != null) {
+    map.setFeatureState({ source: "treffer", id: selectedHitRef.current }, { selected: false });
+    selectedHitRef.current = null;
+  }
+  if (!selectedHitId) return;
+  map.setFeatureState({ source: "treffer", id: selectedHitId }, { selected: true });
+  selectedHitRef.current = selectedHitId;
 }

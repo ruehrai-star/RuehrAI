@@ -1,12 +1,28 @@
-import type { AnalysisPattern, Recommendation, RecommendationSet, RecommendationWindow } from "@ruehrai/api-contracts";
+import type {
+  AnalysisPattern,
+  AreaKind,
+  BaselineMethod,
+  PatternDatasetProfile,
+  RecommendationEvidence,
+  RecommendationWindow,
+  SeriesBaseline,
+  SeriesCoverage,
+  SeriesLevel,
+  SeriesPoint,
+  TargetRegion,
+} from "@ruehrai/api-contracts";
+import type { Recommendation, RecommendationSet } from "../api/types.ts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
+import { catalogBadge, catalogParentName, grainLabel, isCatalogKey } from "../format.ts";
+import { readRegionGeometry } from "../map/karte.ts";
+import { samePlace, type PlaceRef } from "../locations/regions.ts";
+import { standRegionLabel } from "../verlauf/bind.ts";
 
-/** UX-Gate labels for the Empfehlungen page. */
+/** UX-Gate labels for the Empfehlungen / Trefferliste page (Variante A). */
 export const RECOMMENDATION_COPY = {
   title: "Empfehlungen",
   subtitle: "Top 3 in Ihrer Zielregion",
-  patternHeading: "Abgeleitetes Muster",
+  patternHeading: "Muster der Bestandsstandorte",
   shortCriteriaHeading: "Kurzkriterien",
   address: "Adresse",
   rationale: "Begründung",
@@ -17,6 +33,12 @@ export const RECOMMENDATION_COPY = {
   thin: "Die Zielregion ist dünn besetzt.",
   compute: "Empfehlungen berechnen",
   running: "Empfehlungen werden ermittelt …",
+  analysisRunning: "Analyse läuft …",
+  analysisFailed: "Analyse fehlgeschlagen.",
+  missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
+  startAnalysis: "Musteranalyse starten",
+  missingGeometry: "Die Fläche kann noch nicht gezeichnet werden.",
+  missingValue: "liegt nicht vor",
   toAnalysis: "Zur Musteranalyse",
   noneYet: "Es liegen noch keine Empfehlungen vor. Bitte zuerst Empfehlungen berechnen.",
 } as const;
@@ -36,16 +58,121 @@ const MONTHS = [
   "Dezember",
 ] as const;
 
-export function recommendationSubtitle(regionCount: number): string | null {
-  if (regionCount <= 0) return null;
-  if (regionCount === 1) return RECOMMENDATION_COPY.subtitle;
-  return RECOMMENDATION_COPY.subtitlePlural;
+const AREA_RANK: Record<string, number> = {
+  address: 0,
+  grid100: 1,
+  lor: 2,
+  quartier: 2,
+  ortsteil: 3,
+  stadtteil: 3,
+  plz: 4,
+  plz5: 4,
+  plz8: 4,
+  bezirk: 5,
+  stadtbezirk: 5,
+  gemeinde: 6,
+  ags: 6,
+  kreis: 7,
+  ags5: 7,
+  land: 8,
+};
+
+const SERIES_LEVEL_BADGE: Record<SeriesLevel, string> = {
+  address: "Adresse",
+  grid100: "Raster",
+  lor: "LOR",
+  quartier: "Quartier",
+  plz: "PLZ",
+  bezirk: "Bezirk",
+  stadtbezirk: "Bezirk",
+  stadtteil: "Ortsteil",
+  ortsteil: "Ortsteil",
+  gemeinde: "Gemeinde",
+  kreis: "Kreis",
+  land: "Land",
+};
+
+export interface SparkPoint {
+  period: string;
+  value: number | null;
 }
 
-export function recommendationEmptyCopy(regionCount: number): string | null {
-  if (regionCount <= 0) return null;
-  if (regionCount === 1) return RECOMMENDATION_COPY.empty;
-  return RECOMMENDATION_COPY.emptyPlural;
+export interface TrefferYearDetail {
+  period: string;
+  normalized: string;
+  raw: string | null;
+  baseline: string | null;
+}
+
+export interface TrefferCriterionRow {
+  key: string;
+  label: string;
+  inherited: boolean;
+  inheritedLabel: string | null;
+  missing: boolean;
+  coverage: "series" | "single" | "none";
+  direction: "up" | "down" | "flat" | null;
+  series: SparkPoint[];
+  patternSeries: SparkPoint[];
+  patternMissing: boolean;
+  stichtagValue: string | null;
+  stichtagYear: string | null;
+  baselineLabel: string | null;
+  levelBadge: string | null;
+  methodLabel: string | null;
+  details: {
+    rawValue: string | null;
+    evidence: string;
+    years: TrefferYearDetail[];
+  };
+}
+
+export interface TrefferCardView {
+  id: string;
+  rank: number;
+  name: string;
+  badge: string;
+  parentLabel: string | null;
+  intersection: string | null;
+  trendSummary: string | null;
+  rationale: string;
+  criteria: TrefferCriterionRow[];
+  inherited: TrefferCriterionRow[];
+  geometryMissing: boolean;
+  geometryHint: string | null;
+}
+
+export interface PatternProfileRow {
+  key: string;
+  label: string;
+  levelBadge: string;
+  baselineLabel: string;
+  methodLabel: string | null;
+  coverage: "series" | "single" | "none";
+  series: SparkPoint[];
+  missing: boolean;
+}
+
+/**
+ * Variante A is always singular and names the marked Zielregion.
+ * A numeric argument is the older region-count helper and stays singular.
+ */
+export function recommendationSubtitle(region: string | number | null | undefined): string | null {
+  if (typeof region === "number") {
+    return region <= 0 ? null : RECOMMENDATION_COPY.subtitle;
+  }
+  const name = typeof region === "string" ? region.trim() : "";
+  if (!name) return null;
+  return `${RECOMMENDATION_COPY.subtitle} ${name}`;
+}
+
+export function recommendationEmptyCopy(regionCount?: number): string | null {
+  if (regionCount !== undefined && regionCount <= 0) return null;
+  return RECOMMENDATION_COPY.empty;
+}
+
+export function top3Heading(regionName: string): string {
+  return `${RECOMMENDATION_COPY.subtitle} ${regionName}`.trim();
 }
 
 export function rankLabel(rank: number): string {
@@ -56,19 +183,16 @@ export function formatAddress(item: Recommendation): string {
   const title = visiblePlaceText(item.title);
   const name = visiblePlaceText(item.location.name);
   if (name && name !== title) return title ? `${title}, ${name}` : name;
-  return title;
+  return title || name;
 }
 
-function visiblePlaceText(value: string | null | undefined): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed || isCatalogKey(trimmed)) return "";
-  return trimmed;
+export function hitName(item: Recommendation): string {
+  return visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
 }
 
 export function formatLocationMeta(item: Recommendation): string {
-  const badge = catalogBadge(item.location);
-  const parent = catalogParentName(item.location);
+  const badge = hitBadge(item) || catalogBadge(item.location);
+  const parent = catalogParentName(item.location) ?? catalogParentName(item);
   return [badge, parent].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
 }
 
@@ -78,7 +202,7 @@ export function formatScore(score: number): string {
 }
 
 export function formatWindow(window: RecommendationWindow): string {
-  return `${formatMonth(window.from)} – ${formatMonth(window.to)}`;
+  return `${formatWindowStamp(window.from)} – ${formatWindowStamp(window.to)}`;
 }
 
 export function shortCriteria(pattern: AnalysisPattern): string[] {
@@ -109,8 +233,414 @@ export function recommendationStatus(set: RecommendationSet): { empty: boolean; 
   return { empty, thin, reason };
 }
 
-function formatMonth(stamp: string): string {
+export function baselineLabel(baseline: SeriesBaseline | null | undefined): string | null {
+  if (baseline === "per_1000_inhabitants") return "je 1.000 Einwohner";
+  if (baseline === "per_km2") return "je km²";
+  if (baseline === "per_household") return "je Haushalt";
+  return null;
+}
+
+export function baselineMethodLabel(method: BaselineMethod | null | undefined): string | null {
+  if (method === "official" || method === "official_zensus2022_grid") return "amtlich";
+  if (method === "estimate_zensus2022_grid_sum" || method === "estimate_lor_sum" || method === "estimate_address") {
+    return "geschätzt";
+  }
+  if (method === "geom" || method === "fixed_grid") return "nach Fläche";
+  return null;
+}
+
+export function seriesLevelBadge(level: SeriesLevel | null | undefined): string | null {
+  if (!level) return null;
+  return SERIES_LEVEL_BADGE[level] ?? null;
+}
+
+export function isSeriesCoverage(coverage: SeriesCoverage | null | undefined): boolean {
+  return coverage === "series" || coverage === "multi";
+}
+
+function locationKey(item: Recommendation): string | null {
+  const location = item.location;
+  return typeof location.geoKey === "string" && location.geoKey.length > 0 ? location.geoKey : null;
+}
+
+export function hitBadge(item: Recommendation): string {
+  const keys = [item.id, locationKey(item), item.location.grain].filter((part): part is string => Boolean(part));
+  const blob = keys.join(" ");
+  if (/lor:plr:/i.test(blob) || item.kind === "lor") return "LOR";
+  if (/koeln:sq:/i.test(blob) || item.kind === "quartier") return "Quartier";
+  if (item.kind) return areaKindBadge(item.kind);
+  if (/lor:/i.test(blob)) return "LOR";
+  if (/koeln:sq:/i.test(blob)) return "Quartier";
+  if (item.location.grain === "grid100") return "Raster";
+  if (item.location.grain === "address") return "Adresse";
+  if (item.location.grain === "plz5" || item.location.grain === "plz8") return "PLZ";
+  return catalogBadge(item.location) || (item.location.grain ? grainLabel(item.location.grain, item.location.geoKey) : "");
+}
+
+export function areaKindBadge(kind: AreaKind): string {
+  switch (kind) {
+    case "address":
+      return "Adresse";
+    case "grid100":
+      return "Raster";
+    case "lor":
+      return "LOR";
+    case "quartier":
+      return "Quartier";
+    case "ortsteil":
+    case "stadtteil":
+      return "Ortsteil";
+    case "plz":
+      return "PLZ";
+    case "bezirk":
+    case "stadtbezirk":
+      return "Bezirk";
+    case "gemeinde":
+      return "Gemeinde";
+    default:
+      return "";
+  }
+}
+
+export function areaRankOf(source: {
+  kind?: string | null;
+  grain?: string | null;
+  level?: string | null;
+  geoKey?: string | null;
+  id?: string | null;
+  ags?: string | null;
+}): number {
+  const blob = [source.id, source.geoKey].filter((part): part is string => Boolean(part)).join(" ");
+  if (/lor:plr:|koeln:sq:/i.test(blob)) return AREA_RANK.lor;
+  if (source.kind && source.kind in AREA_RANK) return AREA_RANK[source.kind] ?? 9;
+  if (source.level && source.level in AREA_RANK) return AREA_RANK[source.level] ?? 9;
+  if (source.grain === "ags" && catalogBadge(source) === "Bezirk") return AREA_RANK.bezirk;
+  if (source.grain && source.grain in AREA_RANK) return AREA_RANK[source.grain] ?? 9;
+  if (/lor:/i.test(blob)) return AREA_RANK.lor;
+  return 9;
+}
+
+export function isAddressHit(item: Recommendation): boolean {
+  return item.kind === "address" || item.location.grain === "address";
+}
+
+export function hasDrawableGeometry(item: Recommendation): boolean {
+  return readRegionGeometry(item.geometry) !== null;
+}
+
+export function trendSummary(item: Recommendation): string | null {
+  const trend = item.trend;
+  if (!trend) return null;
+  if (trend.direction === "unknown") return null;
+  const summary = trend.summary.trim();
+  return summary.length > 0 ? summary : null;
+}
+
+export function inheritedLabel(level: SeriesLevel | null | undefined): string {
+  const badge = seriesLevelBadge(level) ?? "Ebene";
+  return `vererbt von ${badge}`;
+}
+
+export function intersectionLine(item: Recommendation): string | null {
+  const raw = item as Recommendation & { parts?: unknown };
+  if (Array.isArray(raw.parts)) {
+    const names = raw.parts
+      .filter((part): part is string => typeof part === "string")
+      .map((part) => visiblePlaceText(part))
+      .filter((part) => part.length > 0);
+    if (names.length >= 2) return `Schnittfläche aus ${names[0]} und ${names[1]}`;
+  }
+  const title = visiblePlaceText(item.title);
+  const match = /^Schnittfläche aus (.+) und (.+)$/.exec(title);
+  return match ? title : null;
+}
+
+export function visibleHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined): Recommendation[] {
+  const markedRank = marked ? areaRankOf(marked) : 9;
+  const withoutSelf = items.filter((item) => {
+    if (isAddressHit(item)) return false;
+    if (!hitName(item)) return false;
+    if (marked && isSameAsMarked(item, marked)) return false;
+    if (areaRankOf(hitPlace(item)) >= markedRank) return false;
+    return true;
+  });
+  const finest = dropParentsWhenChildHits(withoutSelf);
+  return [...finest].sort((left, right) => {
+    const grain = areaRankOf(hitPlace(left)) - areaRankOf(hitPlace(right));
+    if (grain !== 0) return grain;
+    return left.rank - right.rank;
+  });
+}
+
+export function topHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined, limit = 3): Recommendation[] {
+  return visibleHits(items, marked).slice(0, limit);
+}
+
+export function buildTrefferCard(
+  item: Recommendation,
+  patternByDataset: PatternDatasetProfile[] | undefined,
+  marked?: PlaceRef | null,
+): TrefferCardView {
+  const rows = buildCriterionRows(item, patternByDataset, marked);
+  const local = rows.filter((row) => !row.inherited);
+  const inherited = rows.filter((row) => row.inherited);
+  const missingGeometry = !hasDrawableGeometry(item);
+  return {
+    id: item.id,
+    rank: item.rank,
+    name: hitName(item),
+    badge: hitBadge(item),
+    parentLabel: catalogParentName(item.location) ?? catalogParentName(item),
+    intersection: intersectionLine(item),
+    trendSummary: trendSummary(item),
+    rationale: item.rationale,
+    criteria: local,
+    inherited,
+    geometryMissing: missingGeometry,
+    geometryHint: missingGeometry ? RECOMMENDATION_COPY.missingGeometry : null,
+  };
+}
+
+export function buildPatternProfile(patternByDataset: PatternDatasetProfile[] | undefined): PatternProfileRow[] {
+  if (!patternByDataset) return [];
+  return patternByDataset.map((profile) => {
+    const coverage = normalizeCoverage(profile.yearlySeries.coverage, profile.criterion.coverage, profile.criterion.kind);
+    const series = sparkFromPoints(profile.yearlySeries.points);
+    const missing = coverage === "none" || (coverage === "series" && !series.some((point) => point.value != null));
+    return {
+      key: profile.metricId,
+      label: profile.criterion.label,
+      levelBadge: seriesLevelBadge(profile.sourceLevel) ?? "",
+      baselineLabel: baselineLabel(profile.baseline) ?? RECOMMENDATION_COPY.missingValue,
+      methodLabel: baselineMethodLabel(profile.baselineMethod ?? profile.criterion.baselineMethod),
+      coverage,
+      series,
+      missing,
+    };
+  });
+}
+
+export function buildTrefferlisteCards(
+  set: RecommendationSet | null,
+  marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
+): TrefferCardView[] {
+  if (!set) return [];
+  return topHits(set.items, marked).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
+}
+
+export function headingForMarkedRegion(
+  region: (TargetRegion & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
+): string | null {
+  if (!region) return null;
+  const name = standRegionLabel(region);
+  return name ? top3Heading(name) : RECOMMENDATION_COPY.subtitle;
+}
+
+function buildCriterionRows(
+  item: Recommendation,
+  patternByDataset: PatternDatasetProfile[] | undefined,
+  marked?: PlaceRef | null,
+): TrefferCriterionRow[] {
+  const evidenceByKey = new Map<string, RecommendationEvidence>();
+  for (const evidence of item.criteriaEvidence) {
+    evidenceByKey.set(evidence.metricId ?? evidence.key, evidence);
+  }
+  const rows: TrefferCriterionRow[] = [];
+  const seen = new Set<string>();
+
+  for (const profile of patternByDataset ?? []) {
+    const key = profile.metricId || profile.criterion.key;
+    seen.add(key);
+    const evidence = evidenceByKey.get(key) ?? item.criteriaEvidence.find((row) => row.key === profile.criterion.key);
+    rows.push(toCriterionRow(key, evidence, profile, marked));
+  }
+
+  for (const evidence of item.criteriaEvidence) {
+    const key = evidence.metricId ?? evidence.key;
+    if (seen.has(key) || seen.has(evidence.key)) continue;
+    seen.add(key);
+    rows.push(toCriterionRow(key, evidence, undefined, marked));
+  }
+
+  const local = rows.filter((row) => !row.inherited);
+  const inherited = rows.filter((row) => row.inherited);
+  return [...local, ...inherited];
+}
+
+function toCriterionRow(
+  key: string,
+  evidence: RecommendationEvidence | undefined,
+  profile: PatternDatasetProfile | undefined,
+  marked?: PlaceRef | null,
+): TrefferCriterionRow {
+  const coverage = normalizeCoverage(evidence?.coverage, evidence?.kind, profile?.yearlySeries.coverage);
+  const inherited = isInherited(evidence, marked);
+  const points = evidence?.points ?? [];
+  const series = sparkFromPoints(points);
+  const missingValue =
+    coverage === "none" ||
+    evidence?.kind === "absent" ||
+    evidence?.status === "absent" ||
+    evidence?.baselineMethod === "missing" ||
+    (coverage !== "single" && coverage !== "series" && evidence?.normalizedValue == null && !series.some((point) => point.value != null)) ||
+    evidence == null;
+
+  const patternMissing = !hasMatchingPattern(evidence, profile);
+  const patternSeries = patternMissing ? [] : sparkFromPoints(profile?.yearlySeries.points ?? []);
+  const direction = arrowDirection(evidence);
+  const stichtagYear = coverage === "single" ? stichtagYearOf(evidence, points) : null;
+  const value =
+    coverage === "single" && evidence?.normalizedValue != null ? formatNumber(evidence.normalizedValue) : null;
+  const missing = missingValue || (coverage === "single" && value == null && !stichtagYear);
+
+  return {
+    key,
+    label: evidence?.label ?? profile?.criterion.label ?? key,
+    inherited,
+    inheritedLabel: inherited ? inheritedLabel(evidence?.sourceLevel ?? profile?.sourceLevel) : null,
+    missing,
+    coverage: missing && coverage !== "single" ? "none" : coverage,
+    direction: missing || coverage === "single" || coverage === "none" ? null : direction,
+    series: coverage === "series" && !missing ? series : [],
+    patternSeries,
+    patternMissing,
+    stichtagValue: coverage === "single" && !missing ? value : null,
+    stichtagYear: coverage === "single" && !missing ? stichtagYear : null,
+    baselineLabel: baselineLabel(evidence?.baseline ?? profile?.baseline),
+    levelBadge: seriesLevelBadge(evidence?.sourceLevel ?? profile?.sourceLevel),
+    methodLabel: baselineMethodLabel(evidence?.baselineMethod ?? profile?.baselineMethod ?? profile?.criterion.baselineMethod),
+    details: {
+      rawValue: evidence?.rawValue != null ? `Rohwert ${formatNumber(evidence.rawValue)}` : null,
+      evidence: visibleEvidence(evidence?.evidence ?? profile?.criterion.evidence ?? ""),
+      years: yearDetails(points, evidence?.baseline ?? profile?.baseline),
+    },
+  };
+}
+
+function normalizeCoverage(
+  ...values: Array<SeriesCoverage | RecommendationEvidence["kind"] | undefined>
+): "series" | "single" | "none" {
+  for (const value of values) {
+    if (value === "series" || value === "multi") return "series";
+    if (value === "single" || value === "stichtag") return "single";
+    if (value === "none" || value === "absent") return "none";
+  }
+  return "none";
+}
+
+function sparkFromPoints(points: readonly SeriesPoint[]): SparkPoint[] {
+  return points.map((point) => ({
+    period: point.period,
+    value: point.status === "present" && point.normalizedValue != null ? point.normalizedValue : null,
+  }));
+}
+
+function yearDetails(points: readonly SeriesPoint[], baseline: SeriesBaseline | undefined): TrefferYearDetail[] {
+  return points.map((point) => ({
+    period: yearOf(point.period),
+    normalized:
+      point.status === "present" && point.normalizedValue != null
+        ? formatNumber(point.normalizedValue)
+        : RECOMMENDATION_COPY.missingValue,
+    raw: point.status === "present" && point.value != null ? formatNumber(point.value) : null,
+    baseline: baselineLabel(baseline),
+  }));
+}
+
+function hasMatchingPattern(
+  evidence: RecommendationEvidence | undefined,
+  profile: PatternDatasetProfile | undefined,
+): boolean {
+  if (!profile) return false;
+  if (evidence?.baselineMatch === false || profile.baselineMatch === false) return false;
+  if (evidence?.baseline && profile.baseline && evidence.baseline !== profile.baseline) return false;
+  if (evidence?.sourceLevel && profile.sourceLevel && evidence.sourceLevel !== profile.sourceLevel) return false;
+  return true;
+}
+
+function isInherited(evidence: RecommendationEvidence | undefined, marked?: PlaceRef | null): boolean {
+  if (evidence?.scope === "inherited") return true;
+  if (!evidence?.sourceLevel || !marked) return false;
+  return AREA_RANK[evidence.sourceLevel] >= areaRankOf(marked);
+}
+
+function arrowDirection(evidence: RecommendationEvidence | undefined): "up" | "down" | "flat" | null {
+  if (!evidence) return null;
+  if (evidence.direction === "up" || evidence.direction === "down" || evidence.direction === "flat") {
+    return evidence.direction;
+  }
+  return null;
+}
+
+function stichtagYearOf(evidence: RecommendationEvidence | undefined, points: readonly SeriesPoint[]): string | null {
+  const present = points.find((point) => point.status === "present");
+  if (present) return yearOf(present.period);
+  const match = evidence?.evidence ? /(?:Stichtag|Jahr)\s+([0-9]{4})/.exec(evidence.evidence) : null;
+  return match?.[1] ?? null;
+}
+
+function yearOf(period: string): string {
+  return period.slice(0, 4);
+}
+
+function visibleEvidence(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return RECOMMENDATION_COPY.missingValue;
+  return trimmed;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
+}
+
+function visiblePlaceText(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return "";
+  return trimmed;
+}
+
+function hitPlace(item: Recommendation): {
+  kind?: string | null;
+  grain?: string | null;
+  level?: string | null;
+  geoKey?: string | null;
+  id?: string | null;
+} {
+  return {
+    kind: item.kind,
+    grain: item.location.grain,
+    level: item.location.level,
+    geoKey: locationKey(item),
+    id: item.id,
+  };
+}
+
+function isSameAsMarked(item: Recommendation, marked: PlaceRef): boolean {
+  return samePlace({ id: item.id, geoKey: locationKey(item), label: item.location.name ?? item.title }, marked);
+}
+
+function dropParentsWhenChildHits(items: readonly Recommendation[]): Recommendation[] {
+  return items.filter((item) => {
+    const itemRank = areaRankOf(hitPlace(item));
+    const itemName = hitName(item);
+    return !items.some((other) => {
+      if (other.id === item.id) return false;
+      const otherRank = areaRankOf(hitPlace(other));
+      if (otherRank >= itemRank) return false;
+      const parent = catalogParentName(other.location) ?? catalogParentName(other);
+      if (parent && parent === itemName) return true;
+      const itemKey = locationKey(item);
+      const otherKey = locationKey(other);
+      if (itemKey && otherKey && otherKey !== itemKey && otherKey.includes(itemKey)) return true;
+      return false;
+    });
+  });
+}
+
+function formatWindowStamp(stamp: string): string {
   const [year, month] = stamp.split("-");
+  if (!month) return year ?? stamp;
   const name = MONTHS[Number(month) - 1];
   return name ? `${name} ${year}` : stamp;
 }

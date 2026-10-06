@@ -30,6 +30,7 @@ const set = {
       id: "plz5:80801",
       rank: 1,
       title: "Schwabing",
+      kind: "plz",
       location: {
         geoKey: "80801",
         grain: "plz5",
@@ -339,6 +340,27 @@ test("POST /recommendations keeps the German missing-pattern error", async () =>
     assert.match(error.message, /kein Muster/);
     return true;
   });
+});
+
+test("GET /recommendations accepts a year window and more than three hits", async () => {
+  const yearly = {
+    ...set,
+    window: { from: "2023", to: "2025" },
+    count: 4,
+    items: [0, 1, 2, 3].map((index) => ({
+      ...set.items[0],
+      id: `plz5:8080${index}`,
+      rank: index + 1,
+    })),
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(yearly),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.window.from, "2023");
+  assert.equal(latest?.count, 4);
+  assert.equal(latest?.items[3]?.rank, 4);
 });
 
 test("a recommendation set whose count disagrees with its items is rejected", async () => {

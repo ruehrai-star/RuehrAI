@@ -88,7 +88,7 @@ export function catalogParentName(source: unknown): string | null {
 }
 
 const CATALOG_KEY =
-  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil)(?::\S+)+$/i;
+  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::\S+)+$/i;
 
 /**
  * Internal catalog id such as `plz5:12247` or `ortsteil:osm:5712247`.

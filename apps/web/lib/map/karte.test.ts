@@ -13,6 +13,7 @@ import {
   REGION_FILL,
   REGION_FILL_OPACITY,
   buildKarte,
+  buildTrefferlisteKarte,
   coordinateGapLabel,
 } from "./karte.ts";
 
@@ -490,11 +491,35 @@ function region(extra: Record<string, unknown>): TargetRegion {
   } as TargetRegion;
 }
 
+test("Trefferliste draws only official geometry and never a lon/lat point", () => {
+  const withOutline = recommendation("lor:plr:1", "Planungsraum", 13.9, 52.9);
+  withOutline.kind = "lor";
+  withOutline.geometry = MUNICH_BOX;
+  const without = recommendation("lor:plr:2", "Ohne Fläche", 13.2, 52.1);
+  without.kind = "lor";
+  without.geometry = null;
+  const model = buildTrefferlisteKarte({
+    region: region({ geometry: MUNICH_BOX, geoKey: "11000000" }),
+    items: [withOutline, without],
+  });
+  assert.equal(model.hits.features.length, 1);
+  assert.equal(model.hits.features[0]?.id, "lor:plr:1");
+  assert.equal(model.hitMarkers.length, 1);
+  assert.equal(model.empfehlungen.length, 0);
+  assert.equal(model.pins.length, 0);
+  assert.equal(model.regionFrameOnly, true);
+  assert.equal(model.region.features.length, 1);
+  assert.ok((model.hitMarkers[0]?.lon ?? 0) >= 11 && (model.hitMarkers[0]?.lon ?? 0) <= 12);
+  assert.equal(JSON.stringify(model.hits).includes("13.9"), false);
+  assert.equal(JSON.stringify(model.hitMarkers).includes("13.2"), false);
+});
+
 function recommendation(id: string, title: string, lon: number | null, lat: number | null): Recommendation {
   return {
     id,
     rank: 1,
     title,
+    kind: "plz",
     location: { geoKey: id.split(":")[1] ?? id, grain: "plz5", lon, lat, name: null },
     score: 1,
     rationale: "Begründung",
