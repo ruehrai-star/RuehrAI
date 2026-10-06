@@ -510,6 +510,56 @@ test("GET /recommendations accepts additive 0.19.2 targetRegionGeoKey and dataAs
   assert.equal(older?.items[0]?.dataAsOf, undefined);
 });
 
+test("GET /recommendations accepts additive 0.19.4 criteriaEvidence proximity", async () => {
+  const withProximity = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            proximity: 0.67,
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withProximity),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.proximity, 0.67);
+  const without = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(set),
+  });
+  const plain = await without.getRecommendations();
+  assert.equal(plain?.items[0]?.criteriaEvidence[0]?.proximity, undefined);
+});
+
+test("GET /recommendations rejects proximity outside 0..1", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json({
+        ...set,
+        items: [
+          {
+            ...set.items[0],
+            criteriaEvidence: [{ ...set.items[0]!.criteriaEvidence[0], proximity: 1.2 }],
+          },
+        ],
+      }),
+  });
+  await assert.rejects(api.getRecommendations(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+});
+
 test("a recommendation set whose count disagrees with its items is rejected", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

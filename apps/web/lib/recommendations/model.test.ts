@@ -1409,3 +1409,91 @@ test("TrefferCard Begründung strips the heuristic catalog key", () => {
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   assert.match(page, /card\.rationale/);
 });
+
+test("hit card evidence shows Nähe zum Filialmuster bands and never the raw proximity", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /row\.proximityLabel/);
+  assert.equal(page.includes("{row.proximity}"), false);
+  assert.match(page, /row\.twoYearTrendLabel/);
+  const sampleEvidence = item({ id: "x", rank: 1 }).criteriaEvidence[0]!;
+  const high = buildTrefferCard(
+    item({
+      id: "lor:plr:1",
+      rank: 1,
+      kind: "lor",
+      criteriaEvidence: [{ ...sampleEvidence, proximity: 0.67 }],
+    }),
+    [patternDataset],
+  );
+  const medium = buildTrefferCard(
+    item({
+      id: "lor:plr:2",
+      rank: 1,
+      kind: "lor",
+      criteriaEvidence: [{ ...sampleEvidence, proximity: 0.34 }],
+    }),
+    [patternDataset],
+  );
+  const low = buildTrefferCard(
+    item({
+      id: "lor:plr:3",
+      rank: 1,
+      kind: "lor",
+      criteriaEvidence: [{ ...sampleEvidence, proximity: 0.33 }],
+    }),
+    [patternDataset],
+  );
+  const missing = buildTrefferCard(item({ id: "lor:plr:4", rank: 1, kind: "lor" }), [patternDataset]);
+  const zero = buildTrefferCard(
+    item({
+      id: "lor:plr:5",
+      rank: 1,
+      kind: "lor",
+      criteriaEvidence: [{ ...sampleEvidence, proximity: 0 }],
+    }),
+    [patternDataset],
+  );
+  assert.equal(high.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: hoch");
+  assert.equal(medium.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: mittel");
+  assert.equal(low.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: gering");
+  assert.equal(missing.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: liegt nicht vor");
+  assert.equal(zero.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: gering");
+  const output = [high, medium, low, missing, zero]
+    .flatMap((card) => card.criteria.map((row) => row.proximityLabel))
+    .join("\n");
+  for (const leaked of ["0.67", "0,67", "0.34", "0,34", "0.33", "0,33", "67 %", "34 %"]) {
+    assert.equal(output.includes(leaked), false, output);
+  }
+});
+
+test("two present years do not invent a Trend aus 2 Jahren label until the #79 field exists", () => {
+  const hit = item({
+    id: "lor:plr:1",
+    rank: 1,
+    kind: "lor",
+    criteriaEvidence: [
+      {
+        key: "einwohner",
+        metricId: "einwohner",
+        label: "Einwohner",
+        direction: "up",
+        patternDirection: "up",
+        evidence: "Einwohner steigt zwischen 2024 und 2025.",
+        kind: "trend",
+        coverage: "series",
+        scope: "local",
+        sourceLevel: "ortsteil",
+        baseline: "per_1000_inhabitants",
+        baselineMatch: true,
+        points: [
+          { period: "2024", status: "present", value: 11, normalizedValue: 11 },
+          { period: "2025", status: "present", value: 12, normalizedValue: 12 },
+        ],
+      },
+    ],
+  });
+  const card = buildTrefferCard(hit, [patternDataset]);
+  assert.equal(card.criteria[0]?.coverage, "series");
+  assert.equal(card.criteria[0]?.twoYearTrendLabel, null);
+  assert.equal(JSON.stringify(card.criteria[0]).includes("Trend aus 2 Jahren"), false);
+});

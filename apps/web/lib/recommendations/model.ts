@@ -18,6 +18,8 @@ import { samePlace, type PlaceRef } from "../locations/regions.ts";
 import { itemMatchesMarkedRegion } from "./target-region-key.ts";
 import { standRegionLabel } from "../verlauf/bind.ts";
 import { hitBadge, hitName, overlapDetailLines, overlapLageSentence } from "./hit-copy.ts";
+import { proximityLabelFromEvidence } from "./proximity.ts";
+import { twoYearTrendLabelFromEvidence } from "./two-year-trend.ts";
 
 export {
   SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT,
@@ -139,6 +141,10 @@ export interface TrefferCriterionRow {
   baselineLabel: string | null;
   levelBadge: string | null;
   methodLabel: string | null;
+  /** German band from `criteriaEvidence[].proximity`. Never a raw 0..1 number. */
+  proximityLabel: string;
+  /** „Trend aus 2 Jahren“ when the official #79 field says so; otherwise null. */
+  twoYearTrendLabel: string | null;
   details: {
     rawValue: string | null;
     evidence: string;
@@ -559,6 +565,8 @@ function toCriterionRow(
     baselineLabel: baselineLabel(evidence?.baseline ?? profile?.baseline),
     levelBadge: seriesLevelBadge(evidence?.sourceLevel ?? profile?.sourceLevel),
     methodLabel: baselineMethodLabel(evidence?.baselineMethod ?? profile?.baselineMethod ?? profile?.criterion.baselineMethod),
+    proximityLabel: proximityLabelFromEvidence(evidence),
+    twoYearTrendLabel: twoYearTrendLabelFromEvidence(evidence),
     details: {
       rawValue: evidence?.rawValue != null ? `Rohwert ${formatNumber(evidence.rawValue)}` : null,
       evidence: visibleEvidence(evidence?.evidence ?? profile?.criterion.evidence ?? ""),

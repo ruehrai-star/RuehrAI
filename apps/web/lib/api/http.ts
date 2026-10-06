@@ -996,6 +996,12 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
   if (body.kind !== undefined && !EVIDENCE_KINDS.has(body.kind)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+  if (
+    body.proximity !== undefined &&
+    (typeof body.proximity !== "number" || body.proximity < 0 || body.proximity > 1)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   if (body.sourceLevel !== undefined && !isSeriesLevel(body.sourceLevel)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
