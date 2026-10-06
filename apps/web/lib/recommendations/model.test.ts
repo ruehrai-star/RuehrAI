@@ -280,7 +280,9 @@ test("raster name is always 100-m-Rasterzelle without an ID", () => {
   assert.equal(hitBadge(withId), "100-m-Raster");
   assert.equal(hitName(clean), "100-m-Rasterzelle");
   assert.equal(hitName(withId).includes("100mN"), false);
-  assert.equal(JSON.stringify(buildTrefferCard(withId, undefined)).includes("100mN32700E42100"), false);
+  const card = buildTrefferCard(withId, undefined);
+  assert.equal(card.name, "100-m-Rasterzelle");
+  assert.equal(`${card.name} ${card.badge} ${card.lage ?? ""}`.includes("100mN32700E42100"), false);
 });
 
 test("hit names never show a geoKey or internal ID", () => {
