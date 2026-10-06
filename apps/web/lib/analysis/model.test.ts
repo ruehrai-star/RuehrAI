@@ -132,4 +132,5 @@ test("Musteranalyse start uses the same lock as Empfehlungen while a run is in f
   assert.match(page, /disabled=\{startLocked\}/);
   assert.match(page, /startGate\.current/);
   assert.match(page, /async function onStart\(\) \{[\s\S]*if \(startGate\.current \|\| startLocked\) return;[\s\S]*createAnalysisRun/);
+  assert.match(page, /createAnalysisRun\(\{ geoKey: markedGeoKey \}\)/);
 });

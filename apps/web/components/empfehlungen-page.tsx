@@ -8,7 +8,9 @@ import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
 import { analysisFailureFromHttp } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
-import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
+import { rememberStartedRun, startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { usePersistedMarkedKey } from "./use-persisted-marked-key";
+import { markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildTrefferlisteKarte } from "@/lib/map/karte";
 import {
@@ -23,7 +25,7 @@ import {
   type TrefferCriterionRow,
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { formatStandPrefix, standRegionsOf, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { formatStandPrefix, markedStandRegions, type BoundVerlauf } from "@/lib/verlauf/bind";
 import { bindTrefferlisteForRegion, loadTrefferlisteAfterCompletedRun, pollTrefferlisteRun } from "@/lib/recommendations/bind";
 import { CatalogHitLabel } from "./catalog-hit-label";
 import { RunRegionLabel } from "./run-region-label";
@@ -48,7 +50,7 @@ export function EmpfehlungenPage() {
   const [bindFailed, setBindFailed] = useState(false);
   const [recommendationSet, setRecommendationSet] = useState<RecommendationSet | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = useState<string | null>(null);
+  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runPhase, setRunPhase] = useState<RunPhase>("idle");
   const [runError, setRunError] = useState<string | null>(null);
@@ -102,7 +104,7 @@ export function EmpfehlungenPage() {
       bindPhase === "ready" && !inFlight ? buildPatternProfile(boundRecommendations?.patternByDataset) : [],
     [bindPhase, boundRecommendations, inFlight],
   );
-  const runRegions = bindPhase === "ready" && !inFlight && bound ? standRegionsOf(bound) : [];
+  const runRegions = bindPhase === "ready" && !inFlight && bound ? markedStandRegions(bound, marked) : [];
   const standPrefix =
     bindPhase === "ready" && !inFlight && bound ? formatStandPrefix(bound.createdAt) : null;
   const heading = headingForMarkedRegion(marked);
@@ -142,7 +144,6 @@ export function EmpfehlungenPage() {
       setBindFailed(false);
       setRecommendationSet(null);
       setRegions([]);
-      setMarkedKey(null);
       setLoadError(null);
       setRunPhase("idle");
       setRunError(null);
@@ -151,7 +152,6 @@ export function EmpfehlungenPage() {
         const nextRegions = await locationApi.listTargetRegions();
         if (cancelled) return;
         setRegions(nextRegions);
-        setMarkedKey(ensureMarkedKey(nextRegions, null));
         setLoadedEmail(email);
         setPagePhase("idle");
       } catch (caught) {
@@ -180,7 +180,8 @@ export function EmpfehlungenPage() {
     void (async () => {
       try {
         const inflight = key ? inflightByKey.current.get(key) : undefined;
-        const next = await bindTrefferlisteForRegion(analysisApi, current, inflight);
+        const startedRunId = current?.geoKey ? startedRunIdForRegion(current.geoKey) : null;
+        const next = await bindTrefferlisteForRegion(analysisApi, current, inflight, { startedRunId });
         if (bindRequest.current !== token) return;
         setStarting(false);
         if (next.kind === "in_flight") {
@@ -291,7 +292,8 @@ export function EmpfehlungenPage() {
     setBindFailed(false);
     setRunPhase("idle");
     try {
-      const created = await analysisApi.createAnalysisRun();
+      const created = await analysisApi.createAnalysisRun({ geoKey: current.geoKey });
+      if (current.geoKey) rememberStartedRun(current.geoKey, created.id);
       if (isInFlightStatus(created.status)) {
         rememberInflight(key, created.id);
       }
@@ -676,7 +678,7 @@ function Sparkline({ points, tone }: { points: SparkPoint[]; tone: "hit" | "patt
   const present = points
     .map((point, index) => ({ index, value: point.value }))
     .filter((point): point is { index: number; value: number } => point.value != null);
-  if (present.length < 2) return null;
+  if (present.length === 0) return null;
   const values = present.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -691,9 +693,13 @@ function Sparkline({ points, tone }: { points: SparkPoint[]; tone: "hit" | "patt
       return `${offset === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
+  const first = present[0];
+  const x0 = first ? first.index * step : 0;
+  const y0 = first ? height - 4 - ((first.value - min) / span) * (height - 8) : height / 2;
   return (
     <svg className={tone === "pattern" ? "sparkline is-pattern" : "sparkline"} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.75" />
+      {present.length > 1 ? <path d={path} fill="none" stroke="currentColor" strokeWidth="1.75" /> : null}
+      {present.length === 1 ? <circle cx={x0} cy={y0} r="2.25" fill="currentColor" /> : null}
     </svg>
   );
 }

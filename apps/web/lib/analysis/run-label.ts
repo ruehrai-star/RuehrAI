@@ -1,5 +1,5 @@
 import type { AnalysisInput, TargetRegion } from "@ruehrai/api-contracts";
-import { catalogParentName, catalogPlaceName, isCatalogKey } from "../format.ts";
+import { catalogParentName, catalogPlaceName, visiblePlaceText } from "../format.ts";
 import { samePlace, type PlaceRef } from "../locations/regions.ts";
 
 export type RunRegionSource = PlaceRef & {
@@ -75,8 +75,5 @@ export function formatRunRegionLabel(
 }
 
 function visibleName(value: string | null | undefined): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed || isCatalogKey(trimmed)) return "";
-  return trimmed;
+  return visiblePlaceText(value);
 }

@@ -7,16 +7,17 @@ import {
   runRegionEntryLabel,
   type RunRegionSource,
 } from "../analysis/run-label.ts";
-import { catalogLevelOf, catalogParentName, catalogPlaceName } from "../format.ts";
+import { catalogLevelOf, catalogParentName, catalogPlaceName, visiblePlaceText } from "../format.ts";
 import { catalogKeyVariants, placeKeySet, samePlace, type PlaceRef } from "../locations/regions.ts";
 
 /**
  * Bind Verlauf to the marked Zielregion.
  *
- * Tracks the Backend Draft-PR for `GET /analysis/pattern?geoKey=`. Until
- * OpenAPI on main lists that query, the Web client sends it and still
- * verifies `region` / `input.region` / `input.regions` so another region's
- * latest run never fills the page.
+ * GET `/analysis/pattern?geoKey=` plus the run snapshot. A run that only
+ * lists the marked key among several Zielregionen is not this region's own
+ * run unless it was started for that key (`startedRunId`) or the primary
+ * `input.region` is the marked one. Stand never relabels another region's
+ * timestamp with the marked name.
  */
 
 export interface BoundVerlauf {
@@ -92,6 +93,36 @@ export function runMatchesMarkedRegion(run: Pick<AnalysisRun, "input">, marked: 
   return candidates.some((item) => item != null && samePlace(item, marked));
 }
 
+/**
+ * Variante A: this run belongs to the marked Zielregion.
+ * Presence in `input.regions` alone is not enough — POST still snapshots
+ * every saved region, so Innenstadt's run would otherwise fill Tempelhof.
+ */
+export function runIsForMarkedRegion(
+  run: Pick<AnalysisRun, "id" | "input">,
+  marked: PlaceRef,
+  startedRunId?: string | null,
+): boolean {
+  if (!runMatchesMarkedRegion(run, marked)) return false;
+  if (startedRunId && startedRunId === run.id) return true;
+  const listed = regionsFromRunInput(run.input);
+  if (listed.length > 0 && listed.every((item) => samePlace(item, marked))) return true;
+  return Boolean(run.input.region && samePlace(run.input.region, marked));
+}
+
+/** Stand line for the marked region only — never another region's name. */
+export function markedStandRegions(
+  bound: BoundVerlauf | null | undefined,
+  marked: PlaceRef | null | undefined,
+): AnalysisPatternRegion[] {
+  if (!bound) return [];
+  const listed = bound.regions.length > 0 ? bound.regions : bound.region ? [bound.region] : [];
+  if (!marked) return listed.slice(0, 1);
+  const match = listed.find((item) => samePlace(item, marked));
+  if (match) return [match];
+  return bound.region && samePlace(bound.region, marked) ? [bound.region] : [];
+}
+
 export function yearlySeriesForRegion(
   series: YearlySeries[] | undefined,
   marked: PlaceRef,
@@ -126,6 +157,7 @@ export function bindPatternToMarkedRegion(input: {
 export async function loadPatternForMarkedRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun">,
   marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null }) | null,
+  options?: { startedRunId?: string | null },
 ): Promise<BoundVerlauf | null> {
   const geoKey = patternQueryGeoKey(marked);
   if (!marked || !geoKey) return null;
@@ -134,18 +166,17 @@ export async function loadPatternForMarkedRegion(
   if (!latest) return null;
 
   let run: AnalysisRun | null = null;
-  if (!latest.region) {
-    try {
-      run = await api.getAnalysisRun(latest.runId);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) return null;
-      throw error;
-    }
+  try {
+    run = await api.getAnalysisRun(latest.runId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
   }
 
+  if (!run || !runIsForMarkedRegion(run, marked, options?.startedRunId)) return null;
   const bound = bindPatternToMarkedRegion({ latest, run, marked });
   if (!bound) return null;
-  return withRunRegions(bound, run ?? (await readRunRegions(api, bound.runId)));
+  return withRunRegions(bound, run);
 }
 
 function toBound(
@@ -163,18 +194,6 @@ function toBound(
   };
 }
 
-async function readRunRegions(
-  api: Pick<RuehrApi, "getAnalysisRun">,
-  runId: string,
-): Promise<AnalysisRun | null> {
-  try {
-    return await api.getAnalysisRun(runId);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
-    return null;
-  }
-}
-
 function withRunRegions(bound: BoundVerlauf, run: AnalysisRun | null): BoundVerlauf {
   if (!run) return bound;
   const fromRun = regionsFromRunInput(run.input).map(snapshotRegion).filter((region) => region.label.length > 0);
@@ -189,7 +208,7 @@ function withRegionSeries(pattern: AnalysisPattern, marked: PlaceRef): AnalysisP
 function snapshotRegion(region: AnalysisPatternRegion | PlaceRef): AnalysisPatternRegion {
   const grain = "grain" in region && isGrain(region.grain) ? region.grain : undefined;
   return {
-    label: trimLabel(region.label) || catalogPlaceName(region) || "",
+    label: visiblePlaceText(typeof region.label === "string" ? region.label : null) || catalogPlaceName(region) || "",
     geoKey: typeof region.geoKey === "string" ? region.geoKey : null,
     level: catalogLevelOf("level" in region ? region.level : undefined),
     parentLabel: catalogParentName(region),
@@ -201,7 +220,9 @@ function mergeStandRegion(
   region: AnalysisPatternRegion | PlaceRef,
   marked: PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null },
 ): AnalysisPatternRegion {
-  const label = trimLabel(region.label) || catalogPlaceName(marked) || trimLabel(marked.label);
+  const fromRun = visiblePlaceText(typeof region.label === "string" ? region.label : null) || catalogPlaceName(region);
+  const fromMarked = catalogPlaceName(marked);
+  const label = fromRun || fromMarked || "";
   const regionGrain = "grain" in region && isGrain(region.grain) ? region.grain : undefined;
   const markedGrain = isGrain(marked.grain) ? marked.grain : undefined;
   return {
@@ -211,9 +232,4 @@ function mergeStandRegion(
     parentLabel: catalogParentName(region) ?? catalogParentName(marked),
     grain: regionGrain ?? markedGrain,
   };
-}
-
-function trimLabel(value: string | null | undefined): string {
-  if (typeof value !== "string") return "";
-  return value.trim();
 }

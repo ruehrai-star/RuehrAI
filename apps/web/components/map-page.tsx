@@ -13,6 +13,7 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
+import { readMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
 import { ensureMarkedKey } from "@/lib/locations/regions";
 import {
   LEGEND_LABEL,
@@ -113,7 +114,10 @@ export function MapPage() {
             token,
             stores: nextStores,
             regions: nextRegions,
-            markedKey: ensureMarkedKey(nextRegions, currentSnapshot?.token === token ? currentSnapshot.markedKey : null),
+            markedKey: ensureMarkedKey(
+              nextRegions,
+              currentSnapshot?.token === token ? currentSnapshot.markedKey : readMarkedKey(),
+            ),
             recommendations: nextRecommendations?.items ?? [],
             error: null,
             ready: true,
@@ -233,9 +237,10 @@ export function MapPage() {
           camera={karte.camera}
           markerKey={karte.markerKey}
           regionKey={karte.regionKey}
-          onMarkRegion={(key) =>
-            setSnapshot((current) => (current ? { ...current, markedKey: key } : current))
-          }
+          onMarkRegion={(key) => {
+            writeMarkedKey(key);
+            setSnapshot((current) => (current ? { ...current, markedKey: key } : current));
+          }}
         />
         <div className="map-notices">
           {karte.showEmptyAddresses ? (

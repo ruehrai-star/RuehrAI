@@ -235,8 +235,13 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return parseAnalysisInput(body);
     },
 
-    async createAnalysisRun(): Promise<AnalysisRun> {
-      const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
+    async createAnalysisRun(query?: { geoKey?: string | null }): Promise<AnalysisRun> {
+      const geoKey = trimQueryValue(query?.geoKey);
+      const body = await request<AnalysisRun>("/analysis/runs", {
+        method: "POST",
+        auth: true,
+        query: geoKey ? { geoKey } : undefined,
+      });
       return parseAnalysisRun(body, { allowIncomplete: true });
     },
 

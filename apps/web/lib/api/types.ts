@@ -118,7 +118,7 @@ export type AnalysisPatternResponse = Omit<ContractAnalysisPatternResponse, "reg
 /**
  * Browser session derived from `POST /auth/login` or `POST /auth/register`
  * (`TokenResponse`). Abmelden calls `POST /auth/logout` and then deletes
- * this record from sessionStorage.
+ * this record from localStorage.
  */
 export interface Session {
   accessToken: string;

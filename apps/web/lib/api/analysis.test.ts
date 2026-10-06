@@ -126,6 +126,21 @@ test("analysis calls send the bearer token and follow the OpenAPI paths", async 
   assert.equal(calls[1]?.body, undefined);
 });
 
+test("POST /analysis/runs sends the marked geoKey as a query", async () => {
+  const seen: string[] = [];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl) => {
+      seen.push(String(inputUrl));
+      return json({ ...run, status: "queued" }, 202);
+    },
+  });
+  await api.createAnalysisRun({ geoKey: "ortsteil:osm:162894" });
+  assert.equal(seen[0], "http://localhost:3000/analysis/runs?geoKey=ortsteil%3Aosm%3A162894");
+  await api.createAnalysisRun();
+  assert.equal(seen[1], "http://localhost:3000/analysis/runs");
+});
+
 test("GET /analysis/pattern maps 404 to no pattern", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

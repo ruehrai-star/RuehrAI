@@ -48,7 +48,7 @@ export interface RuehrApi {
   listStoreRevenue(id: string): Promise<MonthlyRevenuePoint[]>;
   putStoreRevenue(id: string, points: MonthlyRevenuePointWrite[]): Promise<MonthlyRevenuePoint[]>;
   getAnalysisInput(): Promise<AnalysisInput>;
-  createAnalysisRun(): Promise<AnalysisRun>;
+  createAnalysisRun(query?: { geoKey?: string | null }): Promise<AnalysisRun>;
   getAnalysisRun(id: string): Promise<AnalysisRun>;
   getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null>;
   getRecommendations(query?: RecommendationQuery): Promise<RecommendationSet | null>;

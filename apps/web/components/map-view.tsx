@@ -14,7 +14,7 @@ import {
 } from "maplibre-gl";
 import { useEffect, useRef, useState } from "react";
 import { coordinatesOf, isGrain, type SearchHit } from "@/lib/api";
-import { zoomForGrain } from "@/lib/format";
+import { unnamedPlaceLabel, visiblePlaceText, zoomForGrain } from "@/lib/format";
 import {
   EMPFEHLUNG_COLOR,
   FIT_MAX_ZOOM,
@@ -90,6 +90,12 @@ function boundsOf(collection: FeatureCollection): LngLatBounds | null {
   return found ? bounds : null;
 }
 
+function mapFeatureLabel(label: unknown, id: string): string {
+  const fromLabel = typeof label === "string" ? visiblePlaceText(label, id) : "";
+  if (fromLabel) return fromLabel;
+  return unnamedPlaceLabel({ id, geoKey: id }) ?? "";
+}
+
 function hitFromProperties(
   properties: GeoJsonProperties,
   fallbackId: string | number | undefined,
@@ -104,7 +110,7 @@ function hitFromProperties(
   }
   return {
     id,
-    label: String(properties.label ?? id),
+    label: mapFeatureLabel(properties.label, id),
     grain,
     lon,
     lat,

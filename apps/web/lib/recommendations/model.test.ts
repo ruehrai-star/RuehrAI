@@ -400,6 +400,26 @@ test("backend Quartier plus digits maps to Quartier ohne Namen", () => {
   assert.equal(hitName(named), "Belgisches Viertel");
 });
 
+test("a LOR hit without a name stays visible as Planungsraum ohne Namen", () => {
+  const lor = item({
+    id: "other:lor:plr:07400823",
+    rank: 1,
+    kind: "lor",
+    name: null,
+    title: "lor:plr:07400823",
+    location: { geoKey: "lor:plr:07400823", grain: "other", lon: null, lat: null, name: null },
+    trend: { direction: "up", summary: "Unfälle steigen je km²." },
+  });
+  assert.equal(hitName(lor), "Planungsraum ohne Namen");
+  const card = buildTrefferCard(lor, [patternDataset]);
+  assert.equal(card.name, "Planungsraum ohne Namen");
+  assert.equal(card.trendSummary, "Unfälle steigen je km².");
+  assert.equal(card.criteria[0]?.coverage, "series");
+  assert.equal(card.name.includes("lor:plr"), false);
+  assert.equal((card.trendSummary ?? "").includes("lor:plr"), false);
+  assert.equal(visibleHits([lor], markedGemeinde).length, 1);
+});
+
 test("recommendation copy never shows the catalog key", () => {
   const keyed = item({
     id: "plz5:80801",

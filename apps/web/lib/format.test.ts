@@ -100,6 +100,7 @@ test("catalog keys are detected for every Zielregion level", () => {
   assert.equal(isCatalogKey("ortsteil:osm:12247773"), true);
   assert.equal(isCatalogKey("ortsteil:osm:12247949"), true);
   assert.equal(isCatalogKey("stadtteil:osm:9"), true);
+  assert.equal(isCatalogKey("stadtteil:osm:2613711"), true);
   assert.equal(isCatalogKey("stadtbezirk:14713000"), true);
   assert.equal(isCatalogKey("bezirk:11000001"), true);
   assert.equal(isCatalogKey("lor:110010101"), true);
