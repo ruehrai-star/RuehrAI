@@ -20,6 +20,7 @@ import {
   hitName,
   inheritedLabel,
   intersectionLine,
+  isLegacyTargetRegionSet,
   mapDisplayName,
   overlapDetailLines,
   overlapLageSentence,
@@ -158,6 +159,8 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.empty, "Keine passenden Standorte in der Zielregion.");
   assert.equal(RECOMMENDATION_COPY.missingRun, "Für diese Zielregion liegt noch kein Analyselauf vor.");
   assert.equal(RECOMMENDATION_COPY.startAnalysis, "Musteranalyse starten");
+  assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
+  assert.equal(RECOMMENDATION_COPY.legacySet, "Diese Analyse stammt aus einer älteren Version. Bitte neu berechnen.");
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
@@ -816,6 +819,7 @@ test("Musteranalyse starten and Erneut starten stay disabled while a run is in f
   assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
   assert.match(page, /startGate\.current/);
   assert.match(page, /\{showEmptyRun \?[\s\S]*RECOMMENDATION_COPY\.startAnalysis[\s\S]*disabled=\{startLocked\}/);
+  assert.match(page, /\{showLegacySet \?[\s\S]*RECOMMENDATION_COPY\.restartAnalysis[\s\S]*disabled=\{startLocked\}/);
   assert.match(page, /async function onStartAnalysis\(\) \{[\s\S]*startGate\.current[\s\S]*analysisStartLocked/);
 });
 
@@ -1157,7 +1161,7 @@ test("visibleHits keeps only items whose targetRegionGeoKey is the marked geoKey
   assert.equal(visibleHits(mixed, markedTempelhof)[0]?.rank, 1);
 });
 
-test("a multi-region set without targetRegionGeoKey shows no hits rather than mixing regions", () => {
+test("an old set without targetRegionGeoKey is legacy and not the normal empty state", () => {
   const altstadt = item({
     id: "ortsteil:osm:2613711",
     rank: 122,
@@ -1166,11 +1170,56 @@ test("a multi-region set without targetRegionGeoKey shows no hits rather than mi
     targetRegionGeoKey: "",
     location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
   });
-  assert.equal(visibleHits([altstadt], markedTempelhof, { runRegionCount: 6 }).length, 0);
-  assert.equal(buildTrefferlisteCards(setWith([altstadt]), markedTempelhof, { runRegionCount: 6 }).length, 0);
-  const page = readFileSync(new URL("./model.ts", import.meta.url), "utf8");
-  assert.match(page, /targetRegionGeoKey/);
-  assert.match(page, /multi-region set mixes every Zielregion/);
+  const missing = item({
+    id: "ortsteil:osm:2613712",
+    rank: 123,
+    kind: "ortsteil",
+    title: "Altstadt-Süd",
+    targetRegionGeoKey: undefined,
+    location: { geoKey: "ortsteil:osm:2613712", grain: "other", lon: null, lat: null, name: "Altstadt-Süd" },
+  });
+  const oldSet = setWith([altstadt, missing]);
+  assert.equal(isLegacyTargetRegionSet(oldSet.items), true);
+  assert.equal(visibleHits(oldSet.items, markedTempelhof).length, 0);
+  assert.equal(buildTrefferlisteCards(oldSet, markedTempelhof).length, 0);
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /RECOMMENDATION_COPY\.legacySet/);
+  assert.match(page, /showLegacySet/);
+  assert.match(
+    page,
+    /\{showLegacySet \?[\s\S]*RECOMMENDATION_COPY\.restartAnalysis[\s\S]*disabled=\{startLocked\}/,
+  );
+  assert.equal(page.includes("showEmptyHits") && page.includes("!legacySet"), true);
+  assert.match(page, /onStartAnalysis/);
+});
+
+test("visibleHits matches ags and label fallbacks when the marked region has no geoKey", () => {
+  const byAgs = item({
+    id: "lor:plr:ags-1",
+    rank: 1,
+    kind: "lor",
+    title: "Planungsraum A",
+    targetRegionGeoKey: "ags:11000000",
+    location: { geoKey: "lor:plr:ags-1", grain: "other", lon: null, lat: null, name: "Planungsraum A" },
+  });
+  const byLabel = item({
+    id: "lor:plr:label-1",
+    rank: 1,
+    kind: "lor",
+    title: "Planungsraum B",
+    targetRegionGeoKey: "label:tempelhof",
+    location: { geoKey: "lor:plr:label-1", grain: "other", lon: null, lat: null, name: "Planungsraum B" },
+  });
+  const markedByAgs = { label: "Berlin", geoKey: "", ags: "11000000" };
+  const markedByLabel = { label: "Tempelhof", geoKey: null, ags: null };
+  assert.deepEqual(
+    visibleHits([byAgs, byLabel], markedByAgs).map((hit) => hit.location.name),
+    ["Planungsraum A"],
+  );
+  assert.deepEqual(
+    visibleHits([byAgs, byLabel], markedByLabel).map((hit) => hit.location.name),
+    ["Planungsraum B"],
+  );
 });
 
 test("backend rank is shown unchanged; no re-numbering", () => {

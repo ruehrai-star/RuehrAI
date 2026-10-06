@@ -15,6 +15,7 @@ import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.t
 import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
 import { readRegionGeometry } from "../map/karte.ts";
 import { samePlace, type PlaceRef } from "../locations/regions.ts";
+import { itemMatchesMarkedRegion } from "./target-region-key.ts";
 import { standRegionLabel } from "../verlauf/bind.ts";
 import { hitBadge, hitName, overlapDetailLines, overlapLageSentence } from "./hit-copy.ts";
 
@@ -54,6 +55,7 @@ export const RECOMMENDATION_COPY = {
   missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
   startAnalysis: "Musteranalyse starten",
   restartAnalysis: "Erneut starten",
+  legacySet: "Diese Analyse stammt aus einer älteren Version. Bitte neu berechnen.",
   missingGeometry: "Die Fläche kann noch nicht gezeichnet werden.",
   missingValue: "liegt nicht vor",
   toAnalysis: "Zur Musteranalyse",
@@ -235,10 +237,7 @@ export function stichtagFromDataAsOf(value: string | null | undefined): string |
   return year ? `Stichtag ${year}` : null;
 }
 
-export interface VisibleHitsOptions {
-  /** Zielregionen on the run snapshot (`input.regions`). Used only when `targetRegionGeoKey` is absent. */
-  runRegionCount?: number;
-}
+export { isLegacyTargetRegionSet, targetRegionKeyOf } from "./target-region-key.ts";
 
 export function formatAddress(item: Recommendation): string {
   const title = visiblePlaceText(item.title);
@@ -356,28 +355,22 @@ export function trendSummary(item: Recommendation): string | null {
   return summary.length > 0 ? summary : null;
 }
 
-export function targetRegionGeoKeyOf(item: Recommendation): string | null {
-  if (typeof item.targetRegionGeoKey !== "string") return null;
-  const trimmed = item.targetRegionGeoKey.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 /**
  * Hits for the marked Zielregion.
  *
- * From OpenAPI 0.19.2, `items[].targetRegionGeoKey` is the Zielregion the
- * item belongs to (`===` the marked `geoKey`) and `rank` is per region from 1.
- * Until that field exists, a multi-region set mixes every Zielregion under one
- * global rank — show no hits rather than Innenstadt rows under Tempelhof.
+ * From OpenAPI 0.19.2, `items[].targetRegionGeoKey` is the backend key
+ * (`geoKey` → `ags:{ags}` → `label:{norm}`). Rank is per region from 1.
+ * A stored set whose items all lack that field is legacy — callers show
+ * the recompute copy instead of mixing regions or the normal empty state.
  */
 export function visibleHits(
   items: readonly Recommendation[],
-  marked: PlaceRef | null | undefined,
-  options?: VisibleHitsOptions,
+  marked: (PlaceRef & { ags?: unknown }) | null | undefined,
 ): Recommendation[] {
-  const multiRegion = isMultiRegionSet(items, options?.runRegionCount);
-  const inMarkedRegion = items.filter((item) => belongsToMarkedRegion(item, marked, multiRegion));
-  const markedRank = marked ? areaRankOf(marked) : 9;
+  const inMarkedRegion = items.filter((item) => itemMatchesMarkedRegion(item, marked));
+  const markedRank = marked
+    ? areaRankOf({ ...marked, ags: typeof marked.ags === "string" ? marked.ags : null })
+    : 9;
   const withoutSelf = inMarkedRegion.filter((item) => {
     if (isAddressHit(item)) return false;
     if (!hitName(item)) return false;
@@ -391,11 +384,10 @@ export function visibleHits(
 
 export function topHits(
   items: readonly Recommendation[],
-  marked: PlaceRef | null | undefined,
-  options?: VisibleHitsOptions,
+  marked: (PlaceRef & { ags?: unknown }) | null | undefined,
   limit = 3,
 ): Recommendation[] {
-  return visibleHits(items, marked, options).slice(0, limit);
+  return visibleHits(items, marked).slice(0, limit);
 }
 
 export function inheritedLabel(level: SeriesLevel | null | undefined): string {
@@ -474,10 +466,9 @@ export function buildPatternProfile(patternByDataset: PatternDatasetProfile[] | 
 export function buildTrefferlisteCards(
   set: RecommendationSet | null,
   marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
-  options?: VisibleHitsOptions,
 ): TrefferCardView[] {
   if (!set) return [];
-  return topHits(set.items, marked, options).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
+  return topHits(set.items, marked).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
 }
 
 /**
@@ -640,33 +631,6 @@ function evidenceMatchesProfileMetric(
   const metricId = profileMetricId(profile);
   if (evidence.metricId) return evidence.metricId === metricId;
   return evidence.key === metricId || evidence.key === profile.criterion.key;
-}
-
-function belongsToMarkedRegion(
-  item: Recommendation,
-  marked: PlaceRef | null | undefined,
-  multiRegion: boolean,
-): boolean {
-  const target = targetRegionGeoKeyOf(item);
-  if (target) {
-    if (!marked) return false;
-    const markedKey = typeof marked.geoKey === "string" ? marked.geoKey.trim() : "";
-    if (!markedKey) return false;
-    return target === markedKey || samePlace({ geoKey: target }, { geoKey: markedKey });
-  }
-  // Contract < 0.19.2: no targetRegionGeoKey. A multi-region set would mix
-  // every Zielregion under one global rank — hide rather than mix.
-  return !multiRegion;
-}
-
-function isMultiRegionSet(items: readonly Recommendation[], runRegionCount: number | undefined): boolean {
-  if ((runRegionCount ?? 0) > 1) return true;
-  const keys = new Set<string>();
-  for (const item of items) {
-    const key = targetRegionGeoKeyOf(item);
-    if (key) keys.add(key);
-  }
-  return keys.size > 1;
 }
 
 function yearFromDataAsOf(value: string | null | undefined): string | null {

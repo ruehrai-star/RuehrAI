@@ -93,8 +93,16 @@ export type RecommendationV192Fields = {
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
 } & RecommendationV192Fields;
+
+/** Additive 0.19.2 snapshot of keys actually used as `items[].targetRegionGeoKey`. */
+export type RecommendationTargetRegionRef = {
+  geoKey: string;
+  label?: string;
+};
+
 export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
   items: Recommendation[];
+  targetRegions?: RecommendationTargetRegionRef[];
 };
 
 /**

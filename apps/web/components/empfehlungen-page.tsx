@@ -18,8 +18,10 @@ import {
   buildPatternProfile,
   buildTrefferlisteCards,
   headingForMarkedRegion,
+  isLegacyTargetRegionSet,
   rankLabel,
   stichtagCopy,
+  targetRegionKeyOf,
   trefferStatusCopy,
   type SparkPoint,
   type TrefferCardView,
@@ -97,13 +99,8 @@ export function EmpfehlungenPage() {
       ? recommendationSet
       : null;
   const cards = useMemo(
-    () =>
-      bindPhase === "ready" && !inFlight
-        ? buildTrefferlisteCards(boundRecommendations, marked, {
-            runRegionCount: bound?.regions.length,
-          })
-        : [],
-    [bindPhase, boundRecommendations, marked, bound, inFlight],
+    () => (bindPhase === "ready" && !inFlight ? buildTrefferlisteCards(boundRecommendations, marked) : []),
+    [bindPhase, boundRecommendations, marked, inFlight],
   );
   const patternRows = useMemo(
     () =>
@@ -114,6 +111,7 @@ export function EmpfehlungenPage() {
   const standPrefix =
     bindPhase === "ready" && !inFlight && bound ? formatStandPrefix(bound.createdAt) : null;
   const heading = headingForMarkedRegion(marked);
+  const legacySet = Boolean(boundRecommendations && isLegacyTargetRegionSet(boundRecommendations.items));
   const showEmptyRun =
     visible &&
     pagePhase === "idle" &&
@@ -123,8 +121,10 @@ export function EmpfehlungenPage() {
     bindPhase !== "loading" &&
     (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations)) &&
     visibleRegions.length > 0;
-  const showEmptyHits = bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0;
-  const showRestart = runPhase === "failed" || runPhase === "deadline";
+  const showLegacySet = bindPhase === "ready" && !inFlight && legacySet;
+  const showEmptyHits =
+    bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0 && !legacySet;
+  const showRestart = (runPhase === "failed" || runPhase === "deadline") && !showLegacySet;
 
   function stopPolling() {
     pollAbort.current?.abort();
@@ -298,7 +298,7 @@ export function EmpfehlungenPage() {
     setBindFailed(false);
     setRunPhase("idle");
     try {
-      const created = await analysisApi.createAnalysisRun({ geoKey: current.geoKey });
+      const created = await analysisApi.createAnalysisRun({ geoKey: targetRegionKeyOf(current) });
       if (current.geoKey) rememberStartedRun(current.geoKey, created.id);
       if (isInFlightStatus(created.status)) {
         rememberInflight(key, created.id);
@@ -493,6 +493,24 @@ export function EmpfehlungenPage() {
           </div>
         ) : null}
 
+        {showLegacySet ? (
+          <div className="treffer-empty">
+            <p className="message" role="status">
+              {RECOMMENDATION_COPY.legacySet}
+            </p>
+            <div className="auth-actions">
+              <button
+                type="button"
+                className="button"
+                onClick={() => void onStartAnalysis()}
+                disabled={startLocked}
+              >
+                {RECOMMENDATION_COPY.restartAnalysis}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {showRestart ? (
           <div className="auth-actions">
             <button
@@ -512,7 +530,7 @@ export function EmpfehlungenPage() {
           </p>
         ) : null}
 
-        {bindPhase === "ready" && !inFlight && patternRows.length > 0 ? (
+        {bindPhase === "ready" && !inFlight && !legacySet && patternRows.length > 0 ? (
           <div className="treffer-pattern-toggle">
             <button
               type="button"

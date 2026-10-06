@@ -159,12 +159,7 @@ export function MapPage() {
         if (cancelled) return;
         setSnapshot((current) =>
           current && current.token === token
-            ? {
-                ...current,
-                recommendations: visibleHits(set?.items ?? [], marked, {
-                  runRegionCount: bound?.regions.length,
-                }),
-              }
+            ? { ...current, recommendations: visibleHits(set?.items ?? [], marked) }
             : current,
         );
       } catch {

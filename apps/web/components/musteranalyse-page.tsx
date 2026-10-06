@@ -11,6 +11,7 @@ import { markedRegion } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { visiblePlaceText } from "@/lib/format";
 import { loadPatternForMarkedRegion, patternQueryGeoKey } from "@/lib/verlauf/bind";
+import { targetRegionKeyOf } from "@/lib/recommendations/target-region-key";
 import {
   ANALYSIS_COPY,
   brainStatusText,
@@ -138,7 +139,9 @@ export function MusteranalysePage() {
     setActionError(null);
     setReadError(null);
     try {
-      const created = await api.createAnalysisRun({ geoKey: markedGeoKey });
+      const created = await api.createAnalysisRun({
+        geoKey: marked ? targetRegionKeyOf(marked) : markedGeoKey,
+      });
       if (markedGeoKey) rememberStartedRun(markedGeoKey, created.id);
       if (request.current !== token) return;
       let settled = created;

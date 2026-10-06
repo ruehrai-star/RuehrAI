@@ -487,6 +487,16 @@ test("GET /recommendations accepts additive 0.19.2 targetRegionGeoKey and dataAs
   const latest = await api.getRecommendations();
   assert.equal(latest?.items[0]?.targetRegionGeoKey, "ortsteil:osm:162894");
   assert.equal(latest?.items[0]?.dataAsOf, "2022-12-31");
+  const withRegions = {
+    ...withV192,
+    targetRegions: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof" }],
+  };
+  const withRegionsApi = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withRegions),
+  });
+  const parsedRegions = await withRegionsApi.getRecommendations();
+  assert.equal(parsedRegions?.targetRegions?.[0]?.geoKey, "ortsteil:osm:162894");
   const without = createHttpApi({
     getAccessToken: () => "jwt-1",
     fetch: async () => json(set),
