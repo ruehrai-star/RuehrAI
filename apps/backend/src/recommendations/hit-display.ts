@@ -8,11 +8,21 @@ import { AreaCandidate, AreaKind, isAreaKind, isKoelnQuartierKey, isLorPlrKey } 
 const CATALOG_KEY =
   /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|address|grid100)(?::\S+)+$/i;
 
+/** Same prefixes, unanchored — finds a key inside rationale / evidence / trend text. */
+const CATALOG_KEY_IN_TEXT =
+  /(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|address|grid100):\S+/i;
+
 const BARE_PLZ = /^\d{4,5}$/;
 
 export function isHiddenCatalogKey(value: string | null | undefined): boolean {
   if (!value) return false;
   return CATALOG_KEY.test(value.trim());
+}
+
+/** True when a display string embeds a catalog key (`lor:plr:…`, `ortsteil:…`, …). */
+export function textContainsCatalogKey(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return CATALOG_KEY_IN_TEXT.test(value);
 }
 
 /** Display name only. Empty and catalog keys become null (liegt nicht vor). */

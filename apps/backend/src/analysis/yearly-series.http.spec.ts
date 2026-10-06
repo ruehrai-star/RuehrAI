@@ -247,7 +247,7 @@ describe("analysis yearlySeries HTTP", () => {
     expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(1);
   });
 
-  it("recomputes stored yearlySeries on GET /analysis/pattern so old single coverage does not stick", async () => {
+  it("keeps stored yearlySeries on GET /analysis/pattern and does not rebuild coverage", async () => {
     query.mockResolvedValueOnce({
       rows: [
         {
@@ -340,9 +340,10 @@ describe("analysis yearlySeries HTTP", () => {
     const bevoelkerung = response.body.pattern.yearlySeries.find(
       (item: { metricId: string }) => item.metricId === "bevoelkerung",
     );
-    expect(bevoelkerung.coverage).toBe("series");
-    expect(bevoelkerung.sourceGeoKey).toBe("11007007");
-    expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(3);
+    expect(bevoelkerung.coverage).toBe("single");
+    expect(bevoelkerung.sourceGeoKey).toBe("11000000");
+    expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(1);
+    expect(queryReadingFeatures).not.toHaveBeenCalled();
   });
 
   it("keeps yearlySeries on GET when Tempelhof Ortsteil has no stored level", async () => {

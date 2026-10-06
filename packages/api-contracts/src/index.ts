@@ -41,6 +41,7 @@ export type EvidenceKind = Schemas["EvidenceKind"];
 export type EvidenceScope = Schemas["EvidenceScope"];
 export type AnalysisRunStatus = Schemas["AnalysisRunStatus"];
 export type AnalysisRun = Schemas["AnalysisRun"];
+export type AnalysisRunCreate = Schemas["AnalysisRunCreate"];
 export type AnalysisBrain = Schemas["AnalysisBrain"];
 export type BrainFact = Schemas["BrainFact"];
 export type BrainSignal = Schemas["BrainSignal"];

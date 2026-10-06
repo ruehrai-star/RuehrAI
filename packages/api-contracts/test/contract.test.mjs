@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.19.2");
+  assert.equal(doc.info.version, "0.19.3");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -105,6 +105,24 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.parameters.RecommendationsRunId.in, "query");
   assert.equal(doc.components.parameters.RecommendationsRunId.required, false);
   assert.ok(doc.paths["/analysis/runs"].post.description.includes("recommendation set"));
+  assert.ok(doc.paths["/analysis/runs"].post.description.includes("markedTargetRegionGeoKey"));
+  assert.equal(
+    doc.paths["/analysis/runs"].post.requestBody.content["application/json"].schema.$ref,
+    "#/components/schemas/AnalysisRunCreate",
+  );
+  assert.equal(
+    doc.components.schemas.AnalysisRunCreate.properties.markedTargetRegionGeoKey.type,
+    "string",
+  );
+  assert.equal(doc.components.schemas.AnalysisRunCreate.properties.geoKey.type, "string");
+  assert.equal(doc.components.schemas.AnalysisRunCreate.required, undefined);
+  assert.equal(
+    doc.paths["/analysis/runs"].post.parameters[0].$ref,
+    "#/components/parameters/AnalysisRunCreateGeoKey",
+  );
+  assert.ok(doc.info.description.includes("marked_target_region_not_found"));
+  assert.ok(doc.paths["/analysis/pattern"].get.description.includes("rebuilt"));
+  assert.equal(doc.components.schemas.ErrorResponse.properties.code.type, "string");
   assert.ok(doc.info.description.includes("official_zensus2022_grid"));
   assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
   assert.ok(doc.info.description.includes("geo.area_baseline"));

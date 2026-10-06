@@ -3,7 +3,7 @@ import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
-import { PATTERN_FOR_REGION_NOT_FOUND, PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS } from "./messages";
+import { PATTERN_FOR_REGION_NOT_FOUND, PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS, MARKED_TARGET_REGION_NOT_FOUND, MARKED_TARGET_REGION_NOT_FOUND_CODE } from "./messages";
 import { PatternService } from "./pattern.service";
 import { AnalysisBrain, AnalysisInput, AnalysisPattern, AnalysisRegion } from "./types";
 import { YearlySeries } from "./yearly-series";
@@ -178,6 +178,79 @@ describe("AnalysisService", () => {
     expect(createRecommendations).not.toHaveBeenCalled();
   });
 
+  it("uses markedTargetRegionGeoKey as input.region and keeps the full list in regions", async () => {
+    const lichterfelde = {
+      ...regionRow(),
+      label: "Lichterfelde",
+      geo_key: "ortsteil:osm:55737",
+      grain: "other",
+    };
+    const tempelhof = {
+      ...regionRow(),
+      label: "Tempelhof",
+      geo_key: "ortsteil:osm:162894",
+      grain: "other",
+    };
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [lichterfelde, tempelhof] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        const input = JSON.parse(String(params?.[1]));
+        expect(input.region.geoKey).toBe("ortsteil:osm:162894");
+        expect(input.region.label).toBe("Tempelhof");
+        expect(input.regions.map((item: { geoKey: string }) => item.geoKey)).toEqual([
+          "ortsteil:osm:55737",
+          "ortsteil:osm:162894",
+        ]);
+        return { rows: [{ id: "54", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const run = await service.createRun("2", "ortsteil:osm:162894");
+    expect(run.id).toBe("54");
+    expect(run.input.region.geoKey).toBe("ortsteil:osm:162894");
+    expect(run.input.regions?.map((item) => item.geoKey)).toEqual([
+      "ortsteil:osm:55737",
+      "ortsteil:osm:162894",
+    ]);
+    await service.whenIdle();
+  });
+
+  it("answers 404 with code marked_target_region_not_found for a foreign geoKey", async () => {
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    await expect(service.createRun("4", "ortsteil:osm:999")).rejects.toMatchObject({
+      response: {
+        statusCode: 404,
+        message: MARKED_TARGET_REGION_NOT_FOUND,
+        code: MARKED_TARGET_REGION_NOT_FOUND_CODE,
+      },
+    });
+  });
+
   it("marks the run failed when ranking the recommendation set throws", async () => {
     createRecommendations.mockRejectedValue(
       Object.assign(new Error('bind message supplies 4 parameters, but prepared statement "" requires 3'), {
@@ -271,10 +344,9 @@ describe("AnalysisService", () => {
     expect(failed?.[1]?.[2]).toBe("pattern_failed");
   });
 
-  it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
+  it("returns stored yearlySeries on GET and does not rebuild when the field is present", async () => {
     const stored = [{ metricId: "bevoelkerung", coverage: "single" }];
     const muenchen = snapshotRegion();
-    buildSeries.mockResolvedValue([{ metricId: "bevoelkerung", coverage: "multi" }]);
     query.mockResolvedValueOnce({
       rows: [
         {
@@ -297,9 +369,9 @@ describe("AnalysisService", () => {
         parentLabel: null,
         grain: "ags",
       },
-      pattern: { ...pattern, yearlySeries: [{ metricId: "bevoelkerung", coverage: "multi" }] },
+      pattern: { ...pattern, yearlySeries: stored },
     });
-    expect(buildSeries).toHaveBeenCalled();
+    expect(buildSeries).not.toHaveBeenCalled();
   });
 
   it("returns queued and failed status from the stored row", async () => {

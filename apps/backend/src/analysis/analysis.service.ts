@@ -30,6 +30,8 @@ import {
 } from "./failure-reason";
 import { interruptedError, throwIfAborted } from "./run-abort";
 import {
+  MARKED_TARGET_REGION_NOT_FOUND,
+  MARKED_TARGET_REGION_NOT_FOUND_CODE,
   PATTERN_FOR_REGION_NOT_FOUND,
   PATTERN_NOT_FOUND,
   REGION_MISSING,
@@ -42,6 +44,7 @@ import {
   filterYearlySeries,
   findSnapshotRegion,
   matchingGeoKeys,
+  placeKeysMatch,
   toPatternRegion,
 } from "./region-match";
 import {
@@ -192,8 +195,8 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
    * 202 immediately. Brain/pattern/set work continues in the background.
    * GET never computes. Marking another Zielregion later does not start a run.
    */
-  async createRun(userId: string): Promise<AnalysisRun> {
-    const input = await this.loadInput(userId);
+  async createRun(userId: string, markedTargetRegionGeoKey?: string): Promise<AnalysisRun> {
+    const input = await this.loadInput(userId, markedTargetRegionGeoKey);
     if (analysisRegions(input).length > MAX_TARGET_REGIONS) {
       throw new BadRequestException(TOO_MANY_TARGET_REGIONS);
     }
@@ -539,13 +542,17 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async withYearlySeries(pattern: AnalysisPattern, input: AnalysisInput | undefined): Promise<AnalysisPattern> {
+    if (Array.isArray(pattern.yearlySeries) && pattern.yearlySeries.length > 0) {
+      return { ...pattern, yearlySeries: pattern.yearlySeries };
+    }
     if (!input?.region && !(input?.regions && input.regions.length > 0)) {
       return { ...pattern, yearlySeries: pattern.yearlySeries ?? [] };
     }
+    this.logger.log("Stored yearlySeries missing; rebuilding as documented fallback.");
     return this.attachYearlySeries(pattern, input);
   }
 
-  private async loadInput(userId: string): Promise<AnalysisInput> {
+  private async loadInput(userId: string, markedTargetRegionGeoKey?: string): Promise<AnalysisInput> {
     const regionResult = await this.db.query<RegionRow>(
       `SELECT label, grain, geo_key, level, parent_label, ags, plz, lon, lat,
               bounds_west, bounds_south, bounds_east, bounds_north, geometry, updated_at
@@ -565,7 +572,18 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
         ),
       ),
     );
-    const region = regions[0];
+    const marked = markedTargetRegionGeoKey?.trim();
+    const region = marked
+      ? regions.find((item) => placeKeysMatch(item.geoKey, marked))
+      : regions[0];
+    if (marked && !region) {
+      throw new NotFoundException({
+        statusCode: 404,
+        message: MARKED_TARGET_REGION_NOT_FOUND,
+        error: "Not Found",
+        code: MARKED_TARGET_REGION_NOT_FOUND_CODE,
+      });
+    }
     if (!region) throw new NotFoundException(REGION_MISSING);
 
     const storeResult = await this.db.query<StoreRevenueRow>(

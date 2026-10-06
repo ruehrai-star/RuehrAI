@@ -607,6 +607,41 @@ describe("rankTeilflaechen", () => {
     expect(ranked[1]?.geometryUnavailableReason).toMatch(/gezeichnet/);
   });
 
+  it("does not put catalog keys into title, labels, or trend.summary", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({
+          geoKey: "lor:plr:01100310",
+          kind: "lor",
+          title: "lor:plr:01100310",
+          name: "lor:plr:01100310",
+          ags: "11000000",
+        }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "lor:plr:01100310",
+          requestedLevel: "lor",
+          sourceLevel: "lor",
+          sourceGeoKey: "lor:plr:01100310",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("lor:plr:01100310", "lor"),
+      ],
+      [trendUp],
+    );
+    expect(ranked[0]?.title).toBe("Planungsraum ohne Namen");
+    expect(ranked[0]?.name).toBe("Planungsraum ohne Namen");
+    expect(JSON.stringify(ranked[0]?.criteriaEvidence.map((entry) => [entry.label, entry.evidence]))).not.toMatch(
+      /lor:plr:/,
+    );
+    expect(ranked[0]?.trend?.summary ?? "").not.toMatch(/lor:plr:/);
+  });
+
   it("treats a baseline mismatch as absent and omits normalizedValue", () => {
     const ranked = rankTeilflaechen(
       [candidate({ geoKey: "ortsteil:osm:down", kind: "ortsteil", title: "Falling", ags: "09162000" })],

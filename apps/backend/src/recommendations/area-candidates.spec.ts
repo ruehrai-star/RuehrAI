@@ -23,6 +23,7 @@ import {
   isRegionAnchor,
   koelnQuartierCandidateQuery,
   lorFeatureCandidateQuery,
+  lorMunicipalityAgs,
   lorPlrCatalogQuery,
   lorPlrFeatureCandidateQuery,
   municipalityAgsForRegion,
@@ -32,6 +33,8 @@ import {
   selectCatalogHits,
   selectFinestHits,
   skipAddressAndGridForRegion,
+  spatialEvenHitsLimitSql,
+  SPATIAL_SAMPLE_CELL_DEG,
   clipToRegionSql,
   clippedHitGeoJsonSql,
   overlapJoinSql,
@@ -98,6 +101,36 @@ describe("area candidate SQL", () => {
     expect(grid).toContain("breitband_gitter");
     expect(address).not.toContain("<=>");
     expect(grid).not.toContain("<=>");
+    expect(address).toContain("g.geom IS NULL");
+    expect(grid).toContain("g.geom IS NULL");
+    expect(address).toContain("ST_Intersects");
+    expect(grid).toContain("ST_Intersects");
+    expect(address).toContain("spatial_rank");
+    expect(grid).toContain("spatial_rank");
+    expect(address).toContain("PARTITION BY");
+    expect(grid).toContain("PARTITION BY");
+    expect(address).not.toMatch(/ORDER BY d\.geo_key ASC\s+LIMIT/);
+    expect(grid).not.toMatch(/ORDER BY d\.geo_key ASC\s+LIMIT/);
+  });
+
+  it("caps address and raster by even spatial cells, never alphabetical geo_key", () => {
+    const wrap = spatialEvenHitsLimitSql();
+    expect(wrap).toContain("spatial_rank");
+    expect(wrap).toContain(`floor(hits.lon / ${SPATIAL_SAMPLE_CELL_DEG})`);
+    expect(wrap).toContain("ORDER BY spatial_rank ASC, geo_key ASC");
+    expect(wrap).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
+    for (const sql of [
+      buildAddressCandidateSql(),
+      buildGrid100CandidateSql(),
+      buildGeoAddressCandidateSql(),
+      buildTeilCatalogSql(),
+      buildAreaCandidateSql(),
+    ]) {
+      expect(sql).toContain("spatial_rank");
+      expect(sql).toContain("row_number() OVER");
+      expect(sql).toMatch(/ORDER BY[\s\S]*spatial_rank ASC/);
+      expect(sql).not.toMatch(/ORDER BY[\s\S]*name ASC NULLS LAST[\s\S]*geo_key ASC\s+LIMIT/);
+    }
   });
 
   it("loads Berlin LOR PLR, Köln quartier, Hamburg fallback, and official addresses without embeddings", () => {
@@ -123,6 +156,9 @@ describe("area candidate SQL", () => {
     expect(plrCatalog).toContain("NULLIF(btrim(l.name), '') AS name");
     expect(plrCatalog).toContain("ST_Intersection");
     expect(plrCatalog).toContain("geometry_geojson");
+    expect(plrCatalog).toContain("ST_Intersects");
+    expect(plrCatalog).not.toContain("$1 = '11000000'");
+    expect(plrCatalog).not.toMatch(/LIMIT \d+/);
     expect(plrFeature).toContain("lor:plr:%");
     expect(plrFeature).not.toMatch(/embedding/i);
     expect(quartier).toContain("koeln:sq:%");
@@ -135,7 +171,8 @@ describe("area candidate SQL", () => {
     expect(geoAddress).toContain("a.strasse");
     expect(geoAddress).toContain("a.hnr");
     expect(geoAddress).not.toContain("a.name");
-    expect(geoAddress).not.toMatch(/embedding/i);
+    expect(geoAddress).toContain("ST_Intersects");
+    expect(geoAddress).toContain("g.geom IS NULL");
     expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
     expect(teil).toMatch(/child_grain\)\) IN \('lor', 'lor_plr'\)/);
     expect(teil).toContain("geo.geo_ref_lor");
@@ -539,13 +576,15 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
     }
   });
 
-  it("does not pass the catalog geometry $4 into LOR feature-doc SQL", () => {
+  it("passes the Zielregion geometry as $4 into LOR catalog and feature-doc SQL", () => {
     expect(highestSqlPlaceholder(lorPlrCatalogQuery(tempelhof).sql)).toBe(4);
     expect(lorPlrCatalogQuery(tempelhof).params).toHaveLength(4);
-    expect(highestSqlPlaceholder(lorPlrFeatureCandidateQuery(tempelhof).sql)).toBe(3);
-    expect(lorPlrFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
-    expect(highestSqlPlaceholder(lorFeatureCandidateQuery(tempelhof).sql)).toBe(3);
-    expect(lorFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
+    expect(highestSqlPlaceholder(lorPlrFeatureCandidateQuery(tempelhof).sql)).toBe(4);
+    expect(lorPlrFeatureCandidateQuery(tempelhof).params).toHaveLength(4);
+    expect(highestSqlPlaceholder(lorFeatureCandidateQuery(tempelhof).sql)).toBe(4);
+    expect(lorFeatureCandidateQuery(tempelhof).params).toHaveLength(4);
+    expect(lorMunicipalityAgs(tempelhof)).toBeNull();
+    expect(lorPlrCatalogQuery(tempelhof).params[0]).toBeNull();
   });
 
   it("passes geometry $3 into Köln Quartier feature SQL", () => {
@@ -601,5 +640,54 @@ describe("targetRegionKeyOf", () => {
     expect(targetRegionKeyOf(region({ geoKey: null, ags: null, label: "Köln Innenstadt" }))).toBe(
       "label:köln innenstadt",
     );
+  });
+});
+
+describe("Berlin Ortsteil LOR filter", () => {
+  it("does not widen Lichterfelde to municipality AGS 11000000 via parentLabel Berlin", () => {
+    const lichterfelde = region({
+      label: "Lichterfelde",
+      grain: "other",
+      geoKey: "ortsteil:osm:55737",
+      level: "ortsteil",
+      parentLabel: "Berlin",
+      ags: "11000000",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [13.28, 52.41],
+            [13.35, 52.41],
+            [13.35, 52.45],
+            [13.28, 52.45],
+            [13.28, 52.41],
+          ],
+        ],
+      },
+    });
+    expect(municipalityAgsForRegion(lichterfelde)).toBe("11000000");
+    expect(lorMunicipalityAgs(lichterfelde)).toBeNull();
+    const catalog = lorPlrCatalogQuery(lichterfelde);
+    const features = lorPlrFeatureCandidateQuery(lichterfelde);
+    const grid = grid100CandidateQuery(lichterfelde);
+    const addresses = geoAddressCandidateQuery(lichterfelde);
+    const quartier = koelnQuartierCandidateQuery(lichterfelde);
+    expect(catalog.params[0]).toBeNull();
+    expect(features.params[0]).toBeNull();
+    expect(grid.params[1]).toBeNull();
+    expect(grid.params[2]).toBeNull();
+    expect(addresses.params[1]).toBeNull();
+    expect(addresses.params[2]).toBeNull();
+    expect(quartier.params[0]).toBeNull();
+    expect(catalog.sql).toContain("ST_Intersects");
+    expect(features.sql).toContain("ST_Intersects");
+    expect(grid.sql).toContain("g.geom IS NULL");
+    expect(addresses.sql).toContain("g.geom IS NULL");
+    expect(catalog.sql).not.toContain("$1 = '11000000'");
+    expect(catalog.sql).not.toContain("OR $1 LIKE '11000%'");
+    expect(String(catalog.params[3])).toContain("Polygon");
+    expect(String(features.params[3])).toContain("Polygon");
+    expect(String(grid.params[0])).toContain("Polygon");
+    expect(String(addresses.params[0])).toContain("Polygon");
   });
 });

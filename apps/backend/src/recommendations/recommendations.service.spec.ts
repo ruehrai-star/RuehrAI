@@ -8,7 +8,7 @@ import { DatabaseService } from "../database/database.service";
 import { AreaCandidate } from "./area-candidates";
 import { AreaCandidateService } from "./area-candidate.service";
 import { RECOMMENDATIONS_NOT_FOUND } from "./messages";
-import { RecommendationsService } from "./recommendations.service";
+import { RecommendationsService, reattachGeometry } from "./recommendations.service";
 import { RationaleService } from "./rationale.service";
 
 const asOf = new Date("2026-09-29T12:00:00.000Z");
@@ -489,5 +489,49 @@ describe("RecommendationsService", () => {
       message: TOO_MANY_TARGET_REGIONS,
     });
     expect(load).not.toHaveBeenCalled();
+  });
+});
+
+describe("reattachGeometry", () => {
+  it("clears geometryUnavailableReason when the outline is restored", () => {
+    const polygon = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [13.3, 52.4],
+          [13.4, 52.4],
+          [13.4, 52.5],
+          [13.3, 52.5],
+          [13.3, 52.4],
+        ],
+      ],
+    };
+    const restored = reattachGeometry(
+      [
+        {
+          id: "other:lor:plr:1@ortsteil:osm:55737",
+          geometry: null,
+          geometryUnavailableReason: "Die Fläche kann noch nicht gezeichnet werden.",
+        },
+      ],
+      [
+        {
+          id: "other:lor:plr:1@ortsteil:osm:55737",
+          geoKey: "lor:plr:1",
+          grain: "other",
+          kind: "lor",
+          title: "Planungsraum",
+          name: "Planungsraum",
+          ags: "11000000",
+          plz: null,
+          lon: 13.35,
+          lat: 52.45,
+          geometry: polygon,
+          geometryUnavailableReason: null,
+        },
+      ],
+    );
+    expect(restored[0]?.geometry).toEqual(polygon);
+    expect(restored[0]?.geometryUnavailableReason).toBeNull();
   });
 });

@@ -206,6 +206,7 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
 
     const created = await request(app.getHttpServer())
       .post("/analysis/runs")
+      .send({ markedTargetRegionGeoKey: fixture.region.geo_key })
       .set("authorization", `Bearer ${token}`)
       .expect(202);
     expect(created.body.id).toBe(fixture.runId);
@@ -343,6 +344,40 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       .query({ runId })
       .set("authorization", `Bearer ${token}`)
       .expect(404);
+  });
+
+  it("accepts the web client's { geoKey } body and ?geoKey= without 400", async () => {
+    query.mockReset();
+    queryReadingFeatures.mockReset();
+    query.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      assertPgArity(sql, params);
+      if (String(sql).includes("FROM app.target_regions")) return { rows: [tempelhofRow()] };
+      if (String(sql).includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.00" }),
+          ],
+        };
+      }
+      if (String(sql).includes("INSERT INTO app.analysis_runs")) {
+        const input = JSON.parse(String(params[1]));
+        expect(input.region.geoKey).toBe("ortsteil:osm:162894");
+        return { rows: [{ id: "55", created_at: new Date("2026-10-06T08:00:00.000Z") }] };
+      }
+      if (String(sql).includes("FROM app.analysis_runs")) return { rows: [] };
+      return { rows: [] };
+    });
+    queryReadingFeatures.mockResolvedValue({ rows: [] });
+
+    const created = await request(app.getHttpServer())
+      .post("/analysis/runs")
+      .query({ geoKey: "ortsteil:osm:162894" })
+      .send({ geoKey: "ortsteil:osm:162894" })
+      .set("authorization", `Bearer ${token}`)
+      .expect(202);
+    expect(created.body.status).toBe("queued");
+    await app.get(AnalysisService).whenIdle();
   });
 });
 

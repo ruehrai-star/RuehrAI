@@ -468,7 +468,13 @@ export interface paths {
          *     this `runId`. `GET /recommendations` never computes a set.
          *     Marking another Zielregion later does not start a run. Failed
          *     runs keep `failureReason` (closed enum) and stay readable on
-         *     `GET /analysis/runs/{id}`.
+         *     `GET /analysis/runs/{id}`. Optional body field
+         *     `markedTargetRegionGeoKey` (or the web alias `geoKey` in the
+         *     JSON body / `?geoKey=`) selects which saved Zielregion
+         *     becomes `input.region` (the full list stays in
+         *     `input.regions`). Omit it to keep the previous behaviour
+         *     (newest saved Zielregion). Unknown or foreign keys are `404`
+         *     with `code` `marked_target_region_not_found`.
          */
         post: operations["createAnalysisRun"];
         delete?: never;
@@ -489,7 +495,9 @@ export interface paths {
          * @description Returns the full `AnalysisRun` (`id`, `status`
          *     `queued` | `running` | `completed` | `failed`, optional
          *     `failureReason`, `startedAt`, `completedAt`, plus input, Brain,
-         *     and pattern). Clients poll this path every ~2 s after
+         *     and pattern). Stored `yearlySeries` are returned as persisted;
+         *     they are rebuilt only when the stored pattern omitted the field.
+         *     Clients poll this path every ~2 s after
          *     `POST /analysis/runs` until `completed` or `failed`. Unknown
          *     ids and another user's runs are `404`.
          */
@@ -517,7 +525,9 @@ export interface paths {
          *     (`input.region.geoKey` or any `input.regions[].geoKey`), after the
          *     same Berlin Bezirk alias rewrite as add/remove on `/target-region`.
          *     `yearlySeries` is then limited to that Zielregion. Criteria and
-         *     summary stay as stored. `404` when this user has no matching run —
+         *     summary stay as stored. Stored `yearlySeries` are returned as
+         *     persisted; they are rebuilt only when the stored pattern omitted
+         *     the field. `404` when this user has no matching run —
          *     never another region's pattern. This endpoint does not start a run.
          */
         get: operations["getAnalysisPattern"];
@@ -1109,6 +1119,26 @@ export interface components {
          * @enum {string}
          */
         AnalysisRunFailureReason: "timeout" | "pattern_failed" | "set_save_failed" | "interrupted" | "internal_error";
+        /**
+         * @description Optional body for `POST /analysis/runs`. Omit
+         *     `markedTargetRegionGeoKey` (and `geoKey`) to keep the previous
+         *     behaviour (newest saved Zielregion as `input.region`). When
+         *     set, that catalog key must belong to the token user's
+         *     target-region list; it becomes `input.region` while
+         *     `input.regions` stays the full list. Unknown or foreign keys
+         *     are `404` with `code` `marked_target_region_not_found`.
+         *     Additive in 0.19.3.
+         */
+        AnalysisRunCreate: {
+            /** @description Catalog key of the marked Zielregion. */
+            markedTargetRegionGeoKey?: string;
+            /**
+             * @description Alias of `markedTargetRegionGeoKey`. The signed-in web
+             *     client sends `{ geoKey }` (and `?geoKey=`). Ignored when
+             *     `markedTargetRegionGeoKey` is also set.
+             */
+            geoKey?: string;
+        };
         AnalysisRun: {
             /** @description Run id as a decimal string. */
             id: string;
@@ -1888,6 +1918,13 @@ export interface components {
             statusCode?: number;
             message?: string | string[];
             error?: string;
+            /**
+             * @description Stable machine-readable error code. Additive; omitted on
+             *     older errors. `marked_target_region_not_found` on
+             *     `POST /analysis/runs` when `markedTargetRegionGeoKey` is
+             *     unknown or foreign.
+             */
+            code?: string;
         };
     };
     responses: {
@@ -1926,6 +1963,13 @@ export interface components {
          *     Omit for the newest completed run of this user.
          */
         AnalysisPatternGeoKey: string;
+        /**
+         * @description Same catalog key as `AnalysisRunCreate.geoKey`. The web client
+         *     sends both this query and `{ geoKey }` in the JSON body. Body
+         *     `markedTargetRegionGeoKey` wins when both body fields are set;
+         *     otherwise body `geoKey`, then this query.
+         */
+        AnalysisRunCreateGeoKey: string;
         /**
          * @description Analysis run id as a decimal string. When set, `GET /recommendations`
          *     returns the stored set for that run of the token user. The lookup
@@ -2689,12 +2733,24 @@ export interface operations {
     };
     createAnalysisRun: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Same catalog key as `AnalysisRunCreate.geoKey`. The web client
+                 *     sends both this query and `{ geoKey }` in the JSON body. Body
+                 *     `markedTargetRegionGeoKey` wins when both body fields are set;
+                 *     otherwise body `geoKey`, then this query.
+                 */
+                geoKey?: components["parameters"]["AnalysisRunCreateGeoKey"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AnalysisRunCreate"];
+            };
+        };
         responses: {
             /**
              * @description Accepted. Body is the full `AnalysisRun` with `status`
@@ -2723,7 +2779,12 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description This user has not saved a target region. */
+            /**
+             * @description This user has not saved a target region, or
+             *     `markedTargetRegionGeoKey` is unknown or belongs to
+             *     another user. The latter uses `code`
+             *     `marked_target_region_not_found`.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
