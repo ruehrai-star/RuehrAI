@@ -26,6 +26,7 @@ import type {
   YearlySeries,
 } from "@ruehrai/api-contracts";
 import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
+import { clearStoredSessionAndGoToLogin } from "../session-storage.ts";
 import { isAnalysisRunFailureReason } from "../analysis/failure.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
@@ -106,6 +107,9 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return null as T;
     }
     if (!response.ok) {
+      if (init.auth && response.status === 401) {
+        clearStoredSessionAndGoToLogin();
+      }
       throw new ApiError(await readErrorMessage(response), response.status);
     }
     if (init.empty || response.status === 204) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parseStoredSession } from "./session-storage.ts";
+import { parseStoredSession, sessionIsCurrent } from "./session-storage.ts";
 
 const session = {
   accessToken: "jwt",
@@ -24,4 +24,20 @@ test("the session store is localStorage plus a storage event, not sessionStorage
   assert.match(source, /localStorage/);
   assert.match(source, /addEventListener\("storage"/);
   assert.match(source, /sessionStorage\.removeItem/);
+  assert.match(source, /sessionIsCurrent/);
+  assert.match(source, /expiresAt/);
+  assert.match(source, /writeStoredSession\(null\)/);
+  assert.match(source, /location\.assign\("\/login"\)/);
+});
+
+test("a session whose expiresAt is in the past is treated as signed out", () => {
+  const now = Date.parse("2026-10-06T12:00:00.000Z");
+  assert.equal(sessionIsCurrent({ ...session, expiresAt: "2026-10-06T11:59:59.000Z" }, now), false);
+  assert.equal(sessionIsCurrent({ ...session, expiresAt: "2026-10-06T12:00:00.000Z" }, now), false);
+  assert.equal(sessionIsCurrent({ ...session, expiresAt: "2026-10-06T12:00:01.000Z" }, now), true);
+  assert.equal(sessionIsCurrent({ ...session, expiresAt: "not-a-date" }, now), false);
+  const reader = readFileSync(new URL("./session-storage.ts", import.meta.url), "utf8");
+  const readFn = reader.slice(reader.indexOf("export function readStoredSession"), reader.indexOf("export function writeStoredSession"));
+  assert.match(readFn, /sessionIsCurrent/);
+  assert.match(readFn, /writeStoredSession\(null\)/);
 });

@@ -27,6 +27,28 @@ export function parseStoredSession(raw: string | null): Session | null {
   }
 }
 
+/** `expiresAt` in the past or unreadable counts as signed out. */
+export function sessionIsCurrent(session: Session, now = Date.now()): boolean {
+  const expires = Date.parse(session.expiresAt);
+  return Number.isFinite(expires) && expires > now;
+}
+
+const LOGIN_PATHS = new Set(["/login", "/register"]);
+
+/**
+ * Drop the stored JWT and send this tab to `/login`. Other tabs pick up
+ * `null` via the `storage` event. Login/register stay put.
+ */
+export function clearStoredSessionAndGoToLogin(): void {
+  writeStoredSession(null);
+  if (typeof window === "undefined") return;
+  if (LOGIN_PATHS.has(window.location.pathname)) return;
+  // Fetch interceptor is not a React event handler; a full navigation
+  // drops in-memory UI that still thinks the JWT is valid.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  window.location.assign("/login");
+}
+
 /**
  * JWT lives in localStorage so a second tab stays signed in.
  * The Backend issues the token in the JSON body (no httpOnly cookie).
@@ -49,9 +71,20 @@ function readRaw(): string | null {
 export function readStoredSession(): Session | null {
   if (typeof window === "undefined") return null;
   const raw = readRaw();
-  if (raw === cachedRaw) return cachedSession;
+  if (raw === cachedRaw) {
+    if (cachedSession && !sessionIsCurrent(cachedSession)) {
+      writeStoredSession(null);
+      return null;
+    }
+    return cachedSession;
+  }
   cachedRaw = raw;
-  cachedSession = parseStoredSession(raw);
+  const parsed = parseStoredSession(raw);
+  if (parsed && !sessionIsCurrent(parsed)) {
+    writeStoredSession(null);
+    return null;
+  }
+  cachedSession = parsed;
   return cachedSession;
 }
 
