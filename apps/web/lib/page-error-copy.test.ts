@@ -56,7 +56,7 @@ test("Registrierung: English backend message is not in the DOM; German register 
   assert.equal(source.includes("error.message"), false);
 });
 
-test("Standorte: English backend message is not in the DOM; German load copy is", () => {
+test("Standorte: English backend message is not in the DOM; German load and add copy is", () => {
   const fallback = "Standorte konnten nicht geladen werden.";
   const text = errorText(new ApiError("Store not found", 404), fallback);
   assertGermanAlert(alertDom(text), USER_MESSAGE_COPY.notFound, "Store not found");
@@ -64,6 +64,7 @@ test("Standorte: English backend message is not in the DOM; German load copy is"
   assertGermanAlert(alertDom(unknown), fallback, ENGLISH);
   const source = pageSource("standorte-page.tsx");
   assert.match(source, /errorText\(/);
+  assert.match(source, /addTargetRegionUserMessage/);
   assert.match(source, /\{loadError\}/);
   assert.equal(source.includes("error.message"), false);
 });

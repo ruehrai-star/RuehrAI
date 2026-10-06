@@ -3,6 +3,8 @@ import { LOGIN_EXPIRED_COPY } from "./session-storage.ts";
 
 /** OpenAPI `ErrorResponse.code` on POST /analysis/runs for an unknown/foreign mark. */
 export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found";
+/** OpenAPI 0.19.6 `ErrorResponse.code` on POST /target-region when the catalog has no outline. */
+export const TARGET_REGION_WITHOUT_GEOMETRY_CODE = "TARGET_REGION_WITHOUT_GEOMETRY";
 
 export const USER_MESSAGE_COPY = {
   invalidInput: "Bitte prüfen Sie Ihre Eingabe.",
@@ -13,6 +15,7 @@ export const USER_MESSAGE_COPY = {
   tooManyRequests: "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
   serverUnavailable: "Der Dienst ist gerade nicht verfügbar. Bitte versuchen Sie es später erneut.",
   network: "Die Verbindung zum Backend ist fehlgeschlagen.",
+  noMapArea: "Für diese Region liegt noch keine Fläche vor. Bitte wählen Sie eine andere.",
   markedTargetRegionMissing: "Diese Zielregion ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
   loginInvalid: "E-Mail oder Passwort ist ungültig.",
   registerDuplicate: "Diese E-Mail ist bereits registriert.",
@@ -24,6 +27,7 @@ export const USER_MESSAGE_COPY = {
 
 const KNOWN_CODE_COPY: Record<string, string> = {
   [MARKED_TARGET_REGION_NOT_FOUND_CODE]: USER_MESSAGE_COPY.markedTargetRegionMissing,
+  [TARGET_REGION_WITHOUT_GEOMETRY_CODE]: USER_MESSAGE_COPY.noMapArea,
 };
 
 function copyForKnownCode(code?: string | null): string | null {

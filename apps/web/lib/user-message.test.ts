@@ -62,6 +62,14 @@ test("known backend codes get dedicated German; unknown codes use the context fa
     USER_MESSAGE_COPY.markedTargetRegionMissing,
   );
   assert.equal(
+    errorText(new ApiError("any English body", 400, "TARGET_REGION_WITHOUT_GEOMETRY"), "Kontext."),
+    USER_MESSAGE_COPY.noMapArea,
+  );
+  assert.equal(
+    errorText(new ApiError("any English body", 400, "TARGET_REGION_WITHOUT_GEOMETRY"), "Kontext.").includes("any English body"),
+    false,
+  );
+  assert.equal(
     errorText(new ApiError("Something exploded", 500, "unknown_backend_code"), "Empfehlungen konnten nicht geladen werden."),
     "Empfehlungen konnten nicht geladen werden.",
   );

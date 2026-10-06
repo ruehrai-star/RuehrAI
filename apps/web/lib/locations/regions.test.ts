@@ -50,6 +50,11 @@ test("empty list copy stays exact", () => {
     REGION_LIST_COPY.noMapArea,
     "Für diese Region liegt noch keine Fläche vor. Bitte wählen Sie eine andere.",
   );
+  assert.equal(
+    REGION_LIST_COPY.placeRequired,
+    "Bitte wählen Sie die Zielregion über die Suche. Ein Name allein reicht nicht.",
+  );
+  assert.equal(REGION_LIST_COPY.addFailed, "Zielregion konnte nicht gespeichert werden.");
 });
 
 test("a hit already in the list is Hinzugefügt and cannot be added again", () => {

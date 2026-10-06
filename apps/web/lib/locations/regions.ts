@@ -13,6 +13,7 @@ export const REGION_LIST_COPY = {
   remove: "Entfernen",
   missingArea: "Zielregion ist gesetzt. Die Fläche kann noch nicht gezeichnet werden.",
   noMapArea: "Für diese Region liegt noch keine Fläche vor. Bitte wählen Sie eine andere.",
+  placeRequired: "Bitte wählen Sie die Zielregion über die Suche. Ein Name allein reicht nicht.",
   addFailed: "Zielregion konnte nicht gespeichert werden.",
   verlauf: "Verlauf",
 } as const;
