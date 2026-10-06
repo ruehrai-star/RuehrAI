@@ -10,6 +10,7 @@ import {
   seriesEvidence,
   seriesLevelRank,
 } from "../analysis/series-criteria";
+import type { BaselineMethod } from "../analysis/area-baseline";
 import {
   attachNormalizedValues,
   baselineForMetric,
@@ -173,6 +174,36 @@ function evidenceForCandidate(
     };
   }
 
+  const candidateBaseline = baselineForMetric(series.metricId, series.valueKey);
+  const patternBaseline = criterion.baseline ?? baselineForMetric(criterion.key);
+  const candidateMethod = latestBaselineMethod(series.points);
+  const patternMethod = criterion.baselineMethod;
+  const baselineMatch =
+    baselinesMatch(candidateBaseline, patternBaseline) && methodsMatch(candidateMethod, patternMethod);
+
+  if (!baselineMatch) {
+    return {
+      key: criterion.key,
+      metricId: criterion.metricId ?? series.metricId,
+      label: metricLabel(series.metricId, series.sourceLevel),
+      direction: "unknown",
+      patternDirection: criterion.direction,
+      evidence: withScopeNote(absentEvidence(criterion.key, label), scope, series.sourceLevel),
+      kind: "absent",
+      status: "absent",
+      match: false,
+      coverage: series.coverage,
+      scope,
+      sourceLevel: series.sourceLevel,
+      sourceGeoKey: series.sourceGeoKey,
+      baseline: candidateBaseline,
+      rawValue: latestRawValue(series.points),
+      baselineMethod: candidateMethod ?? patternMethod,
+      baselineMatch: false,
+      points: withoutNormalizedValues(withoutInventedZero(series.points)),
+    };
+  }
+
   const normalized = presentNormalizedPoints(series.points);
   const kind = normalized.length >= 2 ? "trend" : kindFromCoverage(series.coverage) ?? "stichtag";
   const direction = kind === "trend" ? directionFromPoints(series.points, "normalizedValue") : "unknown";
@@ -201,7 +232,7 @@ function evidenceForCandidate(
     rawValue: latestRawValue(series.points),
     normalizedValue: latestNormalizedValue(series.points),
     baselineMethod: latestBaselineMethod(series.points) ?? criterion.baselineMethod,
-    baselineMatch: baselinesMatch(baseline, criterion.baseline ?? baselineForMetric(criterion.key)),
+    baselineMatch: true,
     points: withoutInventedZero(series.points),
   };
 }
@@ -297,6 +328,20 @@ function baselinesMatch(
 ): boolean {
   if (!left || !right) return true;
   return left === right;
+}
+
+function methodsMatch(left?: BaselineMethod, right?: BaselineMethod): boolean {
+  if (!left || !right) return true;
+  return left === right;
+}
+
+function withoutNormalizedValues(points: SeriesPoint[]): SeriesPoint[] {
+  return points.map((point) => {
+    if (point.normalizedValue === undefined) return point;
+    const next = { ...point };
+    delete next.normalizedValue;
+    return next;
+  });
 }
 
 /** Backend-only Entwicklungssatz; empty when no local series trend. */

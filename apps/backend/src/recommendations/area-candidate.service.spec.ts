@@ -250,6 +250,57 @@ describe("AreaCandidateService", () => {
     await expect(service.load([region()])).resolves.toEqual({ items: [], truncated: false });
   });
 
+  it("parses clipped GeoJSON outlines and explains when geometry is missing", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      return {
+        rows: [
+          {
+            geo_key: "80801",
+            grain: "plz5",
+            kind: "plz",
+            name: "80801",
+            ags: "09162000",
+            plz: "80801",
+            lon: 11.58,
+            lat: 48.16,
+            geometry_geojson: JSON.stringify({
+              type: "Polygon",
+              coordinates: [
+                [
+                  [11.5, 48.1],
+                  [11.6, 48.1],
+                  [11.6, 48.2],
+                  [11.5, 48.2],
+                  [11.5, 48.1],
+                ],
+              ],
+            }),
+          },
+          {
+            geo_key: "ortsteil:osm:1",
+            grain: "other",
+            kind: "ortsteil",
+            name: "Schwabing",
+            ags: "09162000",
+            plz: null,
+            lon: 11.58,
+            lat: 48.16,
+          },
+        ],
+      };
+    });
+
+    const loaded = await service.load([region()]);
+    const plz = loaded.items.find((item) => item.geoKey === "80801");
+    const ortsteil = loaded.items.find((item) => item.geoKey === "ortsteil:osm:1");
+    expect(plz?.geometry?.type).toBe("Polygon");
+    expect(plz?.geometryUnavailableReason).toBeNull();
+    expect(ortsteil?.geometry).toBeNull();
+    expect(ortsteil?.geometryUnavailableReason).toMatch(/gezeichnet/);
+  });
+
   it("swallows a missing geo catalog", async () => {
     queryReadingFeatures.mockRejectedValue(
       Object.assign(new Error('relation "geo.geo_ref_ortsteil" does not exist'), { code: "42P01" }),

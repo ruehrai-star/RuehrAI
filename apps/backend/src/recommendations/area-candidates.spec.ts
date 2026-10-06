@@ -17,7 +17,8 @@ import {
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
-  clippedHitGeoJsonSql } from "./area-candidates";
+  clippedHitGeoJsonSql,
+} from "./area-candidates";
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
   return {
@@ -57,6 +58,10 @@ describe("area candidate SQL", () => {
     expect(sql).toContain("geom_4326");
     expect(sql).toContain("geom_display");
     expect(sql).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
+    expect(sql).toContain("ST_Intersection");
+    expect(sql).toContain("ST_AsGeoJSON");
+    expect(sql).toContain("geometry_geojson");
+    expect(sql).toMatch(/SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson/);
     expect(sql).not.toContain("<=>");
     expect(sql).not.toContain("location_feature_docs");
     expect(adminGeom4326("a", "prefer")).toContain("geom_4326");
@@ -87,6 +92,8 @@ describe("area candidate SQL", () => {
     expect(lor).not.toMatch(/embedding/i);
     expect(plrCatalog).toContain("geo.geo_ref_lor");
     expect(plrCatalog).toContain("lor:plr:%");
+    expect(plrCatalog).toContain("ST_Intersection");
+    expect(plrCatalog).toContain("geometry_geojson");
     expect(plrFeature).toContain("lor:plr:%");
     expect(plrFeature).not.toMatch(/embedding/i);
     expect(quartier).toContain("koeln:sq:%");
@@ -107,6 +114,9 @@ describe("area candidate SQL", () => {
     expect(sql).toContain("ST_GeomFromGeoJSON");
     expect(sql).toContain("geom_4326");
     expect(sql).toContain("geo_key IS DISTINCT FROM $4");
+    expect(sql).toContain("ST_Intersection");
+    expect(sql).toMatch(/SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson/);
+    expect(sql).toContain("FROM geo.geo_ref_admin a, region_geom g");
   });
 
   it("sends geometry and Kreis parent memberships for Gemeinden", () => {

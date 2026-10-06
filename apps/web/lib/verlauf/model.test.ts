@@ -123,6 +123,26 @@ test("multi coverage draws a trend from present points only", () => {
   assert.doesNotMatch(JSON.stringify(hero), banned);
 });
 
+test("series coverage is the 0.18 alias of multi and still draws a trend", () => {
+  const yearlySeries: YearlySeries[] = [
+    series({
+      metricId: "bevoelkerung",
+      coverage: "series",
+      points: [
+        { period: "2023", status: "present", value: 1000 },
+        { period: "2025", status: "present", value: 1200 },
+      ],
+    }),
+  ];
+  const hero = buildVerlaufHero({
+    pattern: { ...pattern, yearlySeries },
+    recommendations: setWith([item], { yearlySeries }),
+  });
+  assert.ok(hero);
+  assert.equal(hero.series[0]?.coverage, "series");
+  assert.equal(hero.series[0]?.showTrend, true);
+});
+
 test("coverage single shows the present point and does not draw a trend", () => {
   const yearlySeries: YearlySeries[] = [
     series({

@@ -35,6 +35,7 @@ export type {
   SeriesBaseline,
   RecommendationCreate,
   RecommendationEvidence,
+  RecommendationTrend,
   RecommendationWindow,
   RegionGeometry,
   RevenueDirection,

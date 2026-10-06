@@ -469,7 +469,7 @@ const BASELINE_METHODS = new Set<string>([
   "fixed_grid",
 ]);
 const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
-const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
+const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi", "series"]);
 const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
 
 function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"): AnalysisInput {
@@ -735,6 +735,9 @@ function parsePatternDatasetProfile(body: PatternDatasetProfile, route: string):
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseYearlySeries(body.yearlySeries, route);
+  if (body.baselineMatch !== undefined && typeof body.baselineMatch !== "boolean") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   const criterion = body.criterion;
   if (
     !criterion ||
@@ -773,6 +776,21 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
+  if (body.geometry !== undefined && body.geometry !== null && !readRegionGeometry(body.geometry)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.geometryUnavailableReason != null && typeof body.geometryUnavailableReason !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.trend !== undefined) {
+    if (
+      !body.trend ||
+      !CRITERION_DIRECTIONS.has(body.trend.direction) ||
+      typeof body.trend.summary !== "string"
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   return {
     ...body,
@@ -793,6 +811,9 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
     !CRITERION_DIRECTIONS.has(body.direction) ||
     !CRITERION_DIRECTIONS.has(body.patternDirection)
   ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.baselineMatch !== undefined && typeof body.baselineMatch !== "boolean") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseCriterionDatasetFields(body, route);

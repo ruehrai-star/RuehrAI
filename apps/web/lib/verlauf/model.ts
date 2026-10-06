@@ -231,7 +231,7 @@ export function kleinraumSeries(raw: YearlySeries[] | undefined): VerlaufSeriesV
 }
 
 export function toSeriesView(series: YearlySeries): VerlaufSeriesView {
-  const showTrend = series.coverage === "multi";
+  const showTrend = series.coverage === "series" || series.coverage === "multi";
   return {
     metricId: series.metricId,
     label: topicName(series.metricId),

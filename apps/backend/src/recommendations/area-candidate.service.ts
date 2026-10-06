@@ -32,6 +32,7 @@ import {
   isLorPlrKey,
   lorCandidateParams,
   parentMemberships,
+  regionGeometryParam,
   selectCatalogHits,
 } from "./area-candidates";
 
@@ -146,11 +147,21 @@ export class AreaCandidateService {
       region.plz?.trim(),
     ].filter((value): value is string => Boolean(value));
     try {
-      return await this.readSql(buildTeilCatalogSql("prefer"), [grains, ids, exclude]);
+      return await this.readSql(buildTeilCatalogSql("prefer"), [
+        grains,
+        ids,
+        exclude,
+        regionGeometryParam(region),
+      ]);
     } catch (error) {
       if (isUndefinedColumn(error)) {
         try {
-          return await this.readSql(buildTeilCatalogSql("legacy"), [grains, ids, exclude]);
+          return await this.readSql(buildTeilCatalogSql("legacy"), [
+            grains,
+            ids,
+            exclude,
+            regionGeometryParam(region),
+          ]);
         } catch (legacyError) {
           if (isMissingTeilCatalog(legacyError)) return null;
           throw legacyError;

@@ -57,6 +57,7 @@ export type RecommendationCreate = Schemas["RecommendationCreate"];
 export type RecommendationSet = Schemas["RecommendationSet"];
 export type RecommendationWindow = Schemas["RecommendationWindow"];
 export type Recommendation = Schemas["Recommendation"];
+export type RecommendationTrend = Schemas["RecommendationTrend"];
 export type RecommendationLocation = Schemas["RecommendationLocation"];
 export type RecommendationEvidence = Schemas["RecommendationEvidence"];
 export type PatternLevel = Schemas["PatternLevel"];
