@@ -1,11 +1,11 @@
 # Ebenen: Badge and name use the same word
 
-UX Trefferliste v4 (Confluence 31227905). This **replaces** the earlier decision that the Treffer badge always showed Quartier.
+UX Trefferliste v4 / v5 (Confluence 31227905). This **replaces** the earlier decision that the Treffer badge always showed Quartier.
 
 | Keys / `kind` | Badge | Name |
 | --- | --- | --- |
 | `lor:plr:…`, `kind: lor` (Berlin) | Planungsraum | `name`. Missing name or `Planungsraum [8-digit]` → `Planungsraum ohne Namen`. Never the LOR number. |
-| `koeln:sq:…`, `kind: quartier` (Köln) | Quartier | `name` (`Quartier [Nummer]` only as a backend fallback) |
+| `koeln:sq:…`, `kind: quartier` (Köln) | Quartier | `name`. Missing name or `Quartier [Nummer]` → `Quartier ohne Namen`. Never the Quartier number. |
 | `grid100` | 100-m-Raster | always `100-m-Rasterzelle` (no cell ID) |
 
 Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendations/model.ts` and `hit-copy.ts`. Catalog keys and cell IDs are never shown. Search and Zielregion use the same Berlin word via `catalogBadge` (`lor:*` → Planungsraum, not LOR).

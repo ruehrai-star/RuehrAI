@@ -23,8 +23,10 @@ const RASTER_ID_NAME = /^(?:100-m-)?Rasterzelle\s+\S/i;
 const FORBIDDEN_ID = /osm:|\bid:|address:|geo_addr|unbekannt|inspire/i;
 const INSPIRE_CELL = /\b\d+m[NS]\d+[EW]\d+/i;
 const NUMBERED_PLANUNGSRAUM = /^Planungsraum \d{8}$/;
+const NUMBERED_QUARTIER = /^Quartier \d+$/;
 const KOELN_SQ = /koeln:sq:/i;
 const PLANUNGSRAUM_OHNE_NAMEN = "Planungsraum ohne Namen";
+const QUARTIER_OHNE_NAMEN = "Quartier ohne Namen";
 
 /**
  * Treffer Ebene-Badge (UX v4, Confluence 31227905). Badge and name use the
@@ -80,6 +82,7 @@ export function hitName(item: Recommendation): string {
   const raw = visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
   if (isRasterFallbackName(raw)) return RASTER_NAME;
   if (NUMBERED_PLANUNGSRAUM.test(raw)) return PLANUNGSRAUM_OHNE_NAMEN;
+  if (NUMBERED_QUARTIER.test(raw)) return QUARTIER_OHNE_NAMEN;
   if (!raw || nameHasForbiddenId(raw)) return unnamedKind(item);
   return raw;
 }
@@ -140,7 +143,8 @@ function unnamedKind(item: Recommendation): string {
   }
   // Berlin LOR: never the eight-digit PLR number, even from lor:plr:*.
   if (isLorHit(item, blob)) return PLANUNGSRAUM_OHNE_NAMEN;
-  if (isKoelnQuartierHit(item, blob) || item.kind === "quartier") return "Quartier ohne Namen";
+  // Köln Quartier: never a number from koeln:sq:*.
+  if (isKoelnQuartierHit(item, blob) || item.kind === "quartier") return QUARTIER_OHNE_NAMEN;
   if (item.kind === "ortsteil") return "Ortsteil ohne Namen";
   if (item.kind === "stadtteil") return "Stadtteil ohne Namen";
   if (item.kind === "plz" || item.grain === "plz5" || item.grain === "plz8" || item.location.grain === "plz5" || item.location.grain === "plz8") {

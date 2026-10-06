@@ -364,6 +364,40 @@ test("backend Planungsraum plus eight digits maps to Planungsraum ohne Namen", (
   assert.equal(hitName(named), "Lankwitz Süd");
 });
 
+test("unnamed Köln Quartier never appends a number from koeln:sq", () => {
+  const empty = item({
+    id: "koeln:sq:101",
+    rank: 1,
+    kind: "quartier",
+    title: "koeln:sq:101",
+    location: { geoKey: "koeln:sq:101", grain: "other", lon: null, lat: null, name: null },
+  });
+  assert.equal(hitName(empty), "Quartier ohne Namen");
+  assert.equal(hitName(empty).includes("101"), false);
+  assert.equal(buildTrefferCard(empty, undefined).name, "Quartier ohne Namen");
+});
+
+test("backend Quartier plus digits maps to Quartier ohne Namen", () => {
+  const numbered = item({
+    id: "koeln:sq:101",
+    rank: 1,
+    kind: "quartier",
+    name: "Quartier 101",
+    location: { geoKey: "koeln:sq:101", grain: "other", lon: null, lat: null, name: "Quartier 101" },
+  });
+  const named = item({
+    id: "koeln:sq:12",
+    rank: 1,
+    kind: "quartier",
+    name: "Belgisches Viertel",
+    location: { geoKey: "koeln:sq:12", grain: "other", lon: null, lat: null, name: "Belgisches Viertel" },
+  });
+  assert.equal(hitName(numbered), "Quartier ohne Namen");
+  assert.equal(hitName(numbered).includes("101"), false);
+  assert.equal(buildTrefferCard(numbered, undefined).name, "Quartier ohne Namen");
+  assert.equal(hitName(named), "Belgisches Viertel");
+});
+
 test("recommendation copy never shows the catalog key", () => {
   const keyed = item({
     id: "plz5:80801",
