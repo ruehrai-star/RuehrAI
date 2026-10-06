@@ -122,15 +122,15 @@ export function visibleSavedRegions<T>(items: readonly T[]): T[] {
 }
 
 /**
- * Visible Zielregion copy: place name, optional parentLabel, level badge.
- * Catalog keys (`id`, `geoKey`) are omitted even when they are present.
+ * Visible Zielregion copy: place name, level badge, optional parentLabel.
+ * Bezirke and Stadtteile read `Name · Badge · Gemeinde`, never a catalog key.
  */
 export function catalogHitVisibleText(source: unknown): string {
   const name = catalogPlaceName(source);
   if (!name) return "";
   const parent = catalogParentName(source);
   const badge = catalogBadge(asBadgeSource(source));
-  return [name, parent, badge].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
+  return [name, badge || null, parent].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ");
 }
 
 function asBadgeSource(source: unknown): CatalogBadgeSource {

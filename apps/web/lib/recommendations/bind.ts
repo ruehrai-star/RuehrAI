@@ -1,5 +1,12 @@
+import type { AnalysisRun } from "@ruehrai/api-contracts";
 import type { RuehrApi } from "../api/client.ts";
+import { ApiError } from "../api/types.ts";
 import type { RecommendationSet } from "../api/types.ts";
+import { analysisFailureFromHttp, analysisFailureMessage } from "../analysis/failure.ts";
+import { isInFlightStatus, pollAnalysisRun, type PollAnalysisOptions } from "../analysis/poll.ts";
+import { loadPatternForMarkedRegion } from "../verlauf/bind.ts";
+import type { BoundVerlauf } from "../verlauf/bind.ts";
+import type { PlaceRef } from "../locations/regions.ts";
 
 /**
  * Load a stored recommendation set for a completed analysis run.
@@ -20,4 +27,85 @@ export function recommendationSetForRun(
 ): RecommendationSet | null {
   if (!set || !runId) return null;
   return set.runId === runId ? set : null;
+}
+
+export type TrefferlisteBind =
+  | { kind: "empty" }
+  | { kind: "ready"; bound: BoundVerlauf; set: RecommendationSet | null }
+  | { kind: "in_flight"; runId: string; status: "queued" | "running" }
+  | { kind: "failed"; runId: string; message: string };
+
+type MarkedRegion = (PlaceRef & {
+  level?: unknown;
+  grain?: unknown;
+  ags?: unknown;
+  parentLabel?: string | null;
+}) | null;
+
+/**
+ * Bind Trefferliste to the marked Zielregion.
+ * GET /analysis/pattern?geoKey= plus optional GET of an in-flight run.
+ * Never POST /analysis/runs and never POST /recommendations.
+ */
+export async function bindTrefferlisteForRegion(
+  api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
+  marked: MarkedRegion,
+  inflightRunId?: string | null,
+): Promise<TrefferlisteBind> {
+  const inflight = typeof inflightRunId === "string" ? inflightRunId.trim() : "";
+  if (inflight) {
+    const live = await readKnownRun(api, inflight);
+    if (live.kind === "in_flight" || live.kind === "failed") return live;
+  }
+
+  const bound = await loadPatternForMarkedRegion(api, marked);
+  if (!bound) return { kind: "empty" };
+  const set = await loadRecommendationsForRun(api, bound.runId);
+  return { kind: "ready", bound, set };
+}
+
+async function readKnownRun(
+  api: Pick<RuehrApi, "getAnalysisRun">,
+  runId: string,
+): Promise<Extract<TrefferlisteBind, { kind: "in_flight" | "failed" }> | { kind: "other" }> {
+  let run: AnalysisRun;
+  try {
+    run = await api.getAnalysisRun(runId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { kind: "other" };
+    if (error instanceof ApiError) {
+      return { kind: "failed", runId, message: analysisFailureFromHttp(error.status, error.message) };
+    }
+    throw error;
+  }
+  if (isInFlightStatus(run.status)) {
+    return { kind: "in_flight", runId: run.id, status: run.status };
+  }
+  if (run.status === "failed") {
+    return { kind: "failed", runId: run.id, message: analysisFailureMessage(run.failureReason) };
+  }
+  return { kind: "other" };
+}
+
+export async function loadTrefferlisteAfterCompletedRun(
+  api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
+  runId: string,
+  marked: MarkedRegion,
+): Promise<Extract<TrefferlisteBind, { kind: "ready" | "empty" }>> {
+  const bound = await loadPatternForMarkedRegion(api, marked);
+  const set = await loadRecommendationsForRun(api, runId);
+  if (!bound) return { kind: "empty" };
+  return { kind: "ready", bound, set: set && set.runId === bound.runId ? set : await loadRecommendationsForRun(api, bound.runId) };
+}
+
+export async function pollTrefferlisteRun(
+  api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
+  runId: string,
+  marked: MarkedRegion,
+  options?: PollAnalysisOptions,
+): Promise<TrefferlisteBind | { kind: "deadline" } | { kind: "aborted" }> {
+  const outcome = await pollAnalysisRun(api, runId, options);
+  if (outcome.kind === "aborted" || outcome.kind === "deadline") return outcome;
+  if (outcome.kind === "failed") return { kind: "failed", runId, message: outcome.message };
+  return loadTrefferlisteAfterCompletedRun(api, outcome.run.id, marked);
 }

@@ -36,8 +36,10 @@ export const RECOMMENDATION_COPY = {
   analysisRunning: "Analyse läuft …",
   loading: "Wird geladen …",
   analysisFailed: "Analyse fehlgeschlagen.",
+  analysisDeadline: "Die Analyse dauert zu lange. Bitte starten Sie sie erneut.",
   missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
   startAnalysis: "Musteranalyse starten",
+  restartAnalysis: "Erneut starten",
   missingGeometry: "Die Fläche kann noch nicht gezeichnet werden.",
   missingValue: "liegt nicht vor",
   toAnalysis: "Zur Musteranalyse",
@@ -169,6 +171,26 @@ export function recommendationSubtitle(region: string | number | null | undefine
   return `${RECOMMENDATION_COPY.subtitle} ${name}`;
 }
 
+export function trefferStatusCopy(input: {
+  pageLoading: boolean;
+  bindLoading: boolean;
+  runStatus: "idle" | "queued" | "running" | "failed" | "deadline";
+}): { text: string | null; tone: "loading" | "running" | "error" | null } {
+  if (input.pageLoading || input.bindLoading) {
+    return { text: RECOMMENDATION_COPY.loading, tone: "loading" };
+  }
+  if (input.runStatus === "queued" || input.runStatus === "running") {
+    return { text: RECOMMENDATION_COPY.analysisRunning, tone: "running" };
+  }
+  if (input.runStatus === "deadline") {
+    return { text: RECOMMENDATION_COPY.analysisDeadline, tone: "error" };
+  }
+  if (input.runStatus === "failed") {
+    return { text: null, tone: "error" };
+  }
+  return { text: null, tone: null };
+}
+
 export function recommendationEmptyCopy(regionCount?: number): string | null {
   if (regionCount !== undefined && regionCount <= 0) return null;
   return RECOMMENDATION_COPY.empty;
@@ -195,12 +217,12 @@ export function formatAddress(item: Recommendation): string {
 }
 
 export function hitName(item: Recommendation): string {
-  return visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
+  return visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
 }
 
 export function formatLocationMeta(item: Recommendation): string {
-  const badge = hitBadge(item) || catalogBadge(item.location);
-  const parent = catalogParentName(item.location) ?? catalogParentName(item);
+  const badge = hitBadge(item) || catalogBadge({ ...item.location, grain: item.grain ?? item.location.grain });
+  const parent = catalogParentName(item) ?? catalogParentName(item.location);
   return [badge, parent].filter((part): part is string => typeof part === "string" && part.length > 0).join(" ");
 }
 
@@ -272,17 +294,18 @@ function locationKey(item: Recommendation): string | null {
 }
 
 export function hitBadge(item: Recommendation): string {
-  const keys = [item.id, locationKey(item), item.location.grain].filter((part): part is string => Boolean(part));
+  const grain = item.grain ?? item.location.grain;
+  const keys = [item.id, locationKey(item), grain].filter((part): part is string => Boolean(part));
   const blob = keys.join(" ");
   if (/lor:plr:/i.test(blob) || item.kind === "lor") return "Quartier";
   if (/koeln:sq:/i.test(blob) || item.kind === "quartier") return "Quartier";
   if (item.kind) return areaKindBadge(item.kind);
   if (/lor:/i.test(blob)) return "Quartier";
   if (/koeln:sq:/i.test(blob)) return "Quartier";
-  if (item.location.grain === "grid100") return "Raster";
-  if (item.location.grain === "address") return "Adresse";
-  if (item.location.grain === "plz5" || item.location.grain === "plz8") return "PLZ";
-  return catalogBadge(item.location) || (item.location.grain ? grainLabel(item.location.grain, locationKey(item)) : "");
+  if (grain === "grid100") return "Raster";
+  if (grain === "address") return "Adresse";
+  if (grain === "plz5" || grain === "plz8") return "PLZ";
+  return catalogBadge({ ...item.location, grain }) || (grain ? grainLabel(grain, locationKey(item)) : "");
 }
 
 export function areaKindBadge(kind: AreaKind): string {
@@ -351,17 +374,15 @@ export function inheritedLabel(level: SeriesLevel | null | undefined): string {
 }
 
 export function intersectionLine(item: Recommendation): string | null {
-  const raw = item as Recommendation & { parts?: unknown };
-  if (Array.isArray(raw.parts)) {
-    const names = raw.parts
-      .filter((part): part is string => typeof part === "string")
-      .map((part) => visiblePlaceText(part))
-      .filter((part) => part.length > 0);
-    if (names.length >= 2) return `Schnittfläche aus ${names[0]} und ${names[1]}`;
-  }
-  const title = visiblePlaceText(item.title);
-  const match = /^Schnittfläche aus (.+) und (.+)$/.exec(title);
-  return match ? title : null;
+  const parts = item.intersectionOf;
+  if (!Array.isArray(parts) || parts.length < 2) return null;
+  const names = parts
+    .map((part) => visiblePlaceText(part.name))
+    .filter((name) => name.length > 0);
+  if (names.length < 2) return null;
+  const last = names[names.length - 1];
+  const rest = names.slice(0, -1).join(", ");
+  return `Schnittfläche aus ${rest} und ${last}`;
 }
 
 export function visibleHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined): Recommendation[] {
@@ -395,7 +416,7 @@ export function buildTrefferCard(
     rank: item.rank,
     name: hitName(item),
     badge: hitBadge(item),
-    parentLabel: catalogParentName(item.location) ?? catalogParentName(item),
+    parentLabel: catalogParentName(item) ?? catalogParentName(item.location),
     intersection: intersectionLine(item),
     trendSummary: trendSummary(item),
     rationale: item.rationale,
@@ -628,7 +649,7 @@ function hitPlace(item: Recommendation): {
 } {
   return {
     kind: item.kind,
-    grain: item.location.grain,
+    grain: item.grain ?? item.location.grain,
     level: item.location.level,
     geoKey: locationKey(item),
     id: item.id,

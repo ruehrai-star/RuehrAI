@@ -234,12 +234,12 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
 
     async createAnalysisRun(): Promise<AnalysisRun> {
       const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
-      return parseAnalysisRun(body);
+      return parseAnalysisRun(body, { allowIncomplete: true });
     },
 
     async getAnalysisRun(id: string): Promise<AnalysisRun> {
       const body = await request<AnalysisRun>(`/analysis/runs/${encodeURIComponent(id)}`, { auth: true });
-      return parseAnalysisRun(body);
+      return parseAnalysisRun(body, { allowIncomplete: true });
     },
 
     async getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null> {
@@ -521,9 +521,45 @@ function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"):
   };
 }
 
-function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
+const STUB_ANALYSIS_INPUT: AnalysisInput = {
+  region: {
+    label: "",
+    grain: null,
+    geoKey: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  },
+  stores: [],
+  revenueDirection: "flat",
+  capturedAt: "1970-01-01T00:00:00.000Z",
+};
+
+const STUB_ANALYSIS_BRAIN: AnalysisBrain = {
+  mode: "sql",
+  vectorUnavailableReason: null,
+  factCount: 0,
+  facts: [],
+};
+
+const STUB_ANALYSIS_PATTERN: AnalysisPattern = {
+  source: "heuristic",
+  summary: "",
+  revenueDirection: "flat",
+  criteria: [],
+};
+
+function parseAnalysisRun(body: AnalysisRun, options: { allowIncomplete?: boolean } = {}): AnalysisRun {
   const route = "/analysis/runs";
-  if (!body || typeof body.id !== "string" || !ANALYSIS_RUN_STATUSES.has(body.status) || typeof body.createdAt !== "string") {
+  if (!body || typeof body.id !== "string" || !ANALYSIS_RUN_STATUSES.has(body.status)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  const incompleteOk = Boolean(options.allowIncomplete) && body.status !== "completed";
+  const createdAt =
+    typeof body.createdAt === "string" ? body.createdAt : incompleteOk ? "1970-01-01T00:00:00.000Z" : null;
+  if (!createdAt) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.failureReason != null) {
@@ -543,10 +579,19 @@ function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
   if (body.completedAt != null && typeof body.completedAt !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
-  parseAnalysisInput(body.input, route);
-  parseAnalysisBrain(body.brain, route);
-  parseAnalysisPattern(body.pattern, route);
-  return body;
+  if (body.input) parseAnalysisInput(body.input, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  if (body.brain) parseAnalysisBrain(body.brain, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  if (body.pattern) parseAnalysisPattern(body.pattern, route);
+  else if (!incompleteOk) throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  return {
+    ...body,
+    createdAt,
+    input: body.input ?? STUB_ANALYSIS_INPUT,
+    brain: body.brain ?? STUB_ANALYSIS_BRAIN,
+    pattern: body.pattern ?? STUB_ANALYSIS_PATTERN,
+  };
 }
 
 function parseAnalysisBrain(body: AnalysisBrain, route: string): AnalysisBrain {

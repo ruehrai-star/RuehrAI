@@ -91,7 +91,7 @@ test("API level gemeinde keeps Gemeinde and does not invent parentLabel", () => 
   assert.equal(catalogBadge(muenchen), "Gemeinde");
   assert.equal(isSubAreaLevel("gemeinde"), false);
   assert.equal(catalogParentName(muenchen), null);
-  assert.equal(catalogHitVisibleText(muenchen), "München Gemeinde");
+  assert.equal(catalogHitVisibleText(muenchen), "München · Gemeinde");
 });
 
 test("catalog keys are detected for every Zielregion level", () => {
@@ -135,8 +135,8 @@ test("a hit with id plz5:12247 or ortsteil:osm:5712247 does not render that id",
   const ortsteilText = catalogHitVisibleText(namedOrtsteil);
   assert.equal(plzText.includes("plz5:12247"), false);
   assert.equal(ortsteilText.includes("ortsteil:osm:5712247"), false);
-  assert.equal(plzText, "12247 Berlin PLZ");
-  assert.equal(ortsteilText, "Lankwitz Berlin Ortsteil");
+  assert.equal(plzText, "12247 · PLZ · Berlin");
+  assert.equal(ortsteilText, "Lankwitz · Ortsteil · Berlin");
   assert.equal(catalogPlaceName(plz), "12247");
   assert.equal(catalogPlaceName(namedOrtsteil), "Lankwitz");
 });
@@ -195,6 +195,28 @@ test("a saved Zielregion row without a place name is omitted from the list", () 
   );
 });
 
+test("Bezirke and Stadtteile show the municipality via parentLabel", () => {
+  const innenstadt = {
+    id: "stadtbezirk:osm:1",
+    label: "Innenstadt",
+    grain: "other" as const,
+    geoKey: "stadtbezirk:osm:1",
+    level: "bezirk" as const,
+    parentLabel: "Köln",
+  };
+  const ehrenfeld = {
+    id: "stadtteil:osm:2",
+    label: "Ehrenfeld",
+    grain: "other" as const,
+    geoKey: "stadtteil:osm:2",
+    level: "stadtteil" as const,
+    parentLabel: "Köln",
+  };
+  assert.equal(catalogHitVisibleText(innenstadt), "Innenstadt · Bezirk · Köln");
+  assert.equal(catalogHitVisibleText(ehrenfeld), "Ehrenfeld · Stadtteil · Köln");
+  assert.equal(catalogHitVisibleText(innenstadt).includes("stadtbezirk"), false);
+  assert.equal(catalogHitVisibleText(innenstadt).includes("ags"), false);
+});
 test("parentLabel stays empty when the field is missing; no parent name is guessed", () => {
   const hit = {
     id: "plz5:12247",
@@ -204,7 +226,7 @@ test("parentLabel stays empty when the field is missing; no parent name is guess
     municipalityName: "Berlin",
   };
   assert.equal(catalogParentName(hit), null);
-  assert.equal(catalogHitVisibleText(hit), "12247 PLZ");
+  assert.equal(catalogHitVisibleText(hit), "12247 · PLZ");
 });
 
 test("Zielregion search copy has no AGS, no München, and no AGS example", () => {

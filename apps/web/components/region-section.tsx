@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CatalogParentName } from "@/components/catalog-parent-name";
+import { CatalogHitLabel } from "@/components/catalog-hit-label";
 import { getApi, ApiError, type SearchHit, type TargetRegion } from "@/lib/api";
-import { catalogBadge, catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
+import { catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
 import { regionHasDrawableArea } from "@/lib/map/karte";
 import {
   REGION_LIST_COPY,
@@ -119,8 +119,6 @@ export function RegionSection({
         <ul className="region-list">
           {visibleItems.map((item) => {
             const key = regionListKey(item);
-            const name = catalogPlaceName(item);
-            const badge = catalogBadge(item);
             const marked = markedKey === key;
             const missing = !regionHasDrawableArea(item);
             return (
@@ -132,15 +130,7 @@ export function RegionSection({
                     aria-pressed={marked}
                     onClick={() => onMark(key)}
                   >
-                    <span className="hit-label">
-                      {name}
-                      <CatalogParentName source={item} />
-                    </span>
-                    {badge ? (
-                      <span className="hit-meta">
-                        <span className="badge">{badge}</span>
-                      </span>
-                    ) : null}
+                    <CatalogHitLabel source={item} />
                   </button>
                   <button
                     type="button"
@@ -191,16 +181,11 @@ export function RegionSection({
           {visibleHits.map((hit) => {
             const name = catalogPlaceName(hit);
             const inList = isHitInList(hit, visibleItems);
-            const badge = catalogBadge({ ...hit, geoKey: hit.geoKey || hit.id });
             return (
               <li key={hit.id}>
                 <div className={inList ? "hit is-added" : "hit"}>
-                  <span className="hit-label">
-                    {name}
-                    <CatalogParentName source={hit} />
-                  </span>
+                  <CatalogHitLabel source={hit} />
                   <span className="hit-meta">
-                    {badge ? <span className="badge">{badge}</span> : null}
                     {inList ? (
                       <span className="hit-added">{REGION_LIST_COPY.added}</span>
                     ) : (
