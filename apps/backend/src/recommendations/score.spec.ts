@@ -1461,6 +1461,37 @@ describe("score formula on rankTeilflaechen", () => {
     };
     expect(compareScoredLocations(sameShare, { ...right, id: "other:a-first" })).toBeGreaterThan(0);
   });
+
+  it("keeps score-0 inherited/Stichtag items and orders them by Zielregion share, then id", () => {
+    const lowShare: ScoredLocation = {
+      id: "other:zzz-edge",
+      title: "Randfläche zuerst nach id",
+      kind: "ortsteil",
+      grain: "other",
+      name: "Randfläche",
+      parentLabel: null,
+      targetRegionGeoKey: "r",
+      dataAsOf: "2025",
+      location: { geoKey: "zzz-edge", grain: "other", lon: null, lat: null, name: "Randfläche" },
+      score: 0,
+      criteriaEvidence: [{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "Stichtag", kind: "stichtag" }],
+      targetOverlapShare: 0.02,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.02, isTargetRegion: true }],
+    };
+    const highShare: ScoredLocation = {
+      ...lowShare,
+      id: "other:aaa-inner",
+      title: "Innere Fläche später nach id",
+      name: "Innen",
+      location: { ...lowShare.location, geoKey: "aaa-inner", name: "Innen" },
+      targetOverlapShare: 0.99,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.99, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(lowShare, highShare)).toBeGreaterThan(0);
+    const laterId: ScoredLocation = { ...lowShare, id: "other:b-second", targetOverlapShare: 0.5, overlaps: [{ ...lowShare.overlaps![0], share: 0.5 }] };
+    const earlierId: ScoredLocation = { ...highShare, id: "other:a-first", targetOverlapShare: 0.5, overlaps: [{ ...highShare.overlaps![0], share: 0.5 }] };
+    expect(compareScoredLocations(laterId, earlierId)).toBeGreaterThan(0);
+  });
 });
 
 describe("recommendationReason", () => {

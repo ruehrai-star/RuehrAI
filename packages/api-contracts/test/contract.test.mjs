@@ -98,6 +98,9 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.19.3"));
   assert.ok(doc.info.description.includes("0.19.4"));
   assert.ok(doc.info.description.includes("0.19.5"));
+  assert.equal(doc.info.description.includes("nAktiv = 0 are omitted"), false);
+  assert.ok(doc.info.description.includes("inherited or Stichtag"));
+  assert.ok(doc.info.description.includes("score 0"));
   assert.ok(doc.info.description.includes("ANALYSIS_SCORE_TREND_WEIGHT"));
   assert.ok(doc.info.description.includes("ANALYSIS_MIN_OVERLAP_SHARE"));
   assert.ok(doc.info.description.includes("year span"));
@@ -111,6 +114,12 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendFromTwoYears.type, "boolean");
   assert.equal(doc.components.schemas.RecommendationEvidence.required.includes("trendFromTwoYears"), false);
   assert.ok(doc.components.schemas.Recommendation.properties.score.description.includes("robust"));
+  assert.ok(doc.components.schemas.Recommendation.properties.score.description.includes("score 0"));
+  assert.equal(
+    doc.components.schemas.Recommendation.properties.score.description.includes("nAktiv = 0 are omitted"),
+    false,
+  );
+  assert.ok(doc.paths["/recommendations"].post.description.includes("inherited or Stichtag"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.proximity.description.includes("0.19.4"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
     doc.paths["/recommendations"].get.description.includes("Never ranks"));

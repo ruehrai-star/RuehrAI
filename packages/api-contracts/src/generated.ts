@@ -599,7 +599,10 @@ export interface paths {
          *     1.0. Trend is a yearly rate (delta / year span). Snapshot values
          *     are labeled `stichtag`. Missing cells are
          *     `absent` (`liegt nicht vor`), never `0`. Kleinräumige
-         *     yearlySeries rows may have a null embedding. Additive
+         *     yearlySeries rows may have a null embedding. Candidates without
+         *     local dataset hits drop when siblings have local data; areas
+         *     with only inherited or Stichtag values stay with score 0 and
+         *     are ordered by share in the Zielregion, then `id`. Additive
          *     `criteriaEvidence[].proximity` is the per-dataset closeness;
          *     `trendYears` is the calendar-year count of a trend;
          *     `trendFromTwoYears` is true when that count is 2.
@@ -1722,7 +1725,10 @@ export interface components {
              *     dataset is present on. Coverage factor
              *     min(1, nAktiv / kMin) with kMin default 2 so a single
              *     dataset never yields 1.0. Missing cells stay absent, never
-             *     `0`. Additive `criteriaEvidence[].proximity` is the
+             *     `0`. Candidates without local dataset hits drop when
+             *     siblings have local data; inherited/Stichtag-only areas
+             *     stay with score 0 and are ordered by Zielregion share,
+             *     then `id`. Additive `criteriaEvidence[].proximity` is the
              *     per-dataset closeness before the item coverage factor.
              *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
              *     (default 0.10) of their area inside the Zielregion.
