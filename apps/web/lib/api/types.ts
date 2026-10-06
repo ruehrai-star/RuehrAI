@@ -90,9 +90,10 @@ export type RecommendationV192Fields = {
 
 /**
  * OpenAPI 0.19.6 additive nAktiv on `items[]`. Always set on new sets
- * (including `0`); omitted on older stored rows. Bind the inactive /
- * „liegt nicht vor“ card to `localDatasetCount === 0`; fall back to the
- * evidence heuristic only when the field is missing.
+ * (including `0`); omitted on older stored rows. Bind the muted nAktiv-0
+ * card (hint `INACTIVE_HIT_COPY`) to `localDatasetCount === 0`; fall back
+ * to the evidence heuristic only when the field is missing. Not a
+ * Score-Zeile „liegt nicht vor“.
  */
 export type RecommendationV196Fields = {
   localDatasetCount?: number;
