@@ -17,6 +17,7 @@ interface PlzRow {
 interface GeoKeyRow {
   geo_key: string | null;
   geo_ags: string | null;
+  geo_quartier_id?: string | null;
 }
 
 export interface StoreSurroundings {
@@ -45,12 +46,20 @@ export class StoreSurroundingsService {
       (store) => store.lon != null && store.lat != null && Number.isFinite(store.lon) && Number.isFinite(store.lat),
     );
     const plzRows = await this.readPlz(postalCodes);
-    const addressRows = await this.readAddressAtPoints(points);
+    const addressHits = await this.readAddressAtPoints(points);
+    const addressRows = addressHits.rows;
     const gridRows = await this.readGridAtPoints(points);
     const ortsteilRows = await this.readOrtsteilAtPoints(points);
     const bezirkRows = await this.readBezirkAtPoints(points);
     const lorRows = await this.readLorNearPoints(points);
-    const quartierRows = await this.readQuartierNearPoints(koelnPoints(points, postalCodes, plzRows));
+    const quartierFromAddress = addressHits.quartierRows;
+    const remainingKoeln = koelnPoints(points, postalCodes, plzRows).filter(
+      (store) => !addressHits.storesWithQuartier.has(store.id),
+    );
+    const quartierRows =
+      quartierFromAddress.length > 0 && remainingKoeln.length === 0
+        ? quartierFromAddress
+        : [...quartierFromAddress, ...(await this.readQuartierNearPoints(remainingKoeln))];
 
     const regions: SeriesRegionInput[] = [];
     const keys: string[] = [];
@@ -116,39 +125,49 @@ export class StoreSurroundingsService {
   }
 
   /**
-   * Official address at the store point (`geo.geo_ref_address`). Skip when
+   * Official address near the store point (`geo.geo_ref_address`). Skip when
    * the table/columns are missing or empty — never invent an address.
    * STAGE may lack `geo_key`; probe information_schema and use `geo_addr_id`
    * (or skip to Raster/LOR/Ortsteil) without per-store error logs.
+   *
+   * Prefer the nearest address within 25 m on `geom_3035` (GiST). `geom` is
+   * `geometry(Point,4326)` — never wrap it in `ST_SRID`/`ST_Transform` (that
+   * blocks the GiST). Exact point-on-point is only the fallback.
    */
-  private async readAddressAtPoints(stores: AnalysisStoreInput[]): Promise<GeoKeyRow[]> {
-    if (stores.length === 0) return [];
+  private async readAddressAtPoints(stores: AnalysisStoreInput[]): Promise<AddressHitList> {
+    if (stores.length === 0) return emptyAddressHits();
     const plan = await this.resolveAddressLookup();
-    if (!plan) return [];
+    if (!plan) return emptyAddressHits();
     const rows: GeoKeyRow[] = [];
+    const quartierRows: GeoKeyRow[] = [];
+    const storesWithQuartier = new Set<string>();
     for (const store of stores) {
       const found = await this.readCatalog<GeoKeyRow>(
         `SELECT ${plan.selectKey} AS geo_key,
-                ${plan.selectAgs} AS geo_ags
+                ${plan.selectAgs} AS geo_ags,
+                ${plan.selectQuartier} AS geo_quartier_id
            FROM geo.geo_ref_address a
           WHERE ${plan.notNull}
             AND a.geom IS NOT NULL AND NOT ST_IsEmpty(a.geom)
-            AND ST_Intersects(
-              CASE
-                WHEN ST_SRID(a.geom) IN (0, 4326) THEN ST_SetSRID(a.geom, 4326)
-                ELSE ST_Transform(a.geom, 4326)
-              END,
-              ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)
-            )
-          ORDER BY ${plan.orderBy}
+            AND ${plan.spatialWhere}
+          ORDER BY ${plan.spatialOrder}
           LIMIT 1`,
         [store.lon, store.lat],
         { onUndefinedColumn: "skip-address" },
       );
-      if (this.addressLookup === "skip") return [];
-      rows.push(...found);
+      if (this.addressLookup === "skip") return emptyAddressHits();
+      for (const row of found) {
+        const geoKey = normalizeAddressGeoKey(row.geo_key);
+        if (!geoKey) continue;
+        rows.push({ geo_key: geoKey, geo_ags: row.geo_ags });
+        const quartier = row.geo_quartier_id?.trim() || null;
+        if (quartier) {
+          quartierRows.push({ geo_key: quartier, geo_ags: row.geo_ags });
+          storesWithQuartier.add(store.id);
+        }
+      }
     }
-    return rows;
+    return { rows, quartierRows, storesWithQuartier };
   }
 
   private async resolveAddressLookup(): Promise<AddressLookupPlan | null> {
@@ -162,11 +181,11 @@ export class StoreSurroundingsService {
         this.skipAddress("no key column on geo.geo_ref_address");
         return null;
       }
-      this.addressLookup = addressPlan(keyColumn, columns.has("geo_ags"));
+      this.addressLookup = addressPlan(keyColumn, columns);
       return this.addressLookup;
     }
 
-    this.addressLookup = addressPlan("geo_key", true);
+    this.addressLookup = addressPlan("geo_key", new Set(["geo_key", "geo_ags", "geom"]));
     return this.addressLookup;
   }
 
@@ -423,14 +442,40 @@ function unique(values: Array<string | null | undefined>): string[] {
   return out;
 }
 
+interface AddressHitList {
+  rows: GeoKeyRow[];
+  quartierRows: GeoKeyRow[];
+  storesWithQuartier: Set<string>;
+}
+
+function emptyAddressHits(): AddressHitList {
+  return { rows: [], quartierRows: [], storesWithQuartier: new Set() };
+}
+
+/**
+ * Brain `geo.geo_ref_address.geo_key` is already `'address:' || geo_addr_id`.
+ * `geo_addr_id` is bare. Collapse accidental double prefixes.
+ */
+export function normalizeAddressGeoKey(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  const stripped = trimmed.replace(/^(address:)+/i, "");
+  if (!stripped) return null;
+  return `address:${stripped}`;
+}
+
 interface AddressLookupPlan {
   selectKey: string;
   selectAgs: string;
+  selectQuartier: string;
   notNull: string;
-  orderBy: string;
+  spatialWhere: string;
+  spatialOrder: string;
 }
 
 const ADDRESS_KEY_COLUMNS = ["geo_key", "geo_addr_id", "id"] as const;
+const ADDRESS_POINT_4326 = "ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)";
+const ADDRESS_POINT_3035 = `ST_Transform(${ADDRESS_POINT_4326}, 3035)`;
 
 function pickAddressKeyColumn(columns: ReadonlySet<string>): (typeof ADDRESS_KEY_COLUMNS)[number] | null {
   for (const column of ADDRESS_KEY_COLUMNS) {
@@ -439,21 +484,38 @@ function pickAddressKeyColumn(columns: ReadonlySet<string>): (typeof ADDRESS_KEY
   return null;
 }
 
-function addressPlan(keyColumn: (typeof ADDRESS_KEY_COLUMNS)[number], hasAgs: boolean): AddressLookupPlan {
-  const selectAgs = hasAgs ? "NULLIF(btrim(a.geo_ags::text), '')" : "NULL::text";
+function addressPlan(
+  keyColumn: (typeof ADDRESS_KEY_COLUMNS)[number],
+  columns: ReadonlySet<string>,
+): AddressLookupPlan {
+  const selectAgs = columns.has("geo_ags") ? "NULLIF(btrim(a.geo_ags::text), '')" : "NULL::text";
+  const selectQuartier = columns.has("geo_quartier_id")
+    ? "NULLIF(btrim(a.geo_quartier_id::text), '')"
+    : "NULL::text";
+  const spatial = columns.has("geom_3035")
+    ? {
+        spatialWhere: `ST_DWithin(a.geom_3035, ${ADDRESS_POINT_3035}, 25)`,
+        spatialOrder: `a.geom_3035 <-> ${ADDRESS_POINT_3035}, a.${keyColumn} ASC`,
+      }
+    : {
+        spatialWhere: `ST_Intersects(a.geom, ${ADDRESS_POINT_4326})`,
+        spatialOrder: `a.${keyColumn} ASC`,
+      };
   if (keyColumn === "geo_key") {
     return {
-      selectKey: "COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_key::text)",
+      selectKey: "NULLIF(btrim(a.geo_key::text), '')",
       selectAgs,
+      selectQuartier,
       notNull: "NULLIF(btrim(a.geo_key::text), '') IS NOT NULL",
-      orderBy: "a.geo_key ASC",
+      ...spatial,
     };
   }
   return {
     selectKey: `'address:' || a.${keyColumn}::text`,
     selectAgs,
+    selectQuartier,
     notNull: `NULLIF(btrim(a.${keyColumn}::text), '') IS NOT NULL`,
-    orderBy: `a.${keyColumn} ASC`,
+    ...spatial,
   };
 }
 

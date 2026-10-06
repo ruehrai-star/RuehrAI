@@ -1,6 +1,17 @@
 import { Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
-import { StoreSurroundingsService } from "./store-surroundings.service";
+import { normalizeAddressGeoKey, StoreSurroundingsService } from "./store-surroundings.service";
+
+describe("normalizeAddressGeoKey", () => {
+  it("keeps a single address: prefix and never doubles it", () => {
+    expect(normalizeAddressGeoKey("address:hk:be:DEBE00YY1ig00010")).toBe("address:hk:be:DEBE00YY1ig00010");
+    expect(normalizeAddressGeoKey("address:address:hk:nw:DENW37AL1000qvfv")).toBe(
+      "address:hk:nw:DENW37AL1000qvfv",
+    );
+    expect(normalizeAddressGeoKey("hk:be:DEBE00YY1ig00010")).toBe("address:hk:be:DEBE00YY1ig00010");
+    expect(normalizeAddressGeoKey("  ")).toBeNull();
+  });
+});
 
 describe("StoreSurroundingsService", () => {
   const queryReadingFeatures = jest.fn();
@@ -48,7 +59,10 @@ describe("StoreSurroundingsService", () => {
       if (text.includes("geo_ref_plz")) {
         return { rows: [{ plz: "80331", geo_ags: "09162000", geo_ags5: "09162" }] };
       }
-      if (text.includes("geo_ref_address")) {
+      if (text.includes("FROM geo.geo_ref_address")) {
+        expect(text).not.toMatch(/ST_SRID\(a\.geom\)/);
+        expect(text).toContain("ST_Intersects(a.geom");
+        expect(text).not.toContain("'address:' || a.geo_key");
         return { rows: [{ geo_key: "address:marienplatz-1", geo_ags: "09162000" }] };
       }
       if (text.includes("breitband_gitter") || text.includes("grain = 'grid100'")) {
@@ -93,6 +107,47 @@ describe("StoreSurroundingsService", () => {
     expect(resolved.regions.find((item) => item.level === "quartier")).toBeUndefined();
   });
 
+  it("uses geo_key as-is with a 25 m geom_3035 neighbour and no ST_SRID wrapper", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("information_schema.columns")) {
+        return {
+          rows: [
+            { column_name: "geo_key" },
+            { column_name: "geo_ags" },
+            { column_name: "geom" },
+            { column_name: "geom_3035" },
+            { column_name: "geo_quartier_id" },
+          ],
+        };
+      }
+      if (text.includes("geo_ref_plz")) {
+        return { rows: [{ plz: "12247", geo_ags: "11000000", geo_ags5: "11000" }] };
+      }
+      if (text.includes("FROM geo.geo_ref_address")) {
+        expect(text).toContain("ST_DWithin(a.geom_3035");
+        expect(text).toContain("a.geom_3035 <->");
+        expect(text).toContain("25");
+        expect(text).not.toMatch(/ST_SRID\(a\.geom\)/);
+        expect(text).toContain("NULLIF(btrim(a.geo_key::text), '') AS geo_key");
+        expect(text).not.toContain("'address:' || a.geo_key");
+        expect(text).toContain("geo_quartier_id");
+        expect(text).not.toMatch(/embedding/i);
+        return {
+          rows: [{ geo_key: "address:hk:be:DEBE00YY1ig00010", geo_ags: "11000000", geo_quartier_id: null }],
+        };
+      }
+      return { rows: [] };
+    });
+    const resolved = await service.resolve([berlinStore("7", 13.35, 52.43)]);
+    expect(resolved.regions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ geoKey: "address:hk:be:DEBE00YY1ig00010", level: "address" }),
+      ]),
+    );
+    expect(resolved.regions.find((item) => item.geoKey?.startsWith("address:address:"))).toBeUndefined();
+  });
+
   it("uses geo_addr_id when geo.geo_ref_address has no geo_key column", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
@@ -102,9 +157,12 @@ describe("StoreSurroundingsService", () => {
       if (text.includes("geo_ref_plz")) {
         return { rows: [{ plz: "12247", geo_ags: "11000000", geo_ags5: "11000" }] };
       }
-      if (text.includes("geo_ref_address")) {
+      if (text.includes("FROM geo.geo_ref_address")) {
         expect(text).toContain("geo_addr_id");
+        expect(text).toContain("'address:' || a.geo_addr_id");
         expect(text).not.toMatch(/a\.geo_key/);
+        expect(text).toContain("ST_Intersects(a.geom");
+        expect(text).not.toMatch(/ST_SRID\(a\.geom\)/);
         return { rows: [{ geo_key: "address:510721", geo_ags: "11000000" }] };
       }
       return { rows: [] };
@@ -225,6 +283,60 @@ describe("StoreSurroundingsService", () => {
       ]),
     );
     expect(resolved.regions.find((item) => item.level === "address")).toBeUndefined();
+  });
+
+  it("uses geo_quartier_id from the address row for Köln Store-Umfeld", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("information_schema.columns")) {
+        return {
+          rows: [
+            { column_name: "geo_key" },
+            { column_name: "geo_ags" },
+            { column_name: "geom" },
+            { column_name: "geom_3035" },
+            { column_name: "geo_quartier_id" },
+          ],
+        };
+      }
+      if (text.includes("geo_ref_plz")) {
+        return { rows: [{ plz: "50667", geo_ags: "05315000", geo_ags5: "05315" }] };
+      }
+      if (text.includes("FROM geo.geo_ref_address")) {
+        return {
+          rows: [
+            {
+              geo_key: "address:hk:nw:DENW37AL1000qvfv",
+              geo_ags: "05315000",
+              geo_quartier_id: "koeln:sq:101010001",
+            },
+          ],
+        };
+      }
+      if (text.includes("koeln_statistischer_datenkatalog")) {
+        throw new Error("quartier feature lookup must not run when geo_quartier_id is present");
+      }
+      return { rows: [] };
+    });
+    const resolved = await service.resolve([
+      {
+        id: "9",
+        label: null,
+        street: "Domkloster 4",
+        postalCode: "50667",
+        city: "Köln",
+        lon: 6.96,
+        lat: 50.94,
+        points: [],
+        changes: [],
+      },
+    ]);
+    expect(resolved.regions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ geoKey: "address:hk:nw:DENW37AL1000qvfv", level: "address" }),
+        expect.objectContaining({ geoKey: "koeln:sq:101010001", level: "quartier" }),
+      ]),
+    );
   });
 
   it("resolves Köln Quartier koeln:sq for a Köln store and skips parent_fallback", async () => {

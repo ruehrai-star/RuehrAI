@@ -241,4 +241,75 @@ describe("area-baseline", () => {
       ),
     ).toEqual({ value: 0.01, method: "fixed_grid" });
   });
+
+  it("uses the nearest same-grain year when the exact year is missing and marks nearest", () => {
+    const index = buildAreaBaselineIndex([
+      {
+        geoKey: "lor:plr:07400720",
+        grain: "lor_plr",
+        refYear: 2021,
+        einwohner: 11_700,
+        flaecheKm2: 0.4,
+        haushalte: null,
+        einwohnerMethod: "official",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+      },
+      {
+        geoKey: "lor:plr:07400720",
+        grain: "lor_plr",
+        refYear: 2023,
+        einwohner: 11_780,
+        flaecheKm2: 0.4,
+        haushalte: null,
+        einwohnerMethod: "official",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+      },
+    ]);
+    expect(findAreaBaseline(index, ["lor:plr:07400720"], 2018, "einwohner")).toMatchObject({
+      refYear: 2021,
+      einwohner: 11_700,
+      einwohnerMethod: "official",
+      baselineYearRule: "nearest",
+    });
+    expect(findAreaBaseline(index, ["lor:plr:07400720"], 2022, "einwohner")).toMatchObject({
+      refYear: 2023,
+      baselineYearRule: "nearest",
+    });
+    expect(areaDivisor(findAreaBaseline(index, ["lor:plr:07400720"], 2018, "einwohner"), "einwohner")).toEqual({
+      value: 11_700,
+      method: "official",
+    });
+  });
+
+  it("keeps official 0 EW as missing and never invents a rate of 0", () => {
+    const index = buildAreaBaselineIndex([
+      {
+        geoKey: "lor:plr:03400831",
+        grain: "lor_plr",
+        refYear: 2023,
+        einwohner: 0,
+        flaecheKm2: 0.2,
+        haushalte: null,
+        einwohnerMethod: "official",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+      },
+      {
+        geoKey: "lor:plr:03400831",
+        grain: "lor_plr",
+        refYear: 2025,
+        einwohner: 1_200,
+        flaecheKm2: 0.2,
+        haushalte: null,
+        einwohnerMethod: "official",
+        haushalteMethod: null,
+        flaecheMethod: "geom",
+      },
+    ]);
+    const row = findAreaBaseline(index, ["lor:plr:03400831"], 2023, "einwohner");
+    expect(row).toMatchObject({ refYear: 2023, einwohner: 0, einwohnerMethod: "official", baselineYearRule: "exact" });
+    expect(areaDivisor(row, "einwohner")).toBeNull();
+  });
 });

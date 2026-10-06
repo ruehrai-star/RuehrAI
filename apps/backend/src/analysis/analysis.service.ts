@@ -120,7 +120,7 @@ export class AnalysisService {
       try {
         await this.recommendations.create(userId, row.id);
       } catch (error) {
-        this.logger.warn(`Recommendation set for run ${row.id} was not stored (${messageOf(error)}).`);
+        this.logger.error(`Recommendation set for run ${row.id} was not stored (${messageOf(error)}).`);
       }
     }
     return {

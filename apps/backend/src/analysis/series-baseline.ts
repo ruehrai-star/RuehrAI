@@ -218,15 +218,18 @@ function normalizeFromArea(
   if (year == null) return presentRaw(point.period, point.value!, "missing");
   const row = findAreaBaseline(index, [series.sourceGeoKey, series.requestedGeoKey], year, catalog.recommendedBaseline);
   const divisor = areaDivisor(row, catalog.recommendedBaseline);
-  if (divisor == null) {
+  if (!row || divisor == null) {
     return presentRaw(point.period, point.value!, "missing");
   }
-  return presentRaw(
+  const next = presentRaw(
     point.period,
     point.value!,
     divisor.method,
     roundNormalized((point.value! / divisor.value) * scale),
   );
+  next.baselineYear = row.refYear;
+  if (row.baselineYearRule) next.baselineYearRule = row.baselineYearRule;
+  return next;
 }
 
 function copyCatalogPoint(point: SeriesPoint): SeriesPoint {
@@ -234,6 +237,8 @@ function copyCatalogPoint(point: SeriesPoint): SeriesPoint {
   if (typeof point.normalizedValue === "number" && Number.isFinite(point.normalizedValue)) {
     next.normalizedValue = point.normalizedValue;
   }
+  if (point.baselineYear != null) next.baselineYear = point.baselineYear;
+  if (point.baselineYearRule) next.baselineYearRule = point.baselineYearRule;
   return next;
 }
 

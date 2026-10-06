@@ -1,0 +1,53 @@
+name: backend
+
+on:
+  pull_request:
+    paths:
+      - "apps/backend/**"
+      - "packages/api-contracts/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/backend.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/backend/**"
+      - "packages/api-contracts/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/backend.yml"
+
+jobs:
+  check:
+    name: "backend: lint, typecheck, test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --filter @ruehrai/backend run --if-present lint
+
+      - name: Typecheck
+        run: pnpm --filter @ruehrai/backend build
+
+      - name: Test
+        run: pnpm --filter @ruehrai/backend test
+
+      - name: API contracts
+        run: pnpm --filter @ruehrai/api-contracts test

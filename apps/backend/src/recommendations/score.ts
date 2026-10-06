@@ -310,6 +310,8 @@ function withoutInventedZero(points: SeriesPoint[]): SeriesPoint[] {
     if (typeof point.value === "number") next.value = point.value;
     if (typeof point.normalizedValue === "number") next.normalizedValue = point.normalizedValue;
     if (point.baselineMethod) next.baselineMethod = point.baselineMethod;
+    if (point.baselineYear != null) next.baselineYear = point.baselineYear;
+    if (point.baselineYearRule) next.baselineYearRule = point.baselineYearRule;
     return next;
   });
 }

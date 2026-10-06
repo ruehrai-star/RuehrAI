@@ -192,6 +192,7 @@ export function parentMemberships(region: AnalysisRegion): ParentMembership {
   }
   if (/^lor:/i.test(geoKey ?? "")) {
     add("lor", geoKey);
+    if (isLorPlrKey(geoKey)) add("lor_plr", geoKey);
   }
   if (isKoelnQuartierKey(geoKey)) {
     add("quartier", geoKey);
@@ -281,7 +282,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::float8 AS lat,
       NULL::text AS geometry_geojson
     FROM children c
-    WHERE lower(btrim(c.child_grain)) = 'lor'
+    WHERE lower(btrim(c.child_grain)) IN ('lor', 'lor_plr')
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
 
     UNION ALL
@@ -479,7 +480,7 @@ export function buildGeoAddressCandidateSql(): string {
     SELECT ${regionGeomExpr()} AS geom
   )
   SELECT
-    COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_key::text) AS geo_key,
+    NULLIF(btrim(a.geo_key::text), '') AS geo_key,
     'address'::text AS grain,
     'address'::text AS kind,
     COALESCE(NULLIF(btrim(a.name), ''), NULLIF(btrim(a.geo_key::text), '')) AS name,
@@ -920,6 +921,95 @@ export function regionGeometryParam(region: AnalysisRegion): string | null {
 export function hamburgFallbackParams(region: AnalysisRegion): [string | null, string[]] {
   const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
   return [ags, excludeKeys(region)];
+}
+
+export interface CandidateQuery {
+  sql: string;
+  params: unknown[];
+}
+
+/** Highest `$n` placeholder in a Brain SQL string. `0` when none. */
+export function highestSqlPlaceholder(sql: string): number {
+  let highest = 0;
+  const matches = sql.matchAll(/\$(\d+)\b/g);
+  for (const match of matches) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > highest) highest = n;
+  }
+  return highest;
+}
+
+export function assertCandidateQueryArity(query: CandidateQuery): void {
+  const highest = highestSqlPlaceholder(query.sql);
+  if (query.params.length === highest) return;
+  throw Object.assign(
+    new Error(
+      `bind message supplies ${query.params.length} parameters, but prepared statement requires ${highest}`,
+    ),
+    { code: "08P01" },
+  );
+}
+
+export function geoAddressCandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildGeoAddressCandidateSql(), params: [...geoAddressCandidateParams(region)] };
+}
+
+export function addressCandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildAddressCandidateSql(), params: [...featureCandidateParams(region)] };
+}
+
+export function grid100CandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildGrid100CandidateSql(), params: [...featureCandidateParams(region)] };
+}
+
+export function lorPlrCatalogQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildLorPlrCatalogSql(), params: [...lorCandidateParams(region)] };
+}
+
+/** Feature-doc PLR lookup. `$1–$3` only — no clipped-geometry `$4`. */
+export function lorPlrFeatureCandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildLorPlrFeatureCandidateSql(), params: [...lorFeatureCandidateParams(region)] };
+}
+
+/** Feature-doc LOR 2006 lookup. `$1–$3` only — no clipped-geometry `$4`. */
+export function lorFeatureCandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildLorFeatureCandidateSql(), params: [...lorFeatureCandidateParams(region)] };
+}
+
+export function koelnQuartierCandidateQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildKoelnQuartierCandidateSql(), params: [...hamburgFallbackParams(region)] };
+}
+
+export function hamburgStadtteilFallbackQuery(region: AnalysisRegion): CandidateQuery {
+  return { sql: buildHamburgStadtteilFallbackSql(), params: [...hamburgFallbackParams(region)] };
+}
+
+export function teilCatalogQuery(
+  region: AnalysisRegion,
+  adminMode: "prefer" | "legacy" = "prefer",
+): CandidateQuery {
+  const membership = parentMemberships(region);
+  const exclude = [region.geoKey?.trim(), region.ags?.trim(), region.plz?.trim()].filter(
+    (value): value is string => Boolean(value),
+  );
+  return {
+    sql: buildTeilCatalogSql(adminMode),
+    params: [membership.grains, membership.ids, exclude, regionGeometryParam(region)],
+  };
+}
+
+export function areaCandidateQuery(
+  region: AnalysisRegion,
+  adminMode: "prefer" | "legacy" = "prefer",
+): CandidateQuery {
+  return { sql: buildAreaCandidateSql(adminMode), params: [...areaCandidateParams(region)] };
+}
+
+export function lorFeatureCandidateParams(
+  region: AnalysisRegion,
+): [string | null, string[], string[]] {
+  const [ags, exclude, bezirk] = lorCandidateParams(region);
+  return [ags, exclude, bezirk];
 }
 
 function bezirkIdVariants(region: AnalysisRegion): string[] {

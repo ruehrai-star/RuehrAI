@@ -336,4 +336,90 @@ describe("series-baseline", () => {
     expect(normalized.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.normalizedValue).toBeUndefined();
     expect(normalized.find((item) => item.metricId === "kba_elektro_pkw")?.points[0]?.baselineMethod).toBe("missing");
   });
+
+  it("normalizes Unfallatlas on a nearest Einwohner year and never writes rate 0 for 0 EW", () => {
+    const catalog = new Map<string, MetricCatalogEntry>([
+      ["unfallatlas", { sourceTheme: "unfallatlas_gebiet", recommendedBaseline: "einwohner", unitHint: "per_1000_einwohner" }],
+    ]);
+    const series: YearlySeries[] = [
+      {
+        metricId: "unfallatlas",
+        requestedLevel: "lor",
+        requestedGeoKey: "lor:plr:07400720",
+        sourceLevel: "lor",
+        sourceGeoKey: "lor:plr:07400720",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2018", status: "present", value: 35 },
+          { period: "2023", status: "present", value: 35 },
+        ],
+      },
+      {
+        metricId: "unfallatlas",
+        requestedLevel: "lor",
+        requestedGeoKey: "lor:plr:03400831",
+        sourceLevel: "lor",
+        sourceGeoKey: "lor:plr:03400831",
+        granularity: "year",
+        coverage: "single",
+        points: [{ period: "2023", status: "present", value: 0 }],
+      },
+    ];
+    const normalized = attachNormalizedValues(series, {
+      catalog,
+      rows: [
+        {
+          geoKey: "lor:plr:07400720",
+          grain: "lor_plr",
+          refYear: 2021,
+          einwohner: 11_780,
+          flaecheKm2: 0.4,
+          haushalte: null,
+          einwohnerMethod: "official",
+          haushalteMethod: null,
+          flaecheMethod: "geom",
+        },
+        {
+          geoKey: "lor:plr:07400720",
+          grain: "lor_plr",
+          refYear: 2023,
+          einwohner: 11_780,
+          flaecheKm2: 0.4,
+          haushalte: null,
+          einwohnerMethod: "official",
+          haushalteMethod: null,
+          flaecheMethod: "geom",
+        },
+        {
+          geoKey: "lor:plr:03400831",
+          grain: "lor_plr",
+          refYear: 2023,
+          einwohner: 0,
+          flaecheKm2: 0.2,
+          haushalte: null,
+          einwohnerMethod: "official",
+          haushalteMethod: null,
+          flaecheMethod: "geom",
+        },
+      ],
+    });
+    const gontermann = normalized.find((item) => item.requestedGeoKey === "lor:plr:07400720");
+    expect(gontermann?.points.find((point) => point.period === "2018")).toMatchObject({
+      value: 35,
+      baselineMethod: "official",
+      baselineYear: 2021,
+      baselineYearRule: "nearest",
+    });
+    expect(gontermann?.points.find((point) => point.period === "2018")?.normalizedValue).toBeCloseTo(2.9711, 3);
+    expect(gontermann?.points.find((point) => point.period === "2023")).toMatchObject({
+      baselineMethod: "official",
+      baselineYear: 2023,
+      baselineYearRule: "exact",
+    });
+    const pankow = normalized.find((item) => item.requestedGeoKey === "lor:plr:03400831");
+    expect(pankow?.points[0]?.normalizedValue).toBeUndefined();
+    expect(pankow?.points[0]?.baselineMethod).toBe("missing");
+    expect(JSON.stringify(pankow?.points[0])).not.toMatch(/"normalizedValue":0/);
+  });
 });
