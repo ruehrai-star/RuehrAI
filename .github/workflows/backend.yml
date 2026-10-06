@@ -49,5 +49,8 @@ jobs:
       - name: Test
         run: pnpm --filter @ruehrai/backend test
 
+      - name: Load test (3 stores × ~2000, GET /health)
+        run: pnpm --filter @ruehrai/backend test -- src/analysis/analysis.load.http.spec.ts --runInBand
+
       - name: API contracts
         run: pnpm --filter @ruehrai/api-contracts test

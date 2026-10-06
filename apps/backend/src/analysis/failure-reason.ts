@@ -26,11 +26,23 @@ export function asAnalysisRunFailureReason(value: string | null | undefined): An
 export function isAnalysisDeadlineError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const code = "code" in error ? (error as { code?: unknown }).code : undefined;
-  return code === "ANALYSIS_DEADLINE" || code === "57014";
+  if (code === "ANALYSIS_DEADLINE" || code === "57014") return true;
+  const name = "name" in error ? (error as { name?: unknown }).name : undefined;
+  const message = "message" in error ? (error as { message?: unknown }).message : undefined;
+  if (name === "AbortError" && typeof message === "string" && /deadline|aborted/i.test(message)) {
+    return true;
+  }
+  return typeof message === "string" && message === "analysis run deadline exceeded";
 }
 
 export function analysisDeadlineError(): Error {
   return Object.assign(new Error("analysis run deadline exceeded"), { code: "ANALYSIS_DEADLINE" });
+}
+
+export function isAnalysisInterruptedError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error ? (error as { code?: unknown }).code : undefined;
+  return code === "ANALYSIS_INTERRUPTED";
 }
 
 /**
@@ -42,6 +54,7 @@ export function mapAnalysisFailureReason(
   phase: AnalysisFailurePhase,
 ): AnalysisRunFailureReason {
   if (phase === "startup") return "interrupted";
+  if (isAnalysisInterruptedError(error)) return "interrupted";
   if (isAnalysisDeadlineError(error)) return "timeout";
   if (phase === "pattern") return "pattern_failed";
   if (phase === "set") return "set_save_failed";

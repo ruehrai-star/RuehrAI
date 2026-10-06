@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
   isGeoCatalogUnavailable,
@@ -191,7 +191,7 @@ export class StoreSurroundingsService {
 
   private async readAddressColumns(): Promise<ReadonlySet<string> | null> {
     try {
-      const result = await this.db.queryReadingFeatures<{ column_name: string }>(
+      const result = await featuresReadQuery(this.db)<{ column_name: string }>(
         `SELECT column_name
            FROM information_schema.columns
           WHERE table_schema = 'geo'
@@ -374,7 +374,7 @@ export class StoreSurroundingsService {
     options?: { onUndefinedColumn?: "skip-address" },
   ): Promise<T[]> {
     try {
-      const result = await this.db.queryReadingFeatures<T>(sql, params);
+      const result = await featuresReadQuery(this.db)<T>(sql, params);
       return result.rows;
     } catch (error) {
       if (

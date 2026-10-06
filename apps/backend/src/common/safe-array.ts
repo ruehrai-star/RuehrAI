@@ -32,3 +32,13 @@ export function pushAll<T>(target: T[], items: Iterable<T>): void {
 export function yieldEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+export async function yieldIfDue(
+  lastYieldAt: { ms: number },
+  yieldMs = 20,
+): Promise<boolean> {
+  if (Date.now() - lastYieldAt.ms < yieldMs) return false;
+  await yieldEventLoop();
+  lastYieldAt.ms = Date.now();
+  return true;
+}

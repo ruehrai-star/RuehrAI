@@ -121,6 +121,7 @@ describe("GET /analysis/pattern geoKey", () => {
     expect(buildSeries).toHaveBeenCalledWith(
       [expect.objectContaining({ geoKey: "09162000" })],
       expect.any(Date),
+      undefined,
     );
   });
 

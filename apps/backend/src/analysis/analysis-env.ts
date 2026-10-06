@@ -8,6 +8,8 @@ export const ANALYSIS_ENV_DEFAULTS = {
   phaseWarnMs: 5_000,
   statementTimeoutMs: 20_000,
   analysisPoolMax: 2,
+  seriesCandidateCap: 400,
+  yieldMs: 20,
 } as const;
 
 export function readAnalysisRunDeadlineMs(
@@ -38,6 +40,28 @@ export function readPgAnalysisPoolMax(
   read: (name: string) => string | undefined = (name) => process.env[name],
 ): number {
   return positiveInt(read("PG_ANALYSIS_POOL_MAX"), ANALYSIS_ENV_DEFAULTS.analysisPoolMax);
+}
+
+export function readAnalysisSeriesCandidateCap(
+  read: (name: string) => string | undefined = (name) => process.env[name],
+): number {
+  return positiveInt(read("ANALYSIS_SERIES_CANDIDATE_CAP"), ANALYSIS_ENV_DEFAULTS.seriesCandidateCap);
+}
+
+export function readAnalysisYieldMs(
+  read: (name: string) => string | undefined = (name) => process.env[name],
+): number {
+  return positiveInt(read("ANALYSIS_YIELD_MS"), ANALYSIS_ENV_DEFAULTS.yieldMs);
+}
+
+export function readAnalysisUseWorkerThreads(
+  read: (name: string) => string | undefined = (name) => process.env[name],
+): boolean {
+  const raw = read("ANALYSIS_USE_WORKER_THREADS");
+  if (raw === undefined || raw.trim() === "") return true;
+  const value = raw.trim().toLowerCase();
+  if (value === "0" || value === "false" || value === "no") return false;
+  return true;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
