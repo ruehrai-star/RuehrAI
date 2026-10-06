@@ -5,7 +5,7 @@ import { catalogBadge, grainLabel, isCatalogKey } from "../format.ts";
  * Lage-Satz from `overlaps` may only be shown once shares are computed on the
  * hit area clipped to the Zielregion (same geometry as `items[].geometry`).
  *
- * #69 (OpenAPI 0.19.1, PO-Gate commit `438d963`) already clips:
+ * #69 (OpenAPI 0.19.1, squash `9594da9`) already clips:
  * `buildHitOverlapSql` uses `clipToRegionSql` / `$3`, and the contract says
  * `share` = intersection / clipped hit area. Default on.
  *
@@ -72,19 +72,48 @@ export function areaKindBadge(kind: AreaKind): string {
   }
 }
 
+export type DisplayNameSource = {
+  name?: string | null;
+  kind?: AreaKind | string | null;
+  geoKey?: string | null;
+  grain?: string | null;
+  id?: string | null;
+};
+
+/**
+ * Same mapping for Treffer names and overlap labels. Planungsraum in Berlin,
+ * Quartier in Köln, raster always „100-m-Rasterzelle“. Unnamed shows only the
+ * kind („Planungsraum ohne Namen“, „Quartier ohne Namen“). Never a number or
+ * catalog key. Backend `Planungsraum [8-digit]` / `Quartier [Nummer]` match
+ * `^Planungsraum \d{8}$` / `^Quartier \d+$`.
+ */
+export function mapDisplayName(source: DisplayNameSource): string {
+  const blob = displayBlob(source);
+  const kind = source.kind ?? null;
+  const grain = source.grain ?? null;
+  if (isRasterContext(kind, grain, blob)) return RASTER_NAME;
+  const raw = visiblePlaceText(source.name);
+  if (isRasterFallbackName(raw)) return RASTER_NAME;
+  if (NUMBERED_PLANUNGSRAUM.test(raw)) return PLANUNGSRAUM_OHNE_NAMEN;
+  if (NUMBERED_QUARTIER.test(raw)) return QUARTIER_OHNE_NAMEN;
+  if (raw && !nameHasForbiddenId(raw) && !isBareNumber(raw)) return raw;
+  return unnamedFromContext(kind, grain, blob);
+}
+
 /**
  * Visible Treffer name from `name`. Never a geoKey or internal ID, including
  * inside the name. Raster is always „100-m-Rasterzelle“. Backend fallbacks
  * that still contain a forbidden ID are mapped here.
  */
 export function hitName(item: Recommendation): string {
-  if (isRasterHit(item, hitBlob(item))) return RASTER_NAME;
   const raw = visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
-  if (isRasterFallbackName(raw)) return RASTER_NAME;
-  if (NUMBERED_PLANUNGSRAUM.test(raw)) return PLANUNGSRAUM_OHNE_NAMEN;
-  if (NUMBERED_QUARTIER.test(raw)) return QUARTIER_OHNE_NAMEN;
-  if (!raw || nameHasForbiddenId(raw)) return unnamedKind(item);
-  return raw;
+  return mapDisplayName({
+    name: raw,
+    kind: item.kind,
+    geoKey: locationKey(item),
+    grain: item.grain ?? item.location.grain,
+    id: item.id,
+  });
 }
 
 export function overlapLageSentence(overlaps: Recommendation["overlaps"] | undefined): string | null {
@@ -122,9 +151,13 @@ export function visibleOverlaps(overlaps: readonly RecommendationOverlap[] | und
   if (!Array.isArray(overlaps) || overlaps.length === 0) return [];
   return overlaps
     .map((part) => {
-      const label = typeof part.label === "string" ? part.label.trim() : "";
-      if (!label || isCatalogKey(label)) return null;
       if (typeof part.share !== "number" || !Number.isFinite(part.share)) return null;
+      const label = mapDisplayName({
+        name: typeof part.label === "string" ? part.label : "",
+        kind: part.kind,
+        geoKey: part.geoKey,
+      });
+      if (!label) return null;
       return { label, share: part.share };
     })
     .filter((row): row is { label: string; share: number } => row != null)
@@ -135,37 +168,44 @@ export function wholePercent(share: number): number {
   return Math.round(share * 100);
 }
 
-function unnamedKind(item: Recommendation): string {
-  const blob = hitBlob(item);
-  if (isRasterHit(item, blob)) return RASTER_NAME;
-  if (item.kind === "address" || item.grain === "address" || item.location.grain === "address") {
-    return "Adresse ohne Hausnummer";
-  }
+function unnamedFromContext(kind: string | null, grain: string | null, blob: string): string {
+  if (isRasterContext(kind, grain, blob)) return RASTER_NAME;
+  if (kind === "address" || grain === "address") return "Adresse ohne Hausnummer";
   // Berlin LOR: never the eight-digit PLR number, even from lor:plr:*.
-  if (isLorHit(item, blob)) return PLANUNGSRAUM_OHNE_NAMEN;
+  if (isLorContext(kind, blob)) return PLANUNGSRAUM_OHNE_NAMEN;
   // Köln Quartier: never a number from koeln:sq:*.
-  if (isKoelnQuartierHit(item, blob) || item.kind === "quartier") return QUARTIER_OHNE_NAMEN;
-  if (item.kind === "ortsteil") return "Ortsteil ohne Namen";
-  if (item.kind === "stadtteil") return "Stadtteil ohne Namen";
-  if (item.kind === "plz" || item.grain === "plz5" || item.grain === "plz8" || item.location.grain === "plz5" || item.location.grain === "plz8") {
-    return "PLZ ohne Namen";
-  }
-  if (item.kind === "bezirk") return "Bezirk ohne Namen";
-  if (item.kind === "stadtbezirk") return "Stadtbezirk ohne Namen";
-  if (item.kind === "gemeinde") return "Gemeinde ohne Namen";
+  if (isKoelnQuartierContext(kind, blob)) return QUARTIER_OHNE_NAMEN;
+  if (kind === "ortsteil") return "Ortsteil ohne Namen";
+  if (kind === "stadtteil") return "Stadtteil ohne Namen";
+  if (kind === "plz" || grain === "plz5" || grain === "plz8") return "PLZ ohne Namen";
+  if (kind === "bezirk") return "Bezirk ohne Namen";
+  if (kind === "stadtbezirk") return "Stadtbezirk ohne Namen";
+  if (kind === "gemeinde") return "Gemeinde ohne Namen";
   return "";
 }
 
 function isRasterHit(item: Recommendation, blob: string): boolean {
-  return item.kind === "grid100" || item.grain === "grid100" || item.location.grain === "grid100" || /grid100/i.test(blob);
+  return isRasterContext(item.kind, item.grain ?? item.location.grain, blob);
+}
+
+function isRasterContext(kind: string | null | undefined, grain: string | null | undefined, blob: string): boolean {
+  return kind === "grid100" || grain === "grid100" || /grid100/i.test(blob);
 }
 
 function isLorHit(item: Recommendation, blob: string): boolean {
-  return /lor:plr:/i.test(blob) || item.kind === "lor" || /lor:/i.test(blob);
+  return isLorContext(item.kind, blob);
+}
+
+function isLorContext(kind: string | null | undefined, blob: string): boolean {
+  return /lor:plr:/i.test(blob) || kind === "lor" || /lor:/i.test(blob);
 }
 
 function isKoelnQuartierHit(item: Recommendation, blob: string): boolean {
-  return KOELN_SQ.test(blob) || item.kind === "quartier";
+  return isKoelnQuartierContext(item.kind, blob);
+}
+
+function isKoelnQuartierContext(kind: string | null | undefined, blob: string): boolean {
+  return KOELN_SQ.test(blob) || kind === "quartier";
 }
 
 function isRasterFallbackName(value: string): boolean {
@@ -183,8 +223,12 @@ function locationKey(item: Recommendation): string | null {
   return typeof geoKey === "string" && geoKey.length > 0 ? geoKey : null;
 }
 
-function hitBlob(item: Recommendation): string {
-  return [item.id, locationKey(item), item.grain ?? item.location.grain].filter((part): part is string => Boolean(part)).join(" ");
+function displayBlob(source: Pick<DisplayNameSource, "id" | "geoKey" | "grain">): string {
+  return [source.id, source.geoKey, source.grain].filter((part): part is string => Boolean(part)).join(" ");
+}
+
+function isBareNumber(value: string): boolean {
+  return /^\d+$/.test(value);
 }
 
 function visiblePlaceText(value: string | null | undefined): string {

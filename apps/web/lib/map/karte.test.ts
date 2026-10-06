@@ -556,6 +556,24 @@ test("map hover hint carries rank, name, badge and Lage-Satz; outlines have no e
   assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ 81541/);
   assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ/);
   assert.match(model.hitMarkers[0]?.hint ?? "", /Liegt zu 62 %/);
+  const numbered = recommendation("plz5:12247", "PLZ 12247", null, null);
+  numbered.kind = "plz";
+  numbered.name = "PLZ 12247";
+  numbered.geometry = MUNICH_BOX;
+  numbered.overlaps = [
+    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor", share: 0.55 },
+    { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.45 },
+  ];
+  const numberedModel = buildTrefferlisteKarte({
+    region: region({ geometry: MUNICH_BOX, geoKey: "09162000" }),
+    items: [numbered],
+  });
+  assert.equal(
+    numberedModel.hitMarkers[0]?.lage,
+    "Liegt zu 55 % in Planungsraum ohne Namen und zu 45 % in Quartier ohne Namen.",
+  );
+  assert.equal(numberedModel.hitMarkers[0]?.lage.includes("07400720"), false);
+  assert.equal(numberedModel.hitMarkers[0]?.lage.includes("101"), false);
   assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("62"), false);
   assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("share"), false);
   assert.equal(model.region.features.length, 1);

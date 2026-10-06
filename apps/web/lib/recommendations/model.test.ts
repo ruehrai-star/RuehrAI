@@ -20,6 +20,7 @@ import {
   hitName,
   inheritedLabel,
   intersectionLine,
+  mapDisplayName,
   overlapDetailLines,
   overlapLageSentence,
   rankLabel,
@@ -999,6 +1000,85 @@ test("Lage-Satz from overlaps: one entry or share 1, two, three, four or more, r
   assert.equal(visible.includes("stadtbezirk:"), false);
   assert.equal(visible.includes("geoKey"), false);
   assert.equal(cardOne.name, "100-m-Rasterzelle");
+});
+
+test("overlap labels use the same name mapping as hits", () => {
+  const lorNumbered = [
+    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor" as const, share: 1 },
+  ];
+  const quartierNumbered = [
+    { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier" as const, share: 0.6 },
+    { geoKey: "koeln:sq:12", label: "Belgisches Viertel", kind: "quartier" as const, share: 0.4 },
+  ];
+  const lorKeyed = [
+    { geoKey: "lor:plr:07400823", label: "lor:plr:07400823", kind: "lor" as const, share: 1 },
+  ];
+  const raster = [
+    {
+      geoKey: "grid100:100mN32700E42100",
+      label: "Rasterzelle 100mN32700E42100",
+      kind: "grid100" as const,
+      share: 1,
+    },
+  ];
+  const bezirk = [{ geoKey: "bezirk:11000001", label: "Mitte", kind: "bezirk" as const, share: 1 }];
+  const ortsteil = [
+    { geoKey: "ortsteil:osm:5712247", label: "Ortsteil osm:5712247", kind: "ortsteil" as const, share: 1 },
+  ];
+  const unnamedQuartier = [{ geoKey: "koeln:sq:101", label: "", kind: "quartier" as const, share: 1 }];
+
+  assert.equal(overlapLageSentence(lorNumbered), "Liegt in Planungsraum ohne Namen.");
+  assert.equal(overlapDetailLines(lorNumbered)[0], "Planungsraum ohne Namen: 100 %");
+  assert.equal(
+    overlapLageSentence(quartierNumbered),
+    "Liegt zu 60 % in Quartier ohne Namen und zu 40 % in Belgisches Viertel.",
+  );
+  assert.deepEqual(overlapDetailLines(quartierNumbered), [
+    "Quartier ohne Namen: 60 %",
+    "Belgisches Viertel: 40 %",
+  ]);
+  assert.equal(overlapLageSentence(lorKeyed), "Liegt in Planungsraum ohne Namen.");
+  assert.equal(overlapLageSentence(raster), "Liegt in 100-m-Rasterzelle.");
+  assert.equal(overlapLageSentence(bezirk), "Liegt in Mitte.");
+  assert.equal(overlapLageSentence(ortsteil), "Liegt in Ortsteil ohne Namen.");
+  assert.equal(overlapLageSentence(unnamedQuartier), "Liegt in Quartier ohne Namen.");
+
+  const lorHit = item({
+    id: "lor:plr:07400720",
+    rank: 1,
+    kind: "lor",
+    name: "Planungsraum 07400720",
+    location: { geoKey: "lor:plr:07400720", grain: "other", lon: null, lat: null, name: "Planungsraum 07400720" },
+  });
+  const quartierHit = item({
+    id: "koeln:sq:101",
+    rank: 1,
+    kind: "quartier",
+    name: "Quartier 101",
+    location: { geoKey: "koeln:sq:101", grain: "other", lon: null, lat: null, name: "Quartier 101" },
+  });
+  assert.equal(hitName(lorHit), mapDisplayName({ name: "Planungsraum 07400720", kind: "lor", geoKey: "lor:plr:07400720" }));
+  assert.equal(hitName(quartierHit), mapDisplayName({ name: "Quartier 101", kind: "quartier", geoKey: "koeln:sq:101" }));
+  assert.equal(hitName(lorHit), "Planungsraum ohne Namen");
+  assert.equal(hitName(quartierHit), "Quartier ohne Namen");
+
+  const card = buildTrefferCard(
+    item({ id: "plz5:12247", rank: 1, kind: "plz", name: "PLZ 12247", overlaps: [...lorNumbered, ...quartierNumbered] }),
+    undefined,
+  );
+  assert.equal(card.lage, "Liegt in Planungsraum ohne Namen.");
+  assert.deepEqual(card.overlapDetails, [
+    "Planungsraum ohne Namen: 100 %",
+    "Quartier ohne Namen: 60 %",
+    "Belgisches Viertel: 40 %",
+  ]);
+  const visible = `${card.lage ?? ""} ${card.overlapDetails.join(" ")}`;
+  assert.equal(visible.includes("07400720"), false);
+  assert.equal(visible.includes("101"), false);
+  assert.equal(visible.includes("lor:"), false);
+  assert.equal(visible.includes("koeln:sq"), false);
+  assert.equal(visible.includes("100mN"), false);
+  assert.equal(/\d{8}/.test(visible), false);
 });
 
 test("Lage-Satz sits in the card header and Details, not in the Begründung", () => {

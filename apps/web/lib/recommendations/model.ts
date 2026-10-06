@@ -24,6 +24,7 @@ export {
   hitBadge,
   hitMapHint,
   hitName,
+  mapDisplayName,
   overlapDetailLines,
   overlapLageSentence,
 } from "./hit-copy.ts";
