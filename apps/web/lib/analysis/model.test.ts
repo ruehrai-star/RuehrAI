@@ -131,7 +131,5 @@ test("Musteranalyse start uses the same lock as Empfehlungen while a run is in f
   assert.match(page, /analysisStartLocked/);
   assert.match(page, /disabled=\{startLocked\}/);
   assert.match(page, /startGate\.current/);
-  const startFn = page.slice(page.indexOf("async function onStart"), page.indexOf("if (!session)"));
-  assert.match(startFn, /if \(startGate\.current \|\| startLocked\) return/);
-  assert.match(startFn, /createAnalysisRun/);
+  assert.match(page, /async function onStart\(\) \{[\s\S]*if \(startGate\.current \|\| startLocked\) return;[\s\S]*createAnalysisRun/);
 });

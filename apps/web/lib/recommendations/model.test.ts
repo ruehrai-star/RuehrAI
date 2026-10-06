@@ -192,14 +192,9 @@ test("Trefferliste heading is always singular for the currently marked Zielregio
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   assert.match(page, /headingForMarkedRegion\(marked\)/);
   assert.equal(page.includes("subtitlePlural"), false);
+  assert.equal(page.includes("formatRunRegionLabel"), false);
   assert.match(page, /<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
-  const afterStand = page.slice(page.indexOf("standPrefix"));
-  const headingBlock = afterStand.slice(afterStand.indexOf("<h1>"), afterStand.indexOf("</h1>") + 5);
-  assert.match(headingBlock, /heading \?\? RECOMMENDATION_COPY\.title/);
-  assert.equal(headingBlock.includes("RunRegionLabel"), false);
-  assert.equal(headingBlock.includes("formatRunRegionLabel"), false);
-  const standBlock = page.slice(page.indexOf("standPrefix"), page.indexOf("<h1>{heading"));
-  assert.match(standBlock, /RunRegionLabel/);
+  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
   assert.match(page, /RECOMMENDATION_COPY\.empty/);
   assert.equal(page.includes("emptyPlural"), false);
 });
@@ -634,12 +629,8 @@ test("Musteranalyse starten and Erneut starten stay disabled while a run is in f
   assert.match(page, /RECOMMENDATION_COPY\.startAnalysis/);
   assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
   assert.match(page, /startGate\.current/);
-  const emptyBlock = page.slice(page.indexOf("showEmptyRun"), page.indexOf("showRestart"));
-  assert.match(emptyBlock, /RECOMMENDATION_COPY\.startAnalysis/);
-  assert.match(emptyBlock, /disabled=\{startLocked\}/);
-  const startFn = page.slice(page.indexOf("async function onStartAnalysis"), page.indexOf("const karte"));
-  assert.match(startFn, /startGate\.current/);
-  assert.match(startFn, /analysisStartLocked/);
+  assert.match(page, /\{showEmptyRun \?[\s\S]*RECOMMENDATION_COPY\.startAnalysis[\s\S]*disabled=\{startLocked\}/);
+  assert.match(page, /async function onStartAnalysis\(\) \{[\s\S]*startGate\.current[\s\S]*analysisStartLocked/);
 });
 
 test("pattern profile lists datasets without ids or method codes", () => {
