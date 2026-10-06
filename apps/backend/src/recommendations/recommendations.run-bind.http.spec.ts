@@ -307,8 +307,8 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       .post("/analysis/runs")
       .set("authorization", `Bearer ${token}`)
       .expect(500);
-    expect(query.mock.calls.some((call) => String(call[0]).includes("'failed'"))).toBe(true);
-    expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(false);
+    expect(query.mock.calls.some((call) => /SET\s+status\s*=\s*'failed'/.test(String(call[0])))).toBe(true);
+    expect(query.mock.calls.some((call) => /SET\s+status\s*=\s*'completed'/.test(String(call[0])))).toBe(false);
 
     const run = await request(app.getHttpServer())
       .get(`/analysis/runs/${runId}`)
@@ -322,7 +322,7 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       .query({ runId })
       .set("authorization", `Bearer ${token}`)
       .expect(404);
-  }
+  });
 });
 
 function assertPgArity(sql: string, params: unknown[]): void {
