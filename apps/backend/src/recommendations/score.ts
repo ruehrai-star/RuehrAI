@@ -1,4 +1,5 @@
-import { PatternCriterion } from "../analysis/types";
+import { AnalysisRegion, PatternCriterion } from "../analysis/types";
+import { emptyToNull } from "../customer/values";
 import {
   absentEvidence,
   directionFromPoints,
@@ -22,7 +23,14 @@ import {
 } from "../analysis/series-baseline";
 import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-series";
 import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
-import { EvidenceScope, RecommendationEvidence, RecommendationTrend, ScoredLocation } from "./types";
+import { areaGroupKey, hitParentLabel, visibleAreaName } from "./hit-display";
+import {
+  EvidenceScope,
+  RecommendationEvidence,
+  RecommendationIntersectionPart,
+  RecommendationTrend,
+  ScoredLocation,
+} from "./types";
 
 /**
  * Rank Teilflächen against the store-surroundings **dataset** pattern.
@@ -36,6 +44,7 @@ export function rankTeilflaechen(
   candidates: AreaCandidate[],
   series: YearlySeries[],
   criteria: PatternCriterion[],
+  regions: AnalysisRegion[] = [],
 ): ScoredLocation[] {
   const normalized = attachNormalizedValues(series);
   const hits = selectDatasetHits(candidates, normalized, criteria);
@@ -54,16 +63,23 @@ export function rankTeilflaechen(
       ...entry,
       baselineMatch: entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline),
     }));
+    const name = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
+    const parentLabel = hitParentLabel(candidate, candidates, regions);
+    const intersectionOf = intersectionParts(candidate, candidates, normalized, criteria);
     scored.push({
       id: candidate.id,
       title: candidate.title,
       kind: candidate.kind,
+      grain: candidate.grain,
+      name,
+      parentLabel,
+      ...(intersectionOf.length >= 2 ? { intersectionOf } : {}),
       location: {
         geoKey: candidate.geoKey,
         grain: candidate.grain,
         lon: candidate.lon,
         lat: candidate.lat,
-        name: candidate.name,
+        name,
       },
       score,
       criteriaEvidence: withBaseline,
@@ -131,11 +147,47 @@ export function selectDatasetHits(
 }
 
 function datasetHitGroup(candidate: AreaCandidate): string {
-  const ags = candidate.ags?.trim() ?? "";
-  if (ags.length >= 5) return `ags:${ags.slice(0, 5)}`;
-  const plz = candidate.plz?.trim() ?? "";
-  if (plz) return `plz:${plz}`;
-  return `key:${candidate.geoKey}`;
+  return areaGroupKey(candidate);
+}
+
+function intersectionParts(
+  hit: AreaCandidate,
+  pool: AreaCandidate[],
+  series: YearlySeries[],
+  criteria: PatternCriterion[],
+): RecommendationIntersectionPart[] {
+  const group = pool.filter((candidate) => datasetHitGroup(candidate) === datasetHitGroup(hit));
+  const byGeoKey = groupSeries(series);
+  const parts: RecommendationIntersectionPart[] = [];
+  const seen = new Set<string>();
+  for (const criterion of criteria) {
+    const wanted = new Set(metricIdsForCriterion(criterion.key));
+    const matches = group.filter((candidate) => {
+      const local = byGeoKey.get(candidate.geoKey) ?? [];
+      return local.some(
+        (item) =>
+          wanted.has(item.metricId) &&
+          evidenceScope(candidate.kind, item.sourceLevel) === "local" &&
+          presentPoints(item.points).length > 0,
+      );
+    });
+    if (matches.length === 0) continue;
+    const finest = Math.min(...matches.map((candidate) => areaKindRank(candidate.kind)));
+    const chosen = matches.find((candidate) => areaKindRank(candidate.kind) === finest);
+    if (!chosen) continue;
+    const name = visibleAreaName(chosen.name) ?? visibleAreaName(chosen.title);
+    if (seen.has(chosen.geoKey)) continue;
+    seen.add(chosen.geoKey);
+    const part: RecommendationIntersectionPart = {
+      geoKey: chosen.geoKey,
+      grain: chosen.grain,
+      name,
+    };
+    const datasetKey = emptyToNull(criterion.metricId) ?? emptyToNull(criterion.key);
+    if (datasetKey) part.datasetKey = datasetKey;
+    parts.push(part);
+  }
+  return parts;
 }
 
 export function isTrendCriterion(criterion: PatternCriterion): boolean {

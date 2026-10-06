@@ -25,6 +25,13 @@ export interface RecommendationLocation {
   name: string | null;
 }
 
+export interface RecommendationIntersectionPart {
+  geoKey: string;
+  grain: Grain;
+  name: string | null;
+  datasetKey?: string;
+}
+
 export type EvidenceKind = "trend" | "stichtag" | "absent";
 export type EvidenceScope = "local" | "inherited";
 
@@ -55,6 +62,10 @@ export interface ScoredLocation {
   id: string;
   title: string;
   kind: AreaKind;
+  grain: Grain;
+  name: string | null;
+  parentLabel: string | null;
+  intersectionOf?: RecommendationIntersectionPart[];
   location: RecommendationLocation;
   score: number;
   criteriaEvidence: RecommendationEvidence[];

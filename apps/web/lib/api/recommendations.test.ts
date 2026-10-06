@@ -31,6 +31,9 @@ const set = {
       rank: 1,
       title: "Schwabing",
       kind: "plz",
+      grain: "plz5",
+      name: "Schwabing",
+      parentLabel: "München",
       location: {
         geoKey: "80801",
         grain: "plz5",
@@ -77,6 +80,9 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
 
   const latest = await api.getRecommendations();
   assert.equal(latest?.items[0]?.rationale.startsWith("Am Standort Schwabing"), true);
+  assert.equal(latest?.items[0]?.grain, "plz5");
+  assert.equal(latest?.items[0]?.name, "Schwabing");
+  assert.equal(latest?.items[0]?.parentLabel, "München");
   assert.equal(latest?.items[0]?.location.level, "plz");
   assert.equal(latest?.items[0]?.location.parentLabel, "München");
   const created = await api.createRecommendations();
@@ -306,6 +312,33 @@ test("GET /recommendations accepts 0.18 geometry, series coverage, trend, and ba
   assert.equal(latest?.items[0]?.criteriaEvidence[0]?.baselineMatch, false);
   assert.equal(latest?.patternByDataset?.[0]?.yearlySeries.coverage, "series");
   assert.equal(latest?.patternByDataset?.[0]?.baselineMatch, true);
+});
+
+test("GET /recommendations keeps official grain, parentLabel, and intersectionOf", async () => {
+  const withParts = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        grain: "plz5",
+        name: "10115",
+        parentLabel: "Mitte",
+        intersectionOf: [
+          { geoKey: "11000001", grain: "ags", name: "Mitte", datasetKey: "kba_elektro_pkw" },
+          { geoKey: "10115", grain: "plz5", name: "10115", datasetKey: "wanderungen" },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withParts),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.grain, "plz5");
+  assert.equal(latest?.items[0]?.name, "10115");
+  assert.equal(latest?.items[0]?.parentLabel, "Mitte");
+  assert.deepEqual(latest?.items[0]?.intersectionOf, withParts.items[0]?.intersectionOf);
 });
 
 test("GET /recommendations maps 404 to no set", async () => {

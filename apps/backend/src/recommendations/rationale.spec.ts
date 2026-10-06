@@ -22,6 +22,9 @@ function item(): ScoredLocation {
     id: "other:ortsteil:osm:1",
     title: "Schwabing",
     kind: "ortsteil",
+    grain: "other",
+    name: "Schwabing",
+    parentLabel: "München",
     location: { geoKey: "ortsteil:osm:1", grain: "other", lon: 11.5, lat: 48.1, name: "Schwabing" },
     score: 1,
     criteriaEvidence: [

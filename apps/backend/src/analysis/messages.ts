@@ -11,3 +11,5 @@ export const PATTERN_NOT_FOUND =
 
 export const PATTERN_FOR_REGION_NOT_FOUND =
   "Für diese Zielregion liegt noch kein Analyselauf vor.";
+
+export const RUN_FAILED = "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.";

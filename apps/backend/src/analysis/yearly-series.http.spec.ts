@@ -6,6 +6,7 @@ import { AppModule } from "../app.module";
 import { configureApp } from "../configure-app";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
+import { RecommendationsService } from "../recommendations/recommendations.service";
 import { BrainSearchService } from "./brain-search.service";
 import { SERIES_METRICS } from "./yearly-series";
 
@@ -32,6 +33,13 @@ describe("analysis yearlySeries HTTP", () => {
       })
       .overrideProvider(GeoCatalogService)
       .useValue({ search: async () => [], lookupAdminNames: async () => new Map() })
+      .overrideProvider(RecommendationsService)
+      .useValue({
+        create: async () => ({ id: "28", runId: "15" }),
+        latest: async () => {
+          throw new Error("GET /recommendations is not used in this spec");
+        },
+      })
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -76,7 +84,17 @@ describe("analysis yearlySeries HTTP", () => {
           storeRow({ year: 2025, month: 2, revenue_eur: "130.00" }),
         ],
       })
-      .mockResolvedValueOnce({ rows: [{ id: "15", created_at: new Date("2026-10-05T00:00:00.000Z") }] });
+      .mockResolvedValueOnce({ rows: [{ id: "15", created_at: new Date("2026-10-05T00:00:00.000Z") }] })
+      .mockResolvedValueOnce({ rows: [{ started_at: new Date("2026-10-05T00:00:01.000Z") }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            started_at: new Date("2026-10-05T00:00:01.000Z"),
+            completed_at: new Date("2026-10-05T00:00:02.000Z"),
+          },
+        ],
+      });
 
     const response = await request(app.getHttpServer())
       .post("/analysis/runs")
@@ -102,7 +120,10 @@ describe("analysis yearlySeries HTTP", () => {
       { period: "2025", status: "present", value: 1488202 },
     ]);
     expect(bevoelkerung.points[0].value).toBeUndefined();
-    const stored = JSON.parse(query.mock.calls[2]?.[1]?.[3] as string);
+    expect(response.body.status).toBe("completed");
+    const stored = JSON.parse(
+      (query.mock.calls.find((call) => String(call[0]).includes("'completed'"))?.[1]?.[3] as string) ?? "{}",
+    );
     expect(stored.yearlySeries[0].coverage).toBeDefined();
     expect(response.body.pattern.yearlySeries.some((item: { metricId: string }) => item.metricId === "umsatz")).toBe(
       false,

@@ -401,6 +401,45 @@ describe("rankTeilflaechen", () => {
 
     expect(ranked.map((item) => item.kind)).toEqual(["plz"]);
     expect(ranked[0]?.title).toBe("10115");
+    expect(ranked[0]?.grain).toBe("plz5");
+    expect(ranked[0]?.name).toBe("10115");
+    expect(ranked[0]?.parentLabel).toBe("Mitte");
+    expect(ranked[0]?.intersectionOf).toEqual([
+      { geoKey: "11000001", grain: "other", name: "Mitte", datasetKey: "kba_elektro_pkw" },
+      { geoKey: "10115", grain: "plz5", name: "10115", datasetKey: "wanderungen" },
+    ]);
+  });
+
+  it("omits intersectionOf when the hit is a single Fläche", () => {
+    const ranked = rankTeilflaechen(
+      [candidate({ geoKey: "ortsteil:osm:1", kind: "ortsteil", title: "Schwabing" })],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:1",
+          requestedLevel: "ortsteil",
+          sourceLevel: "ortsteil",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:1"),
+      ],
+      [
+        {
+          key: "unfallatlas",
+          metricId: "unfallatlas",
+          label: "Unfälle",
+          direction: "down",
+          evidence: "fällt",
+          kind: "trend",
+        },
+      ],
+    );
+    expect(ranked[0]?.intersectionOf).toBeUndefined();
+    expect(ranked[0]?.name).toBe("Schwabing");
+    expect(ranked[0]?.grain).toBe("other");
   });
 
   it("treats a missing Bezugsgröße as absent and never invents 0", () => {

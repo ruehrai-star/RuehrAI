@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, toCoord, toIso, toRevenue } from "../customer/values";
 import { fillMissingCatalogDisplay } from "../geo/catalog-display";
@@ -12,6 +12,7 @@ import {
   PATTERN_NOT_FOUND,
   REGION_MISSING,
   REVENUE_INSUFFICIENT,
+  RUN_FAILED,
   RUN_NOT_FOUND,
 } from "./messages";
 import { PatternService } from "./pattern.service";
@@ -34,6 +35,7 @@ import {
   AnalysisPatternResponse,
   AnalysisRegion,
   AnalysisRun,
+  AnalysisRunStatus,
   AnalysisStoreInput,
   analysisRegions,
 } from "./types";
@@ -74,17 +76,32 @@ interface StoreRevenueRow {
 
 interface RunRow {
   id: string;
-  status: "completed";
+  status: string;
   input: AnalysisInput;
   brain: AnalysisBrain;
   pattern: AnalysisPattern;
   created_at: Date | string;
+  started_at?: Date | string | null;
+  completed_at?: Date | string | null;
+  failure_reason?: string | null;
 }
+
+const EMPTY_BRAIN: AnalysisBrain = {
+  mode: "sql",
+  vectorUnavailableReason: null,
+  factCount: 0,
+  facts: [],
+};
+
+const EMPTY_PATTERN: AnalysisPattern = {
+  source: "heuristic",
+  summary: "",
+  revenueDirection: "flat",
+  criteria: [],
+};
 
 @Injectable()
 export class AnalysisService {
-  private readonly logger = new Logger(AnalysisService.name);
-
   constructor(
     private readonly db: DatabaseService,
     private readonly brain: BrainSearchService,
@@ -99,43 +116,84 @@ export class AnalysisService {
   }
 
   /**
-   * Snapshots region, stores, and revenue, searches Brain, and stores the
-   * pattern on the run. When Zielregion(en) are marked, also ranks and
-   * persists a recommendation set bound to this runId. GET never computes.
+   * Snapshots region, stores, and revenue, searches Brain, stores the
+   * pattern, and persists a recommendation set bound to this runId when
+   * Zielregion(en) are marked. GET never computes. Status is queued on
+   * insert, running during Brain/pattern work and set ranking, then
+   * completed only after the set is stored — or failed (with
+   * failureReason) if pattern or set computation throws. Marking another
+   * Zielregion later does not start a run.
    */
   async createRun(userId: string): Promise<AnalysisRun> {
     const input = await this.loadInput(userId);
-    const brain = await this.brain.search(input);
-    const derived = await this.patterns.derive(input, brain.facts);
-    const pattern = await this.attachYearlySeries(derived, input);
     const inserted = await this.db.query<{ id: string; created_at: Date | string }>(
       `INSERT INTO app.analysis_runs (user_id, status, input, brain, pattern)
-       VALUES ($1::bigint, 'completed', $2::jsonb, $3::jsonb, $4::jsonb)
+       VALUES ($1::bigint, 'queued', $2::jsonb, $3::jsonb, $4::jsonb)
        RETURNING id::text AS id, created_at`,
-      [userId, JSON.stringify(input), JSON.stringify(brain), JSON.stringify(pattern)],
+      [userId, JSON.stringify(input), JSON.stringify(EMPTY_BRAIN), JSON.stringify(EMPTY_PATTERN)],
     );
     const row = inserted.rows[0];
     if (!row) throw new NotFoundException(RUN_NOT_FOUND);
-    if (analysisRegions(input).length > 0) {
-      try {
+    const createdAt = toIso(row.created_at);
+    try {
+      const started = await this.db.query<{ started_at: Date | string | null }>(
+        `UPDATE app.analysis_runs
+            SET status = 'running',
+                started_at = COALESCE(started_at, now())
+          WHERE id = $1::bigint
+            AND user_id = $2::bigint
+          RETURNING started_at`,
+        [row.id, userId],
+      );
+      const brain = await this.brain.search(input);
+      const derived = await this.patterns.derive(input, brain.facts);
+      const pattern = await this.attachYearlySeries(derived, input);
+      await this.db.query(
+        `UPDATE app.analysis_runs
+            SET brain = $3::jsonb,
+                pattern = $4::jsonb
+          WHERE id = $1::bigint
+            AND user_id = $2::bigint
+            AND status = 'running'`,
+        [row.id, userId, JSON.stringify(brain), JSON.stringify(pattern)],
+      );
+      if (analysisRegions(input).length > 0) {
         await this.recommendations.create(userId, row.id);
-      } catch (error) {
-        this.logger.error(`Recommendation set for run ${row.id} was not stored (${messageOf(error)}).`);
       }
+      const finished = await this.db.query<{ started_at: Date | string | null; completed_at: Date | string | null }>(
+        `UPDATE app.analysis_runs
+            SET status = 'completed',
+                brain = $3::jsonb,
+                pattern = $4::jsonb,
+                completed_at = now(),
+                failure_reason = NULL
+          WHERE id = $1::bigint
+            AND user_id = $2::bigint
+          RETURNING started_at, completed_at`,
+        [row.id, userId, JSON.stringify(brain), JSON.stringify(pattern)],
+      );
+      const times = finished.rows[0];
+      return {
+        id: row.id,
+        status: "completed",
+        createdAt,
+        startedAt: toOptionalIso(started.rows[0]?.started_at ?? times?.started_at ?? row.created_at),
+        completedAt: toOptionalIso(times?.completed_at ?? new Date()),
+        failureReason: null,
+        input,
+        brain,
+        pattern,
+      };
+    } catch (error) {
+      await this.markFailed(userId, row.id, failureReasonOf(error));
+      throw error;
     }
-    return {
-      id: row.id,
-      status: "completed",
-      createdAt: toIso(row.created_at),
-      input,
-      brain,
-      pattern,
-    };
   }
 
   async getRun(userId: string, runId: string): Promise<AnalysisRun> {
     const result = await this.db.query<RunRow>(
-      `SELECT id::text AS id, status, input, brain, pattern, created_at
+      `SELECT id::text AS id, status, input, brain, pattern, created_at,
+              started_at, completed_at, failure_reason
        FROM app.analysis_runs
        WHERE id = $1::bigint
          AND user_id = $2::bigint`,
@@ -143,6 +201,7 @@ export class AnalysisService {
     );
     const row = result.rows[0];
     if (!row) throw new NotFoundException(RUN_NOT_FOUND);
+    if (asRunStatus(row.status) !== "completed") return toRun(row);
     return toRun({ ...row, pattern: await this.withYearlySeries(row.pattern, row.input) });
   }
 
@@ -174,7 +233,8 @@ export class AnalysisService {
   private async loadLatestRun(userId: string, geoKey?: string): Promise<RunRow | undefined> {
     if (!geoKey) {
       const result = await this.db.query<RunRow>(
-        `SELECT id::text AS id, status, input, brain, pattern, created_at
+        `SELECT id::text AS id, status, input, brain, pattern, created_at,
+                started_at, completed_at, failure_reason
          FROM app.analysis_runs
          WHERE user_id = $1::bigint
            AND status = 'completed'
@@ -187,7 +247,8 @@ export class AnalysisService {
 
     const keys = matchingGeoKeys(geoKey);
     const result = await this.db.query<RunRow>(
-      `SELECT id::text AS id, status, input, brain, pattern, created_at
+      `SELECT id::text AS id, status, input, brain, pattern, created_at,
+              started_at, completed_at, failure_reason
        FROM app.analysis_runs
        WHERE user_id = $1::bigint
          AND status = 'completed'
@@ -276,6 +337,22 @@ export class AnalysisService {
       capturedAt: new Date().toISOString(),
     };
   }
+
+  private async markFailed(userId: string, runId: string, reason: string): Promise<void> {
+    try {
+      await this.db.query(
+        `UPDATE app.analysis_runs
+            SET status = 'failed',
+                completed_at = now(),
+                failure_reason = $3
+          WHERE id = $1::bigint
+            AND user_id = $2::bigint`,
+        [runId, userId, reason],
+      );
+    } catch {
+      // The original compute error is more useful to the caller.
+    }
+  }
 }
 
 function groupStores(rows: StoreRevenueRow[]): AnalysisStoreInput[] {
@@ -324,16 +401,40 @@ function toRegion(row: RegionRow): AnalysisRegion {
 }
 
 function toRun(row: RunRow): AnalysisRun {
+  const status = asRunStatus(row.status);
   return {
     id: row.id,
-    status: "completed",
+    status,
     createdAt: toIso(row.created_at),
+    startedAt: toOptionalIso(row.started_at),
+    completedAt: toOptionalIso(row.completed_at),
+    failureReason: status === "failed" ? emptyToNull(row.failure_reason) : null,
     input: row.input,
     brain: row.brain,
     pattern: row.pattern,
   };
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : "unknown error";
+function asRunStatus(value: string | null | undefined): AnalysisRunStatus {
+  if (value === "queued" || value === "running" || value === "completed" || value === "failed") {
+    return value;
+  }
+  return "completed";
+}
+
+function toOptionalIso(value: Date | string | null | undefined): string | null {
+  if (value == null || value === "") return null;
+  return toIso(value);
+}
+
+function failureReasonOf(error: unknown): string {
+  if (error instanceof HttpException) {
+    const body = error.getResponse();
+    if (typeof body === "string" && body.trim()) return body.trim();
+    if (body && typeof body === "object" && "message" in body) {
+      const message = (body as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message.trim();
+    }
+  }
+  return RUN_FAILED;
 }

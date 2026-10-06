@@ -10,9 +10,10 @@ export interface PollAnalysisOptions {
 }
 
 /**
- * Read `GET /analysis/runs/{id}` until the contract status `completed` is present.
- * A 404 is the only "not stored yet" signal in OpenAPI 0.3.0, so that status is
- * retried. Any other error stops the poll.
+ * Read `GET /analysis/runs/{id}` until the run is terminal.
+ * `queued` and `running` keep polling. `completed` returns the run.
+ * `failed` stops with the Backend `failureReason` when present.
+ * A 404 is still retried (row not visible yet). Any other error stops.
  */
 export async function pollAnalysisRun(
   api: Pick<RuehrApi, "getAnalysisRun">,
@@ -28,6 +29,10 @@ export async function pollAnalysisRun(
     try {
       const run = await api.getAnalysisRun(id);
       if (run.status === "completed") return run;
+      if (run.status === "failed") {
+        const reason = run.failureReason?.trim();
+        throw new ApiError(reason || ANALYSIS_COPY.failed, 0);
+      }
     } catch (error) {
       lastError = error;
       const missing = error instanceof ApiError && error.status === 404;

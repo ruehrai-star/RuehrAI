@@ -436,6 +436,7 @@ function parseHits(body: SearchResponse): SearchHit[] {
 
 const REVENUE_DIRECTIONS = new Set<RevenueDirection>(["up", "down", "flat"]);
 const CRITERION_DIRECTIONS = new Set<CriterionDirection>(["up", "down", "flat", "unknown"]);
+const ANALYSIS_RUN_STATUSES = new Set<AnalysisRun["status"]>(["queued", "running", "completed", "failed"]);
 const BRAIN_MODES = new Set<AnalysisBrain["mode"]>(["vector", "sql"]);
 const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason"]>>([
   "embeddings_disabled",
@@ -522,7 +523,16 @@ function parseAnalysisInput(body: AnalysisInput, route = "GET /analysis/input"):
 
 function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
   const route = "/analysis/runs";
-  if (!body || typeof body.id !== "string" || body.status !== "completed" || typeof body.createdAt !== "string") {
+  if (!body || typeof body.id !== "string" || !ANALYSIS_RUN_STATUSES.has(body.status) || typeof body.createdAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.failureReason != null && typeof body.failureReason !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.startedAt != null && typeof body.startedAt !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.completedAt != null && typeof body.completedAt !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseAnalysisInput(body.input, route);
@@ -810,13 +820,42 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
   }
+  if (body.grain !== undefined && !isGrain(body.grain)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.name != null && typeof body.name !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.parentLabel != null && typeof body.parentLabel !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.intersectionOf !== undefined) {
+    if (!Array.isArray(body.intersectionOf)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const part of body.intersectionOf) {
+      if (
+        !part ||
+        typeof part.geoKey !== "string" ||
+        !isGrain(part.grain) ||
+        !(part.name === null || typeof part.name === "string") ||
+        (part.datasetKey !== undefined && typeof part.datasetKey !== "string")
+      ) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
+  const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
     ...body,
+    grain: body.grain ?? body.location.grain,
+    name: typeof body.name === "string" || body.name === null ? body.name : body.location.name,
+    parentLabel,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),
-      parentLabel: catalogParentName(rawLocation),
+      parentLabel,
     },
   };
 }

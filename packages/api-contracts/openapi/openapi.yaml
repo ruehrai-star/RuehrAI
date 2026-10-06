@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.18.1
+  version: 0.19.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -147,6 +147,22 @@ info:
     `GET /recommendations` stays read-only: optional `runId` returns the
     stored set for that run, omit returns the newest set; neither computes.
     Switching Zielregion never starts a run. Additive; no DB migration.
+    `0.19.0` closes the remaining Trefferliste gaps. `Recommendation` adds
+    official top-level `grain`, `name`, and `parentLabel` (nullable).
+    `parentLabel` is the parent area display name (Ortsteil → Bezirk),
+    never a key. `location.grain` and `location.name` stay for
+    compatibility and are deprecated. `Recommendation.intersectionOf`
+    lists the named parts of a Schnittfläche (`geoKey`, `grain`, `name`,
+    optional `datasetKey`); empty or omitted when the hit is a single
+    Fläche. `AnalysisRun.status` is the real lifecycle
+    `queued` | `running` | `completed` | `failed`. Optional
+    `failureReason`, `startedAt`, and `completedAt` are nullable.
+    `POST /analysis/runs` stays synchronous: queued on insert, running
+    during Brain/pattern work and recommendation-set ranking, then
+    `completed` only after the set is stored, or `failed` (with
+    `failureReason`) if pattern or set computation fails. Switching
+    Zielregion never starts a run. Additive; stored `completed` rows
+    stay `completed`.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -899,15 +915,20 @@ paths:
       operationId: createAnalysisRun
       summary: Snapshot input, search Brain, and persist a pattern
       description: |
-        Same preconditions as `GET /analysis/input`. On success the run is
-        stored for this user and includes the Brain facts used (region filter,
-        plus store postal codes) and the derived pattern. When Zielregion(en)
-        are marked, a recommendation set for those regions is stored and
-        bound to this `runId`. `GET /recommendations` never computes a set.
-        Marking another Zielregion later does not start a run.
+        Same preconditions as `GET /analysis/input`. The call is
+        synchronous. The row is `queued` when inserted, `running` during
+        Brain search, pattern work, and recommendation-set ranking, then
+        `completed` only after that set is stored, or `failed`.
+        On success the run includes the Brain facts used (region filter,
+        plus store postal codes) and the derived pattern. When
+        Zielregion(en) are marked, a recommendation set for those regions
+        is stored and bound to this `runId`. `GET /recommendations` never
+        computes a set. Marking another Zielregion later does not start
+        a run. Failed runs keep `failureReason` and stay readable on
+        `GET /analysis/runs/{id}`.
       responses:
         "201":
-          description: Completed analysis run.
+          description: Analysis run after computation (`completed`, or `failed` when work did not finish).
           content:
             application/json:
               schema:
@@ -1987,6 +2008,14 @@ components:
         Kreis, …) and is the same for sibling hits; it does not
         differentiate them.
       enum: [local, inherited]
+    AnalysisRunStatus:
+      type: string
+      description: |
+        Lifecycle of a Musteranalyse run. `POST /analysis/runs` is
+        synchronous: the row is `queued` when inserted, `running` while
+        Brain and pattern are computed, then `completed` or `failed`.
+        Older stored rows are `completed`.
+      enum: [queued, running, completed, failed]
     AnalysisRun:
       type: object
       additionalProperties: false
@@ -1996,11 +2025,31 @@ components:
           type: string
           description: Run id as a decimal string.
         status:
-          type: string
-          enum: [completed]
+          $ref: "#/components/schemas/AnalysisRunStatus"
         createdAt:
           type: string
           format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When computation started (`running`). Null on a queued row
+            that has not started. Completed rows from before 0.19.0 may
+            omit this or repeat `createdAt`.
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When the run finished (`completed` or `failed`). Null while
+            queued or running. Older completed rows may omit this.
+        failureReason:
+          type: string
+          nullable: true
+          description: |
+            German reason when `status` is `failed`. Null otherwise.
+            Missing values stay null — never a key or `0`.
         input:
           $ref: "#/components/schemas/AnalysisInput"
         brain:
@@ -2591,6 +2640,36 @@ components:
           description: |
             Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, LOR, PLZ,
             Bezirk, Gemeinde). Required on new sets.
+        grain:
+          $ref: "#/components/schemas/Grain"
+          description: |
+            Official grain of this hit (same token as `location.grain`).
+            Present on new sets from 0.19.0. Older stored sets may omit
+            it — then read `location.grain`.
+        name:
+          type: string
+          nullable: true
+          description: |
+            Display name of this hit. Never a catalog key (`plz5:…`,
+            `ortsteil:osm:…`). Null when the place name liegt nicht vor
+            — never `0`, never the geoKey as a stand-in.
+        parentLabel:
+          type: string
+          nullable: true
+          description: |
+            Display name of the parent area (Ortsteil → Bezirk), never a
+            key and never a second name for this hit. Null when unknown
+            or the hit is the top area (Gemeinde).
+        intersectionOf:
+          type: array
+          description: |
+            Named parts of a Schnittfläche so clients can show
+            „Schnittfläche aus A und B“ without parsing `title`.
+            Each part is one dataset Fläche (`geoKey` is the id, `name`
+            is the display name). Empty or omitted when this hit is a
+            single Fläche.
+          items:
+            $ref: "#/components/schemas/RecommendationIntersectionPart"
         location:
           $ref: "#/components/schemas/RecommendationLocation"
         score:
@@ -2661,6 +2740,31 @@ components:
           description: |
             German Entwicklungssatz (e.g. Datensatz steigt seit drei Jahren,
             je 1.000 Einwohner). Empty string when no local trend exists.
+    RecommendationIntersectionPart:
+      type: object
+      additionalProperties: false
+      required: [geoKey, grain, name]
+      description: |
+        One Fläche that forms a Schnittfläche hit. `geoKey` is only the
+        id. `name` is the display name — never a catalog key. Missing
+        names are null (liegt nicht vor).
+      properties:
+        geoKey:
+          type: string
+          description: Catalog / Brain id of this part. Not for display.
+        grain:
+          $ref: "#/components/schemas/Grain"
+        name:
+          type: string
+          nullable: true
+          description: |
+            Display name of this part. Null when the name liegt nicht
+            vor. Never `0` and never the geoKey as a stand-in.
+        datasetKey:
+          type: string
+          description: |
+            Pattern / Brain metric id that lives on this Fläche.
+            Omitted when the part is not tied to one dataset.
     RecommendationLocation:
       type: object
       additionalProperties: false
@@ -2669,7 +2773,12 @@ components:
         geoKey:
           type: string
         grain:
-          $ref: "#/components/schemas/Grain"
+          allOf:
+            - $ref: "#/components/schemas/Grain"
+          deprecated: true
+          description: |
+            Deprecated. Use top-level `Recommendation.grain`. Kept for
+            compatibility.
         lon:
           type: number
           format: double
@@ -2681,7 +2790,10 @@ components:
         name:
           type: string
           nullable: true
-          description: Brain place name when the row has one.
+          deprecated: true
+          description: |
+            Deprecated. Use top-level `Recommendation.name`. Brain place
+            name when the row has one. Null when the name liegt nicht vor.
     RecommendationEvidence:
       type: object
       additionalProperties: false

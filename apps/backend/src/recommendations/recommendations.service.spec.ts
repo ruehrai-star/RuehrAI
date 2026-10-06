@@ -160,6 +160,7 @@ describe("RecommendationsService", () => {
     await expect(service.create("4", "9", asOf)).rejects.toMatchObject({
       message: RUN_NOT_FOUND,
     });
+    expect(query.mock.calls[0]?.[0]).toEqual(expect.stringContaining("IN ('running', 'completed')"));
   });
 
   it("persists ranked Teilflächen and never includes the region anchor", async () => {
@@ -200,6 +201,12 @@ describe("RecommendationsService", () => {
     expect(set.window).toEqual({ from: "2023", to: "2025" });
     expect(set.items.map((item) => item.rank)).toEqual([1, 2, 3]);
     expect(set.items.map((item) => item.title)).toEqual(["Schwabing", "Sendling", "Giesing"]);
+    expect(set.items[0]).toMatchObject({
+      grain: "other",
+      name: "Schwabing",
+      parentLabel: "München",
+    });
+    expect(set.items[0]?.intersectionOf).toBeUndefined();
     expect(set.items.map((item) => item.location.geoKey)).not.toContain("09162000");
     expect(set.pattern.criteria[0]?.kind).toBe("trend");
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["ortsteil", "plz"]);

@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
@@ -87,11 +87,26 @@ describe("AnalysisService", () => {
       })
       .mockResolvedValueOnce({
         rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            started_at: new Date("2026-04-02T00:00:01.000Z"),
+            completed_at: new Date("2026-04-02T00:00:02.000Z"),
+          },
+        ],
       });
 
     const run = await service.createRun("4");
     expect(run.id).toBe("15");
     expect(run.status).toBe("completed");
+    expect(run.startedAt).toBe("2026-04-02T00:00:01.000Z");
+    expect(run.completedAt).toBe("2026-04-02T00:00:02.000Z");
+    expect(run.failureReason).toBeNull();
     expect(run.input.revenueDirection).toBe("up");
     expect(run.input.regions).toEqual([
       expect.objectContaining({
@@ -110,13 +125,20 @@ describe("AnalysisService", () => {
     expect(derive).toHaveBeenCalledWith(run.input, []);
     expect(buildSeries).toHaveBeenCalledWith(run.input.regions, expect.any(Date));
     expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("INSERT INTO app.analysis_runs"));
+    expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("'queued'"));
     expect(query.mock.calls[2]?.[1]?.[0]).toBe("4");
+    expect(query.mock.calls[3]?.[0]).toEqual(expect.stringContaining("'running'"));
+    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("SET brain"));
+    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("status = 'running'"));
+    expect(query.mock.calls[5]?.[0]).toEqual(expect.stringContaining("'completed'"));
     expect(run.pattern).toEqual({ ...pattern, yearlySeries: [] });
     expect(createRecommendations).toHaveBeenCalledWith("4", "15");
+    expect(createRecommendations.mock.invocationCallOrder[0]).toBeLessThan(
+      query.mock.invocationCallOrder[5],
+    );
   });
 
-  it("still returns the run when ranking the recommendation set fails", async () => {
-    const log = jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+  it("marks the run failed when ranking the recommendation set throws", async () => {
     createRecommendations.mockRejectedValue(
       Object.assign(new Error('bind message supplies 4 parameters, but prepared statement "" requires 3'), {
         code: "08P01",
@@ -132,15 +154,42 @@ describe("AnalysisService", () => {
       })
       .mockResolvedValueOnce({
         rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }],
-      });
+      })
+      .mockResolvedValueOnce({
+        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
-    const run = await service.createRun("4");
-    expect(run.id).toBe("15");
-    expect(run.status).toBe("completed");
+    await expect(service.createRun("4")).rejects.toThrow("requires 3");
     expect(createRecommendations).toHaveBeenCalledWith("4", "15");
-    expect(String(log.mock.calls[0]?.[0])).toContain("Recommendation set for run 15 was not stored");
-    expect(String(log.mock.calls[0]?.[0])).toContain("requires 3");
-    log.mockRestore();
+    expect(query.mock.calls[5]?.[0]).toEqual(expect.stringContaining("'failed'"));
+    expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(false);
+  });
+
+  it("marks the run failed when Brain work throws and rethrows", async () => {
+    search.mockRejectedValue(new Error("embeddings exploded"));
+    query
+      .mockResolvedValueOnce({ rows: [regionRow()] })
+      .mockResolvedValueOnce({
+        rows: [
+          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+          storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: "16", created_at: new Date("2026-04-02T00:00:00.000Z") }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.createRun("4")).rejects.toThrow("embeddings exploded");
+    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("'failed'"));
+    expect(query.mock.calls[4]?.[1]?.[2]).toBe(
+      "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+    );
   });
 
   it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
@@ -172,6 +221,56 @@ describe("AnalysisService", () => {
       pattern: { ...pattern, yearlySeries: [{ metricId: "bevoelkerung", coverage: "multi" }] },
     });
     expect(buildSeries).toHaveBeenCalled();
+  });
+
+  it("returns queued and failed status from the stored row", async () => {
+    const muenchen = snapshotRegion();
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "16",
+          status: "queued",
+          input: runInput(muenchen),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+          started_at: null,
+          completed_at: null,
+          failure_reason: null,
+        },
+      ],
+    });
+    await expect(service.getRun("4", "16")).resolves.toMatchObject({
+      id: "16",
+      status: "queued",
+      startedAt: null,
+      completedAt: null,
+      failureReason: null,
+    });
+    expect(buildSeries).not.toHaveBeenCalled();
+
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "17",
+          status: "failed",
+          input: runInput(muenchen),
+          brain: brainResult,
+          pattern,
+          created_at: new Date("2026-04-02T00:00:00.000Z"),
+          started_at: new Date("2026-04-02T00:00:01.000Z"),
+          completed_at: new Date("2026-04-02T00:00:02.000Z"),
+          failure_reason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+        },
+      ],
+    });
+    await expect(service.getRun("4", "17")).resolves.toMatchObject({
+      id: "17",
+      status: "failed",
+      startedAt: "2026-04-02T00:00:01.000Z",
+      completedAt: "2026-04-02T00:00:02.000Z",
+      failureReason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+    });
   });
 
   it("does not return another user's run", async () => {

@@ -176,6 +176,30 @@ test("a malformed analysis run is rejected", async () => {
   });
 });
 
+test("GET /analysis/runs accepts queued, running, and failed when the payload is complete", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl) => {
+      const url = String(inputUrl);
+      if (url.endsWith("/analysis/runs/8")) return json({ ...run, id: "8", status: "queued", startedAt: null, completedAt: null });
+      if (url.endsWith("/analysis/runs/9")) return json({ ...run, id: "9", status: "running", startedAt: run.createdAt, completedAt: null });
+      return json({
+        ...run,
+        id: "10",
+        status: "failed",
+        failureReason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+        startedAt: run.createdAt,
+        completedAt: run.createdAt,
+      });
+    },
+  });
+  assert.equal((await api.getAnalysisRun("8")).status, "queued");
+  assert.equal((await api.getAnalysisRun("9")).status, "running");
+  const failed = await api.getAnalysisRun("10");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.failureReason, "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.");
+});
+
 test("GET /analysis/pattern accepts an old run without yearlySeries", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

@@ -138,10 +138,15 @@ export interface AnalysisPattern {
   yearlySeries?: YearlySeries[];
 }
 
+export type AnalysisRunStatus = "queued" | "running" | "completed" | "failed";
+
 export interface AnalysisRun {
   id: string;
-  status: "completed";
+  status: AnalysisRunStatus;
   createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failureReason?: string | null;
   input: AnalysisInput;
   brain: AnalysisBrain;
   pattern: AnalysisPattern;
