@@ -141,9 +141,9 @@ export interface TrefferCriterionRow {
   baselineLabel: string | null;
   levelBadge: string | null;
   methodLabel: string | null;
-  /** German band from `criteriaEvidence[].proximity`. Never a raw 0..1 number. */
-  proximityLabel: string;
-  /** „Trend aus 2 Jahren“ when the official #79 field says so; otherwise null. */
+  /** German band from `criteriaEvidence[].proximity`, or null when inherited/neutral. */
+  proximityLabel: string | null;
+  /** „Trend aus 2 Jahren“ when official `trendYears` is 2; otherwise null. */
   twoYearTrendLabel: string | null;
   details: {
     rawValue: string | null;

@@ -539,6 +539,50 @@ test("GET /recommendations accepts additive 0.19.4 criteriaEvidence proximity", 
   assert.equal(plain?.items[0]?.criteriaEvidence[0]?.proximity, undefined);
 });
 
+test("GET /recommendations accepts additive 0.19.4 criteriaEvidence trendYears", async () => {
+  const withYears = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            trendYears: 2,
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withYears),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.trendYears, 2);
+});
+
+test("GET /recommendations rejects trendYears below 2", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json({
+        ...set,
+        items: [
+          {
+            ...set.items[0],
+            criteriaEvidence: [{ ...set.items[0]!.criteriaEvidence[0], trendYears: 1 }],
+          },
+        ],
+      }),
+  });
+  await assert.rejects(api.getRecommendations(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+});
+
 test("GET /recommendations rejects proximity outside 0..1", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

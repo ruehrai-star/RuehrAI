@@ -10,13 +10,16 @@ import {
   proximityLabelFromEvidence,
 } from "./proximity.ts";
 
-const evidence = (proximity?: number): RecommendationEvidence => ({
+const evidence = (partial: Partial<RecommendationEvidence> = {}): RecommendationEvidence => ({
   key: "einwohner",
   label: "Einwohner",
   direction: "up",
   patternDirection: "up",
   evidence: "Einwohner steigt in den letzten drei Jahren.",
-  ...(proximity === undefined ? {} : { proximity }),
+  kind: "trend",
+  coverage: "series",
+  scope: "local",
+  ...partial,
 });
 
 function assertNoRawNumber(text: string, value: number): void {
@@ -42,17 +45,20 @@ test("proximity bands use 0.67 and 0.34 inclusive; 0.33 is gering", () => {
   assert.equal(proximityBand(0), PROXIMITY_COPY.low);
 });
 
-test("missing proximity is liegt nicht vor; 0 is gering", () => {
-  assert.equal(proximityBand(undefined), PROXIMITY_COPY.missing);
-  assert.equal(proximityBand(null), PROXIMITY_COPY.missing);
-  assert.equal(proximityBand(Number.NaN), PROXIMITY_COPY.missing);
-  assert.equal(proximityBand(1.01), PROXIMITY_COPY.missing);
-  assert.equal(proximityBand(-0.01), PROXIMITY_COPY.missing);
-  assert.equal(proximityLabel(undefined), "Nähe zum Filialmuster: liegt nicht vor");
-  assert.equal(proximityLabel(null), "Nähe zum Filialmuster: liegt nicht vor");
+test("liegt nicht vor only for absent evidence; inherited and neutral omit the line", () => {
   assert.equal(proximityLabelFromEvidence(undefined), "Nähe zum Filialmuster: liegt nicht vor");
-  assert.equal(proximityLabelFromEvidence(evidence()), "Nähe zum Filialmuster: liegt nicht vor");
+  assert.equal(
+    proximityLabelFromEvidence(evidence({ kind: "absent", coverage: "none", evidence: "liegt nicht vor" })),
+    "Nähe zum Filialmuster: liegt nicht vor",
+  );
+  assert.equal(proximityLabelFromEvidence(evidence({ coverage: "none" })), "Nähe zum Filialmuster: liegt nicht vor");
+  assert.equal(proximityLabelFromEvidence(evidence({ scope: "inherited" })), null);
+  assert.equal(proximityLabelFromEvidence(evidence({ scope: "inherited", kind: "absent", coverage: "none" })), null);
+  assert.equal(proximityLabelFromEvidence(evidence({ proximity: 0.8, scope: "inherited" })), null);
+  assert.equal(proximityLabelFromEvidence(evidence()), null);
+  assert.equal(proximityLabelFromEvidence(evidence({ proximity: Number.NaN })), null);
   assert.equal(proximityLabel(0), "Nähe zum Filialmuster: gering");
+  assert.equal(proximityLabelFromEvidence(evidence({ proximity: 0 })), "Nähe zum Filialmuster: gering");
 });
 
 test("proximity labels never include the raw number", () => {
@@ -61,9 +67,9 @@ test("proximity labels never include the raw number", () => {
     const text = proximityLabel(value);
     assertNoRawNumber(text, value);
     assert.match(text, /^Nähe zum Filialmuster: (hoch|mittel|gering)$/);
+    assert.equal(proximityLabelFromEvidence(evidence({ proximity: value })), text);
   }
   assert.equal(proximityLabel(0.67), "Nähe zum Filialmuster: hoch");
   assert.equal(proximityLabel(0.34), "Nähe zum Filialmuster: mittel");
   assert.equal(proximityLabel(0.33), "Nähe zum Filialmuster: gering");
-  assert.equal(proximityLabelFromEvidence(evidence(0.67)), "Nähe zum Filialmuster: hoch");
 });

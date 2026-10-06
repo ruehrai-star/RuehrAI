@@ -1002,6 +1002,12 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
   ) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+  if (
+    body.trendYears !== undefined &&
+    (!Number.isInteger(body.trendYears) || body.trendYears < 2)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   if (body.sourceLevel !== undefined && !isSeriesLevel(body.sourceLevel)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }

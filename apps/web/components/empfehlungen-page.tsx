@@ -665,8 +665,6 @@ function TrefferCard({
               <p className="hit-label">{row.label}</p>
               {row.details.rawValue ? <p className="hint">{row.details.rawValue}</p> : null}
               <p className="message">{row.details.evidence}</p>
-              <p className="hint treffer-proximity">{row.proximityLabel}</p>
-              {row.twoYearTrendLabel ? <p className="hint treffer-two-year">{row.twoYearTrendLabel}</p> : null}
               {row.details.years.length > 0 ? (
                 <ol>
                   {row.details.years.map((year) => (
@@ -716,7 +714,7 @@ function CriterionRow({ row, inherited = false }: { row: TrefferCriterionRow; in
             .filter(Boolean)
             .join(" · ")}
         </p>
-        <p className="hint treffer-proximity">{row.proximityLabel}</p>
+        {row.proximityLabel ? <p className="hint treffer-proximity">{row.proximityLabel}</p> : null}
       </div>
     </li>
   );
