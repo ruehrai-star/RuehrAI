@@ -213,6 +213,8 @@ describe("RecommendationsService", () => {
     });
     expect(set.items[0]?.dataAsOf).toBe("2025");
     expect(set.items[0]?.intersectionOf).toBeUndefined();
+    expect(typeof set.items[0]?.localDatasetCount).toBe("number");
+    expect(set.items[0]?.localDatasetCount).toBeGreaterThanOrEqual(0);
     expect(set.items.map((item) => item.location.geoKey)).not.toContain("09162000");
     expect(set.pattern.criteria[0]?.kind).toBe("trend");
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["ortsteil", "plz"]);
@@ -229,6 +231,9 @@ describe("RecommendationsService", () => {
 
     const insert = query.mock.calls[1] as [string, unknown[]];
     expect(insert[0]).toContain("INSERT INTO app.recommendation_sets");
+    const storedPayload = JSON.parse(String(insert[1]?.[2]));
+    expect(storedPayload.items[0].localDatasetCount).toBeGreaterThanOrEqual(0);
+    expect(Object.prototype.hasOwnProperty.call(storedPayload.items[0], "localDatasetCount")).toBe(true);
     expect(resolve).toHaveBeenCalled();
     expect(load.mock.calls[0]?.[0]?.[0]?.geoKey).toBe("09162000");
   });
@@ -390,6 +395,46 @@ describe("RecommendationsService", () => {
     expect(resolve).not.toHaveBeenCalled();
     expect(build).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("does not invent localDatasetCount when hydrating older stored sets", async () => {
+    query.mockResolvedValue({
+      rows: [
+        {
+          id: "40",
+          created_at: "2026-10-01T08:00:00.000Z",
+          payload: {
+            runId: "22",
+            window: { from: "2023", to: "2025" },
+            count: 1,
+            reason: null,
+            pattern,
+            items: [
+              {
+                id: "other:ortsteil:osm:1@09162000",
+                rank: 1,
+                title: "Schwabing",
+                kind: "ortsteil",
+                grain: "other",
+                name: "Schwabing",
+                parentLabel: "München",
+                targetRegionGeoKey: "09162000",
+                dataAsOf: "2025",
+                location: { geoKey: "ortsteil:osm:1", grain: "other", lon: 11.5, lat: 48.1, name: "Schwabing" },
+                score: 0,
+                criteriaEvidence: [],
+                rationale: "Kein lokaler Datensatz.",
+                source: "heuristic",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const stored = await service.latest("4");
+    expect(stored.items).toHaveLength(1);
+    expect(stored.items[0]?.localDatasetCount).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(stored.items[0] ?? {}, "localDatasetCount")).toBe(false);
   });
 
   it("answers 404 for a missing runId set without computing", async () => {

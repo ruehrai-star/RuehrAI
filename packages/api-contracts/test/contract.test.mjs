@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.19.5");
+  assert.equal(doc.info.version, "0.19.6");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -98,6 +98,8 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.19.3"));
   assert.ok(doc.info.description.includes("0.19.4"));
   assert.ok(doc.info.description.includes("0.19.5"));
+  assert.ok(doc.info.description.includes("0.19.6"));
+  assert.ok(doc.info.description.includes("localDatasetCount"));
   assert.equal(doc.info.description.includes("nAktiv = 0 are omitted"), false);
   assert.ok(doc.info.description.includes("inherited or Stichtag"));
   assert.ok(doc.info.description.includes("score 0"));
@@ -120,6 +122,17 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
     false,
   );
   assert.ok(doc.paths["/recommendations"].post.description.includes("inherited or Stichtag"));
+  assert.ok(doc.paths["/recommendations"].post.description.includes("localDatasetCount"));
+  assert.ok(doc.paths["/recommendations"].post.description.includes("own local"));
+  assert.ok(doc.paths["/recommendations"].get.description.includes("localDatasetCount"));
+  assert.equal(doc.components.schemas.Recommendation.properties.localDatasetCount.type, "integer");
+  assert.equal(doc.components.schemas.Recommendation.properties.localDatasetCount.minimum, 0);
+  assert.equal(doc.components.schemas.Recommendation.required.includes("localDatasetCount"), false);
+  assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("nAktiv"));
+  assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("gering"));
+  assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("liegt nicht vor"));
+  assert.ok(doc.info.description.includes("own local value"));
+  assert.ok(doc.info.description.includes("Inherited"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.proximity.description.includes("0.19.4"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
     doc.paths["/recommendations"].get.description.includes("Never ranks"));

@@ -553,7 +553,9 @@ export interface paths {
          *     Omit `runId` to return the newest set of this user. `404` when no
          *     matching stored set exists. Computing happens only on
          *     `POST /analysis/runs` (for the marked Zielregion at that time) or
-         *     `POST /recommendations`.
+         *     `POST /recommendations`. Additive `items[].localDatasetCount`
+         *     (0.19.6) is returned as stored: present including `0` on new sets,
+         *     omitted on older payloads.
          */
         get: operations["getRecommendations"];
         put?: never;
@@ -610,6 +612,11 @@ export interface paths {
          *     (default 0.10) of their area inside the Zielregion.
          *     `items[].overlaps[0]` is the Zielregion (`isTargetRegion: true`)
          *     with the unclipped candidate share; further entries are Ortsteile.
+         *     Additive `items[].localDatasetCount` (0.19.6) is nAktiv: how many
+         *     datasets have an own local value (numeric `proximity`; `0` counts
+         *     as closeness "gering"). Inherited values and omitted `proximity`
+         *     do not count. Always set on new sets, including `0`. `0` means
+         *     score 0 / „liegt nicht vor“. Omitted on older stored sets.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1732,8 +1739,22 @@ export interface components {
              *     per-dataset closeness before the item coverage factor.
              *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
              *     (default 0.10) of their area inside the Zielregion.
+             *     Additive `localDatasetCount` (0.19.6) is nAktiv on this item.
              */
             score: number;
+            /**
+             * @description Additive 0.19.6. nAktiv: number of datasets with an own
+             *     local value on this item — `criteriaEvidence[]` entries
+             *     whose `proximity` is a number. Inherited values never
+             *     count. `proximity` `0` is valid closeness ("gering") and
+             *     counts; omitted `proximity` does not. Always set on new
+             *     sets, including `0`; omitted on older stored sets. Web
+             *     path: `items[].localDatasetCount`. Bind the nAktiv-0 /
+             *     „liegt nicht vor“ card to `localDatasetCount === 0`; do
+             *     not re-derive from evidence kind/scope (that heuristic
+             *     can diverge from nAktiv).
+             */
+            localDatasetCount?: number;
             /**
              * @description German Begründung. Names only criteria and figures present in
              *     `criteriaEvidence`.
