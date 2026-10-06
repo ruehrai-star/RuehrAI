@@ -34,10 +34,23 @@ export function sessionIsCurrent(session: Session, now = Date.now()): boolean {
 }
 
 const LOGIN_PATHS = new Set(["/login", "/register"]);
+let pendingClear = false;
+
+export const LOGIN_EXPIRED_HREF = "/login?abgelaufen=1";
+export const LOGIN_EXPIRED_COPY = "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an.";
+
+function scheduleClearStoredSession(): void {
+  if (pendingClear) return;
+  pendingClear = true;
+  queueMicrotask(() => {
+    pendingClear = false;
+    writeStoredSession(null);
+  });
+}
 
 /**
- * Drop the stored JWT and send this tab to `/login`. Other tabs pick up
- * `null` via the `storage` event. Login/register stay put.
+ * Drop the stored JWT and send this tab to `/login?abgelaufen=1`. Other tabs
+ * pick up `null` via the `storage` event. Login/register stay put.
  */
 export function clearStoredSessionAndGoToLogin(): void {
   writeStoredSession(null);
@@ -46,7 +59,7 @@ export function clearStoredSessionAndGoToLogin(): void {
   // Fetch interceptor is not a React event handler; a full navigation
   // drops in-memory UI that still thinks the JWT is valid.
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.assign("/login");
+  window.location.assign(LOGIN_EXPIRED_HREF);
 }
 
 /**
@@ -73,7 +86,8 @@ export function readStoredSession(): Session | null {
   const raw = readRaw();
   if (raw === cachedRaw) {
     if (cachedSession && !sessionIsCurrent(cachedSession)) {
-      writeStoredSession(null);
+      cachedSession = null;
+      scheduleClearStoredSession();
       return null;
     }
     return cachedSession;
@@ -81,7 +95,8 @@ export function readStoredSession(): Session | null {
   cachedRaw = raw;
   const parsed = parseStoredSession(raw);
   if (parsed && !sessionIsCurrent(parsed)) {
-    writeStoredSession(null);
+    cachedSession = null;
+    scheduleClearStoredSession();
     return null;
   }
   cachedSession = parsed;
