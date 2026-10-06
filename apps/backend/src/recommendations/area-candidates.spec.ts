@@ -48,6 +48,9 @@ import {
   resolveTargetRegionKey,
   targetRegionKeyOf,
   normalizeTargetRegionLabel,
+  filterByMinOverlapShare,
+  passesMinOverlapShare,
+  knownOverlapShare,
 } from "./area-candidates";
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
@@ -235,6 +238,8 @@ describe("area candidate SQL", () => {
     expect(meetsMinOverlapShare(1, 1, 0.25)).toBe(true);
     expect(meetsMinOverlapShare(0.24, 1, 0.25)).toBe(false);
     expect(meetsMinOverlapShare(1, 0)).toBe(false);
+    expect(meetsMinOverlapShare(70, 10_000)).toBe(false);
+    expect(meetsMinOverlapShare(1_000, 10_000)).toBe(true);
 
     const area = buildAreaCandidateSql("prefer", 0.1);
     const lor = buildLorPlrCatalogSql(0.1);
@@ -252,13 +257,33 @@ describe("area candidate SQL", () => {
     expect(custom).not.toContain(">= 0.1");
 
     const teil = buildTeilCatalogSql();
+    const teilCustom = buildTeilCatalogSql("prefer", 0.25);
     const address = buildAddressCandidateSql();
     const grid = buildGrid100CandidateSql();
     const geoAddress = buildGeoAddressCandidateSql();
-    expect(teil).not.toContain(">= 0.1");
+    expect(teil).toContain(">= 0.1");
+    expect(teil).toMatch(/child_grain\)\) IN \('lor', 'lor_plr'\)[\s\S]*>= 0\.1/);
+    expect(teilCustom).toContain(">= 0.25");
+    expect(teilCustom).not.toContain(">= 0.1");
     expect(address).not.toContain(">= 0.1");
     expect(grid).not.toContain(">= 0.1");
     expect(geoAddress).not.toContain(">= 0.1");
+  });
+
+  it("drops a known 0.7% overlap share at default 0.1 and keeps ≥10% or unknown", () => {
+    expect(passesMinOverlapShare({ targetOverlapShare: 0.007 })).toBe(false);
+    expect(passesMinOverlapShare({ targetOverlapShare: 0.1 })).toBe(true);
+    expect(passesMinOverlapShare({ targetOverlapShare: 0.12 })).toBe(true);
+    expect(passesMinOverlapShare({})).toBe(true);
+    expect(passesMinOverlapShare({ overlaps: [{ share: 0.007, isTargetRegion: true }] })).toBe(false);
+    expect(knownOverlapShare({ targetOverlapShare: 0.007 })).toBe(0.007);
+    const kept = filterByMinOverlapShare([
+      { geoKey: "lor:plr:07501031", targetOverlapShare: 0.007 },
+      { geoKey: "lor:plr:07400720", targetOverlapShare: 1 },
+      { geoKey: "lor:plr:07400721", targetOverlapShare: 0.12 },
+      { geoKey: "address:1" },
+    ]);
+    expect(kept.map((item) => item.geoKey)).toEqual(["lor:plr:07400720", "lor:plr:07400721", "address:1"]);
   });
 
   it("sends geometry and Kreis parent memberships for Gemeinden", () => {

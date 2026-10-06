@@ -101,6 +101,87 @@ describe("AreaCandidateService", () => {
     );
   });
 
+  it("drops a LOR sliver with targetOverlapShare 0.007 and keeps ≥10% plus unknown-share hits", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      return {
+        rows: [
+          {
+            geo_key: "lor:plr:07501031",
+            grain: "other",
+            kind: "lor",
+            name: "Eisenacher Straße",
+            ags: "11000000",
+            plz: null,
+            lon: 13.38,
+            lat: 52.45,
+            target_overlap_share: 0.007,
+          },
+          {
+            geo_key: "lor:plr:07400720",
+            grain: "other",
+            kind: "lor",
+            name: "Germaniagarten",
+            ags: "11000000",
+            plz: null,
+            lon: 13.37,
+            lat: 52.46,
+            target_overlap_share: 1,
+          },
+          {
+            geo_key: "lor:plr:07400721",
+            grain: "other",
+            kind: "lor",
+            name: "Paradestraße",
+            ags: "11000000",
+            plz: null,
+            lon: 13.38,
+            lat: 52.46,
+            target_overlap_share: 0.12,
+          },
+          {
+            geo_key: "address:1",
+            grain: "address",
+            kind: "address",
+            name: "Tempelhofer Damm 1",
+            ags: "11000000",
+            plz: "12101",
+            lon: 13.38,
+            lat: 52.47,
+          },
+        ],
+      };
+    });
+
+    const loaded = await service.load([
+      region({
+        label: "Tempelhof",
+        grain: "other",
+        geoKey: "ortsteil:osm:162894",
+        ags: "11000000",
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [13.35, 52.45],
+              [13.42, 52.45],
+              [13.42, 52.49],
+              [13.35, 52.49],
+              [13.35, 52.45],
+            ],
+          ],
+        },
+      }),
+    ]);
+    expect(loaded.items.map((item) => item.name)).toEqual([
+      "Germaniagarten",
+      "Paradestraße",
+      "Tempelhofer Damm 1",
+    ]);
+    expect(loaded.items.map((item) => item.geoKey)).not.toContain("lor:plr:07501031");
+  });
+
   it("skips empty address grain and keeps grid100 as finest when cells exist", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);

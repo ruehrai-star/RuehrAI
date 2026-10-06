@@ -200,6 +200,7 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400721'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400722'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400723'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07501031'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200420'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200421'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200422'),
@@ -244,6 +245,8 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
     const lichterfeldeHits = lichterfeldeRows.rows.filter((row) => row.kind === "lor");
     expect(tempelhofHits.length).toBeGreaterThanOrEqual(4);
     expect(lichterfeldeHits.length).toBeGreaterThanOrEqual(4);
+    expect(tempelhofHits.map((row) => row.name)).not.toContain("Eisenacher Straße");
+    expect(tempelhofHits.map((row) => row.name)).toContain("Germaniagarten");
 
     const values: Record<string, [number, number]> = {
       "lor:plr:07400720": [20, 8],

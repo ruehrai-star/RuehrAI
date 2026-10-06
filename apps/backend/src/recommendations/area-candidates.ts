@@ -390,7 +390,10 @@ export function excludeKeys(region: AnalysisRegion): string[] {
  * $1 parent_grain[]  $2 parent_id[]  $3 exclude geoKey[]
  * $4 Zielregion GeoJSON (nullable) for clipped hit outlines
  */
-export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): string {
+export function buildTeilCatalogSql(
+  adminMode: "prefer" | "legacy" = "prefer",
+  minOverlapShare: number = readAnalysisMinOverlapShare(),
+): string {
   const adminGeom = adminGeom4326("a", adminMode);
   return `
   WITH parents AS (
@@ -428,6 +431,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       AND ${hasArea("o")}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
       AND NULLIF(btrim(o.name), '') IS NOT NULL
+      AND ${teilPolygonMinOverlapFilter(geom4326("o"), minOverlapShare)}
 
     UNION ALL
 
@@ -450,6 +454,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
       AND ${lorPlanungsraumFilter("l")}
       AND ${hasArea("l")}
+      AND ${teilPolygonMinOverlapFilter(geom4326("l"), minOverlapShare)}
 
     UNION ALL
 
@@ -1224,7 +1229,7 @@ export function teilCatalogQuery(
     (value): value is string => Boolean(value),
   );
   return {
-    sql: buildTeilCatalogSql(adminMode),
+    sql: buildTeilCatalogSql(adminMode, readAnalysisMinOverlapShare()),
     params: [membership.grains, membership.ids, exclude, regionGeometryParam(region)],
   };
 }
@@ -1634,6 +1639,51 @@ export function meetsMinOverlapShare(
     return false;
   }
   return intersectionAreaM2 / candidateAreaM2 >= minShare;
+}
+
+/**
+ * Known `targetOverlapShare` (or Zielregion `overlaps` share) must meet the
+ * threshold. Unknown share stays eligible — points, addresses, raster, and
+ * feature-docs without a computed ratio.
+ */
+export function knownOverlapShare(
+  item: {
+    targetOverlapShare?: number;
+    overlaps?: Array<{ share: number; isTargetRegion?: boolean }>;
+  },
+): number | undefined {
+  if (typeof item.targetOverlapShare === "number" && Number.isFinite(item.targetOverlapShare)) {
+    return item.targetOverlapShare;
+  }
+  const marked = item.overlaps?.find((part) => part.isTargetRegion);
+  if (marked && Number.isFinite(marked.share)) return marked.share;
+  return undefined;
+}
+
+export function passesMinOverlapShare(
+  item: {
+    targetOverlapShare?: number;
+    overlaps?: Array<{ share: number; isTargetRegion?: boolean }>;
+  },
+  minShare: number = readAnalysisMinOverlapShare(),
+): boolean {
+  const share = knownOverlapShare(item);
+  if (share == null) return true;
+  return share >= minShare;
+}
+
+export function filterByMinOverlapShare<
+  T extends {
+    targetOverlapShare?: number;
+    overlaps?: Array<{ share: number; isTargetRegion?: boolean }>;
+  },
+>(items: T[], minShare: number = readAnalysisMinOverlapShare()): T[] {
+  return items.filter((item) => passesMinOverlapShare(item, minShare));
+}
+
+/** Teil-catalog polygons: membership when no Zielregion outline, else min share. */
+function teilPolygonMinOverlapFilter(hitGeom: string, minOverlapShare: number): string {
+  return `(g.geom IS NULL OR ${polygonMinOverlapPredicate(hitGeom, "g.geom", minOverlapShare)})`;
 }
 
 function sqlNumericLiteral(value: number): string {

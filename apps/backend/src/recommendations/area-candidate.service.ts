@@ -38,6 +38,7 @@ import {
   stampCandidateTargetRegion,
   resolveTargetRegionKey,
   teilCatalogQuery,
+  filterByMinOverlapShare,
 } from "./area-candidates";
 import { displayAreaName } from "./hit-display";
 
@@ -86,7 +87,7 @@ export class AreaCandidateService {
         seen.add(candidate.id);
         out.push(candidate);
       }
-      return { items: await this.withMunicipalityNames(out), truncated };
+      return { items: await this.withMunicipalityNames(filterByMinOverlapShare(out)), truncated };
     } catch (error) {
       if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
         this.logger.log(`Area-candidate catalog read missed (${messageOf(error)}).`);
@@ -211,7 +212,7 @@ export class AreaCandidateService {
       if (candidate) items.push(candidate);
       if (items.length % 50 === 0) await yieldEventLoop();
     }
-    return { items, truncated: result.rows.length >= AREA_CANDIDATE_LIMIT };
+    return { items: filterByMinOverlapShare(items), truncated: result.rows.length >= AREA_CANDIDATE_LIMIT };
   }
 
   private async withMunicipalityNames(items: AreaCandidate[]): Promise<AreaCandidate[]> {

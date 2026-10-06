@@ -7,7 +7,7 @@ import { SeriesRegionInput, YearlySeries, asOfFrom } from "../analysis/yearly-se
 import { YearlySeriesService } from "../analysis/yearly-series.service";
 import { DatabaseService, analysisWriteQuery } from "../database/database.service";
 import { toIso } from "../customer/values";
-import { AreaCandidate, targetRegionKeyOf, targetRegionsFromAnalysis } from "./area-candidates";
+import { AreaCandidate, filterByMinOverlapShare, targetRegionKeyOf, targetRegionsFromAnalysis } from "./area-candidates";
 import { AreaCandidateService } from "./area-candidate.service";
 import { capCandidatesForSeries } from "./candidate-cap";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
@@ -122,7 +122,7 @@ export class RecommendationsService {
     const ranked = reattachGeometry(rankedJob.ranked, capped.selected);
     throwIfAborted(signal);
     await yieldEventLoop();
-    const withOverlaps = await attachHitOverlaps(this.db, ranked, regions);
+    const withOverlaps = filterByMinOverlapShare(await attachHitOverlaps(this.db, ranked, regions));
     throwIfAborted(signal);
     await yieldEventLoop();
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));

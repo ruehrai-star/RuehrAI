@@ -1492,6 +1492,95 @@ describe("score formula on rankTeilflaechen", () => {
     const earlierId: ScoredLocation = { ...highShare, id: "other:a-first", targetOverlapShare: 0.5, overlaps: [{ ...highShare.overlaps![0], share: 0.5 }] };
     expect(compareScoredLocations(laterId, earlierId)).toBeGreaterThan(0);
   });
+
+  it("excludes a 0.7% LOR sliver at default 0.1 and still tie-breaks eligible hits by coverage", () => {
+    const sliver = candidate({
+      geoKey: "lor:plr:07501031",
+      kind: "lor",
+      title: "Eisenacher Straße",
+      targetOverlapShare: 0.007,
+    });
+    const highCoverage = candidate({
+      geoKey: "lor:plr:07400720",
+      kind: "lor",
+      title: "Germaniagarten",
+      targetOverlapShare: 1,
+    });
+    const lowCoverage = candidate({
+      geoKey: "lor:plr:07400721",
+      kind: "lor",
+      title: "Paradestraße",
+      targetOverlapShare: 0.12,
+    });
+    const wander: PatternCriterion = {
+      key: "wanderungen",
+      metricId: "wanderungen",
+      label: "Wanderungen",
+      direction: "down",
+      evidence: "fällt",
+      kind: "trend",
+      coverage: "multi",
+      baseline: "per_1000_inhabitants",
+    };
+    const matching = (geoKey: string, metricId: "unfallatlas" | "wanderungen") =>
+      series({
+        metricId,
+        requestedGeoKey: geoKey,
+        requestedLevel: "lor",
+        sourceLevel: "lor",
+        sourceGeoKey: geoKey,
+        points: [
+          { period: "2023", status: "present", value: 20 },
+          { period: "2025", status: "present", value: 8 },
+        ],
+      });
+    const ranked = rankTeilflaechen(
+      [sliver, highCoverage, lowCoverage],
+      [
+        matching("lor:plr:07501031", "unfallatlas"),
+        inhabitants("lor:plr:07501031", "lor"),
+        matching("lor:plr:07501031", "wanderungen"),
+        matching("lor:plr:07400720", "unfallatlas"),
+        inhabitants("lor:plr:07400720", "lor"),
+        matching("lor:plr:07400720", "wanderungen"),
+        matching("lor:plr:07400721", "unfallatlas"),
+        inhabitants("lor:plr:07400721", "lor"),
+      ],
+      [trendUp, wander],
+      [],
+      {
+        patternByDataset: buildPatternByDataset([
+          matching("store", "unfallatlas"),
+          inhabitants("store", "lor"),
+          matching("store", "wanderungen"),
+        ]),
+      },
+    );
+    expect(ranked.map((item) => item.title)).not.toContain("Eisenacher Straße");
+    expect(ranked.map((item) => item.title)).toEqual(["Germaniagarten", "Paradestraße"]);
+    const coverageTie: ScoredLocation = {
+      ...ranked[0]!,
+      id: "other:zzz-more-coverage",
+      title: "Mehr nAktiv",
+      score: 0.4,
+      targetOverlapShare: 0.5,
+      criteriaEvidence: [
+        { key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 },
+        { key: "wanderungen", label: "Wanderungen", direction: "up", patternDirection: "up", evidence: "y", proximity: 0.5 },
+      ],
+    };
+    const fewerActive: ScoredLocation = {
+      ...ranked[1]!,
+      id: "other:aaa-less-coverage",
+      title: "AAA zuerst",
+      score: 0.4,
+      targetOverlapShare: 0.5,
+      criteriaEvidence: [
+        { key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 },
+      ],
+    };
+    expect(compareScoredLocations(fewerActive, coverageTie)).toBeGreaterThan(0);
+  });
 });
 
 describe("recommendationReason", () => {
