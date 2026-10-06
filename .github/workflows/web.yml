@@ -1,5 +1,6 @@
 name: web
 
+# Path-filtered workflows skip backend-only PRs unless this file is in the diff.
 on:
   pull_request:
     paths:
