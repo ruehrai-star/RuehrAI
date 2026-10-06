@@ -3,6 +3,7 @@
 import type { AnalysisRun } from "@ruehrai/api-contracts";
 import { ApiError } from "../api/types.ts";
 import { containsInternalKey, visiblePlaceText } from "../format.ts";
+import { messageForKnownApiCode, USER_MESSAGE_COPY } from "../user-message.ts";
 
 export type AnalysisRunFailureReason = NonNullable<AnalysisRun["failureReason"]>;
 
@@ -28,7 +29,7 @@ export const ANALYSIS_FAILURE_COPY = {
   unexpected: "Es ist ein unerwarteter Fehler aufgetreten.",
   restart: "Erneut starten",
   tooManyTargetRegions: "Bitte wählen Sie höchstens 200 Zielregionen.",
-  markedTargetRegionMissing: "Diese Zielregion ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  markedTargetRegionMissing: USER_MESSAGE_COPY.markedTargetRegionMissing,
   chooseTargetRegion: "Zielregion wählen",
 } as const;
 
@@ -77,6 +78,9 @@ export function analysisFailureMessage(reason: string | null | undefined): strin
  * limit, not a run `failureReason` — show the German sentence, not the
  * generic unexpected line.
  *
+ * `body` (often `ApiError.message`) is only for mapping: too-many Zielregionen
+ * and closed `failureReason` keys. It is never shown in the UI.
+ *
  * POST `/analysis/runs` 404 with `code` `marked_target_region_not_found`
  * means the marked geoKey is gone from the saved list. Other 404s stay
  * the generic unexpected line.
@@ -86,16 +90,18 @@ export function analysisFailureFromHttp(
   body?: string | null,
   code?: string | null,
 ): string {
-  if (status === 404 && isMarkedTargetRegionNotFoundCode(code)) {
-    return ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
-  }
+  const known = messageForKnownApiCode(code);
+  if (known) return known;
   if (status === 404) {
     return analysisFailureMessage("internal_error");
   }
   if (status === 400 && isTooManyTargetRegionsMessage(body)) {
     return ANALYSIS_FAILURE_COPY.tooManyTargetRegions;
   }
-  return analysisFailureMessage(body);
+  if (typeof body === "string" && isAnalysisRunFailureReason(body)) {
+    return analysisFailureMessage(body);
+  }
+  return analysisFailureMessage(null);
 }
 
 export function isMarkedTargetRegionNotFoundCode(code?: string | null): boolean {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import type { AnalysisInput, AnalysisPattern, AnalysisRun, TargetRegion } from "@/lib/api";
+import { ApiError, type AnalysisInput, type AnalysisPattern, type AnalysisRun, type TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
 import { rememberStartedRun } from "@/lib/analysis/started-runs";
 import { clearMarkedKey, readMarkedKey } from "@/lib/locations/marked-region";
@@ -183,11 +183,10 @@ export function MusteranalysePage() {
         clearMarkedKey();
         setActionError(markedTargetRegionMissingMessage(regionName));
       } else {
-        const status = caught instanceof Error && "status" in caught ? Number((caught as { status: number }).status) : 0;
-        const code = caught instanceof Error && "code" in caught ? String((caught as { code?: string }).code ?? "") : null;
-        setActionError(
-          analysisFailureFromHttp(status, caught instanceof Error ? caught.message : ANALYSIS_COPY.failed, code),
-        );
+        const status = caught instanceof ApiError ? caught.status : 0;
+        const message = caught instanceof ApiError ? caught.message : null;
+        const code = caught instanceof ApiError ? caught.code : null;
+        setActionError(analysisFailureFromHttp(status, message, code));
       }
       setPhase("failed");
     } finally {

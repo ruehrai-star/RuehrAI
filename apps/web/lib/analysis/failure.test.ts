@@ -113,6 +113,23 @@ test("POST /analysis/runs 400 for more than 200 Zielregionen is a German limit, 
   assert.equal(analysisFailureFromHttp(400, "Die Angaben sind ungültig."), line(ANALYSIS_FAILURE_COPY.unexpected));
 });
 
+test("HTTP mapping never displays the backend message; known codes get dedicated copy", () => {
+  const english = "Internal Server Error: boom at analysis.service.ts:188";
+  const mapped = analysisFailureFromHttp(500, english);
+  assert.equal(mapped, line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(mapped.includes(english), false);
+  assert.equal(analysisFailureFromHttp(502, "Bad Gateway").includes("Bad Gateway"), false);
+  assert.equal(
+    analysisFailureFromHttp(404, "Marked target region not found", "marked_target_region_not_found"),
+    ANALYSIS_FAILURE_COPY.markedTargetRegionMissing,
+  );
+  assert.equal(
+    ANALYSIS_FAILURE_COPY.markedTargetRegionMissing,
+    "Diese Zielregion ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  );
+  assert.equal(analysisFailureFromHttp(404, "Die Analyse wurde nicht gefunden.").includes("gefunden"), false);
+});
+
 test("the client safety deadline uses the timeout sentence", () => {
   assert.equal(clientDeadlineMessage(), line(ANALYSIS_FAILURE_COPY.timeout));
   assert.equal(clientDeadlineMessage().includes("timeout"), false);

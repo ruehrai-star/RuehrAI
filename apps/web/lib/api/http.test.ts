@@ -347,6 +347,28 @@ test("error JSON from the Backend becomes ApiError", async () => {
   });
 });
 
+test("error JSON keeps a backend code on ApiError for UI mapping, not display", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse(
+        {
+          statusCode: 404,
+          message: "Marked target region not found",
+          code: "marked_target_region_not_found",
+        },
+        404,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun({ geoKey: "ortsteil:osm:999" }), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 404);
+    assert.equal(error.message, "Marked target region not found");
+    assert.equal(error.code, "marked_target_region_not_found");
+    return true;
+  });
+});
+
 test("POST /auth/logout revokes the bearer token and accepts an empty body", async () => {
   const seen: { url?: string; method?: string; authorization?: string | null } = {};
   const api = createHttpApi({

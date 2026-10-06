@@ -16,6 +16,7 @@ import {
   missingMapAreaClientError,
   sourceLacksMapArea,
 } from "@/lib/locations/add-error";
+import { errorText } from "@/lib/user-message";
 import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { VERLAUF_COPY } from "@/lib/verlauf/model";
 
@@ -77,11 +78,11 @@ export function RegionSection({
           setResultQuery(trimmed);
           setSearchError(null);
         })
-        .catch(() => {
+        .catch((caught) => {
           if (cancelled) return;
           setHits([]);
           setResultQuery(trimmed);
-          setSearchError("Suche fehlgeschlagen.");
+          setSearchError(errorText(caught, "Suche fehlgeschlagen."));
         });
     }, 180);
 
