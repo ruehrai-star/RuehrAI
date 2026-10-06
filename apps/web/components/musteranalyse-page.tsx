@@ -211,7 +211,7 @@ export function MusteranalysePage() {
         {visibleInput ? (
           <>
             <p className="summary-line">
-              Zielregion: <RunRegionLabel regions={marked ? [marked] : []} />
+              Zielregion: <RunRegionLabel regions={marked ? [marked] : []} catalog={regions} />
               {` · Filialen: ${visibleInput.stores.length} · Monate Umsatz: ${revenueMonthCount(visibleInput)}`}
             </p>
             <p className="hint">Umsatzrichtung: {revenueDirectionLabel(visibleInput.revenueDirection)}</p>

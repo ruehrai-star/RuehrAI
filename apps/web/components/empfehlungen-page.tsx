@@ -435,7 +435,7 @@ export function EmpfehlungenPage() {
         {standPrefix ? (
           <div className="treffer-stand" role="status">
             {standPrefix}
-            <RunRegionLabel regions={runRegions} />
+            <RunRegionLabel regions={runRegions} catalog={visibleRegions} />
           </div>
         ) : null}
         <h1>{heading ?? RECOMMENDATION_COPY.title}</h1>

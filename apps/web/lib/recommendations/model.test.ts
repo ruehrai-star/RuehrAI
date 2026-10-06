@@ -199,7 +199,7 @@ test("Trefferliste heading is always singular for the currently marked Zielregio
   assert.equal(page.includes("subtitlePlural"), false);
   assert.equal(page.includes("formatRunRegionLabel"), false);
   assert.match(page, /<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
-  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
+  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} catalog=\{visibleRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
   assert.match(page, /RECOMMENDATION_COPY\.empty/);
   assert.equal(page.includes("emptyPlural"), false);
 });

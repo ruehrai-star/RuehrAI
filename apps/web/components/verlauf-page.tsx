@@ -253,7 +253,7 @@ export function VerlaufPage() {
         {standPrefix ? (
           <div className="verlauf-stand" role="status">
             {standPrefix}
-            <RunRegionLabel regions={runRegions} />
+            <RunRegionLabel regions={runRegions} catalog={visibleRegions} />
           </div>
         ) : null}
 

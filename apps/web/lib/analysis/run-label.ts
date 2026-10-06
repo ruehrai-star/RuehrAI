@@ -19,14 +19,34 @@ export interface RunRegionLabelView {
 }
 
 /**
+ * Fill a missing Gemeinde from another already-loaded row of the same place
+ * (`GET /target-region`). Never invents a name and never copies a sibling's
+ * parent onto a different geoKey.
+ */
+export function withCatalogParent(
+  region: RunRegionSource | null | undefined,
+  catalog?: readonly RunRegionSource[] | null,
+): RunRegionSource | null {
+  if (!region) return null;
+  if (catalogParentName(region)) return region;
+  const match = (catalog ?? []).find((item) => samePlace(item, region));
+  const parent = catalogParentName(match);
+  return parent ? { ...region, parentLabel: parent } : region;
+}
+
+/**
  * One Zielregion in a run label: `Name (Gemeinde)` from `parentLabel`,
  * or the name alone when there is no parent. Keys stay hidden.
  */
-export function runRegionEntryLabel(region: RunRegionSource | null | undefined): string {
-  if (!region) return "";
-  const name = catalogPlaceName(region) ?? visibleName(region.label);
+export function runRegionEntryLabel(
+  region: RunRegionSource | null | undefined,
+  catalog?: readonly RunRegionSource[] | null,
+): string {
+  const source = withCatalogParent(region, catalog);
+  if (!source) return "";
+  const name = catalogPlaceName(source) ?? visibleName(source.label);
   if (!name) return "";
-  const parent = catalogParentName(region);
+  const parent = catalogParentName(source);
   return parent ? `${name} (${parent})` : name;
 }
 
@@ -44,10 +64,13 @@ export function regionsFromRunInput(
   return unique;
 }
 
-export function runRegionEntries(regions: readonly RunRegionSource[] | null | undefined): string[] {
+export function runRegionEntries(
+  regions: readonly RunRegionSource[] | null | undefined,
+  catalog?: readonly RunRegionSource[] | null,
+): string[] {
   const entries: string[] = [];
   for (const region of regions ?? []) {
-    const label = runRegionEntryLabel(region);
+    const label = runRegionEntryLabel(region, catalog);
     if (!label || entries.includes(label)) continue;
     entries.push(label);
   }
@@ -62,8 +85,9 @@ export function runRegionEntries(regions: readonly RunRegionSource[] | null | un
  */
 export function formatRunRegionLabel(
   regions: readonly RunRegionSource[] | null | undefined,
+  catalog?: readonly RunRegionSource[] | null,
 ): RunRegionLabelView {
-  const entries = runRegionEntries(regions);
+  const entries = runRegionEntries(regions, catalog);
   if (entries.length === 0) return { summary: "", entries, expandable: false };
   if (entries.length === 1) return { summary: entries[0] ?? "", entries, expandable: false };
   const rest = entries.length - 1;
