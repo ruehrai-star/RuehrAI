@@ -1594,7 +1594,7 @@ test("trendYears 2 shows Trend aus 2 Jahren; two points without the field do not
   assert.equal(buildTrefferCard(fromFlag, [patternDataset]).criteria[0]?.twoYearTrendLabel, "Trend aus 2 Jahren");
 });
 
-test("nAktiv-0 hit (no own Verlauf) shows one muted card sentence; a normal hit stays unchanged", () => {
+test("nAktiv-0 hit binds to localDatasetCount; missing field falls back to own Verlauf", () => {
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /card\.inactiveHint/);
@@ -1604,81 +1604,121 @@ test("nAktiv-0 hit (no own Verlauf) shows one muted card sentence; a normal hit 
   assert.match(css, /\.rec-card\.is-inactive/);
   assert.match(css, /border-style:\s*dashed/);
   assert.doesNotMatch(css, /\.rec-card\.is-inactive[^{]*\{[^}]*opacity/);
-  const inactiveHit = item({
-    id: "lor:plr:inactive",
-    rank: 1,
-    kind: "lor",
-    score: 0,
-    criteriaEvidence: [
-      {
-        key: "kaufkraft",
-        metricId: "kaufkraft",
-        label: "Kaufkraft",
-        direction: "up",
-        patternDirection: "up",
-        evidence: "Kaufkraft vererbt von Gemeinde.",
-        kind: "trend",
-        coverage: "series",
-        scope: "inherited",
-        sourceLevel: "gemeinde",
-        proximity: 0.9,
-      },
-      {
-        key: "flaeche",
-        metricId: "flaeche",
-        label: "Fläche",
-        direction: "unknown",
-        patternDirection: "up",
-        evidence: "Fläche am Stichtag.",
-        kind: "stichtag",
-        coverage: "single",
-        scope: "local",
-        sourceLevel: "lor",
-        normalizedValue: 12,
-      },
-    ],
-  });
-  const inactiveCard = buildTrefferCard(inactiveHit, undefined);
-  assert.equal(inactiveCard.inactive, true);
-  assert.equal(inactiveCard.inactiveHint, INACTIVE_HIT_COPY);
+
+  const inheritedAndStichtag = [
+    {
+      key: "kaufkraft",
+      metricId: "kaufkraft",
+      label: "Kaufkraft",
+      direction: "up" as const,
+      patternDirection: "up" as const,
+      evidence: "Kaufkraft vererbt von Gemeinde.",
+      kind: "trend" as const,
+      coverage: "series" as const,
+      scope: "inherited" as const,
+      sourceLevel: "gemeinde" as const,
+      proximity: 0.9,
+    },
+    {
+      key: "flaeche",
+      metricId: "flaeche",
+      label: "Fläche",
+      direction: "unknown" as const,
+      patternDirection: "up" as const,
+      evidence: "Fläche am Stichtag.",
+      kind: "stichtag" as const,
+      coverage: "single" as const,
+      scope: "local" as const,
+      sourceLevel: "lor" as const,
+      normalizedValue: 12,
+    },
+  ];
+  const localTrendEvidence = [
+    {
+      key: "einwohner",
+      metricId: "einwohner",
+      label: "Einwohner",
+      direction: "up" as const,
+      patternDirection: "up" as const,
+      evidence: "Einwohner steigt in den letzten drei Jahren.",
+      kind: "trend" as const,
+      coverage: "series" as const,
+      scope: "local" as const,
+      sourceLevel: "ortsteil" as const,
+      proximity: 0.8,
+      points: [
+        { period: "2023", status: "present" as const, value: 10, normalizedValue: 10 },
+        { period: "2024", status: "present" as const, value: 11, normalizedValue: 11 },
+        { period: "2025", status: "present" as const, value: 12, normalizedValue: 12 },
+      ],
+    },
+  ];
+
+  const fieldZero = buildTrefferCard(
+    item({
+      id: "lor:plr:zero",
+      rank: 1,
+      kind: "lor",
+      score: 0,
+      localDatasetCount: 0,
+      criteriaEvidence: localTrendEvidence,
+    }),
+    [patternDataset],
+  );
+  assert.equal(fieldZero.inactive, true);
+  assert.equal(fieldZero.inactiveHint, INACTIVE_HIT_COPY);
+  assert.equal(fieldZero.criteria[0]?.proximityLabel, null);
+  assert.equal(fieldZero.criteria[0]?.twoYearTrendLabel, null);
+
+  const fieldPositive = buildTrefferCard(
+    item({
+      id: "lor:plr:positive",
+      rank: 1,
+      kind: "lor",
+      localDatasetCount: 1,
+      criteriaEvidence: inheritedAndStichtag,
+    }),
+    undefined,
+  );
+  assert.equal(fieldPositive.inactive, false);
+  assert.equal(fieldPositive.inactiveHint, null);
+
+  const missingFieldInactive = buildTrefferCard(
+    item({
+      id: "lor:plr:inactive",
+      rank: 1,
+      kind: "lor",
+      score: 0,
+      criteriaEvidence: inheritedAndStichtag,
+    }),
+    undefined,
+  );
+  assert.equal(missingFieldInactive.inactive, true);
+  assert.equal(missingFieldInactive.inactiveHint, INACTIVE_HIT_COPY);
   assert.equal(
-    inactiveCard.inactiveHint,
+    missingFieldInactive.inactiveHint,
     "Für diese Fläche liegen keine eigenen Verlaufsdaten vor. Die Einordnung beruht auf übergeordneten Werten.",
   );
-  const proximityLines = [...inactiveCard.criteria, ...inactiveCard.inherited].map((row) => row.proximityLabel);
+  const proximityLines = [...missingFieldInactive.criteria, ...missingFieldInactive.inherited].map(
+    (row) => row.proximityLabel,
+  );
   assert.equal(proximityLines.every((label) => label == null), true);
-  const twoYearLines = [...inactiveCard.criteria, ...inactiveCard.inherited].map((row) => row.twoYearTrendLabel);
+  const twoYearLines = [...missingFieldInactive.criteria, ...missingFieldInactive.inherited].map(
+    (row) => row.twoYearTrendLabel,
+  );
   assert.equal(twoYearLines.every((label) => label == null), true);
-  assert.equal(inactiveCard.inactiveHint?.includes("Nähe zum Filialmuster"), false);
-  const normal = buildTrefferCard(
+  assert.equal(missingFieldInactive.inactiveHint?.includes("Nähe zum Filialmuster"), false);
+
+  const missingFieldActive = buildTrefferCard(
     item({
       id: "lor:plr:active",
       rank: 1,
       kind: "lor",
-      criteriaEvidence: [
-        {
-          key: "einwohner",
-          metricId: "einwohner",
-          label: "Einwohner",
-          direction: "up",
-          patternDirection: "up",
-          evidence: "Einwohner steigt in den letzten drei Jahren.",
-          kind: "trend",
-          coverage: "series",
-          scope: "local",
-          sourceLevel: "ortsteil",
-          proximity: 0.8,
-          points: [
-            { period: "2023", status: "present", value: 10, normalizedValue: 10 },
-            { period: "2024", status: "present", value: 11, normalizedValue: 11 },
-            { period: "2025", status: "present", value: 12, normalizedValue: 12 },
-          ],
-        },
-      ],
+      criteriaEvidence: localTrendEvidence,
     }),
     [patternDataset],
   );
-  assert.equal(normal.inactive, false);
-  assert.equal(normal.inactiveHint, null);
-  assert.equal(normal.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: hoch");
+  assert.equal(missingFieldActive.inactive, false);
+  assert.equal(missingFieldActive.inactiveHint, null);
+  assert.equal(missingFieldActive.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: hoch");
 });

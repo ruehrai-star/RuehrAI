@@ -174,7 +174,8 @@ export interface TrefferCardView {
   criteria: TrefferCriterionRow[];
   inherited: TrefferCriterionRow[];
   /**
-   * No 0.19.5 item field names nAktiv. True when no `criteriaEvidence`
+   * OpenAPI 0.19.6 nAktiv-0 card. True when `localDatasetCount === 0`,
+   * or — on older sets without that field — when no `criteriaEvidence`
    * has own Verlauf (local trend / series).
    */
   inactive: boolean;

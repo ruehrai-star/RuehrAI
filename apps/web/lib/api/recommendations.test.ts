@@ -633,6 +633,57 @@ test("GET /recommendations rejects proximity outside 0..1", async () => {
   });
 });
 
+test("GET /recommendations accepts additive 0.19.6 items[].localDatasetCount including 0", async () => {
+  const withZero = {
+    ...set,
+    items: [{ ...set.items[0], localDatasetCount: 0, score: 0 }],
+  };
+  const withCount = {
+    ...set,
+    items: [{ ...set.items[0], localDatasetCount: 2 }],
+  };
+  const zeroApi = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withZero),
+  });
+  const countApi = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withCount),
+  });
+  const omittedApi = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(set),
+  });
+  const zero = await zeroApi.getRecommendations();
+  const counted = await countApi.getRecommendations();
+  const omitted = await omittedApi.getRecommendations();
+  assert.equal(zero?.items[0]?.localDatasetCount, 0);
+  assert.equal(counted?.items[0]?.localDatasetCount, 2);
+  assert.equal(omitted?.items[0]?.localDatasetCount, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(omitted?.items[0] ?? {}, "localDatasetCount"), false);
+});
+
+test("GET /recommendations rejects localDatasetCount below 0 or non-integer", async () => {
+  const negative = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ ...set, items: [{ ...set.items[0], localDatasetCount: -1 }] }),
+  });
+  const fractional = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ ...set, items: [{ ...set.items[0], localDatasetCount: 1.5 }] }),
+  });
+  await assert.rejects(negative.getRecommendations(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+  await assert.rejects(fractional.getRecommendations(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+});
+
 test("a recommendation set whose count disagrees with its items is rejected", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
