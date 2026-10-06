@@ -1,8 +1,8 @@
-import { PatternCriterion } from "../analysis/types";
+import { AnalysisRegion, PatternCriterion } from "../analysis/types";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
-import { AreaCandidate } from "./area-candidates";
+import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
-import { rankTeilflaechen } from "./score";
+import { assignRanksByTargetRegion, dataAsOfFromEvidence, MAX_RANKED_ITEMS, rankTeilflaechen } from "./score";
 
 function candidate(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -666,7 +666,218 @@ describe("rankTeilflaechen", () => {
     expect(ranked.length).toBeLessThanOrEqual(200);
     expect(Date.now() - started).toBeLessThan(4_000);
   });
+
+  it("sets dataAsOf from the newest present evidence period", () => {
+    const ranked = rankTeilflaechen(
+      [candidate({ geoKey: "ortsteil:osm:1", kind: "ortsteil", title: "Schwabing" })],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:1",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025-03", status: "present", value: 8 },
+            { period: "2024", status: "absent" },
+          ],
+        }),
+        inhabitants("ortsteil:osm:1"),
+      ],
+      [trendUp],
+    );
+    expect(ranked[0]?.dataAsOf).toBe("2025-03");
+    expect(dataAsOfFromEvidence([])).toBeNull();
+  });
 });
+
+describe("rank je Zielregion", () => {
+  const koeln = "bezirk:osm:2613798";
+  const berlinKeys = [
+    "ortsteil:osm:licht",
+    "ortsteil:osm:tempel",
+    "ortsteil:osm:marien",
+    "ortsteil:osm:lank",
+    "ortsteil:osm:steg",
+  ];
+
+  it("starts each of 6 Zielregionen at rank 1, gapless, Quartier+Stadtteil together, ags=null", () => {
+    const regions = [region(koeln, "Innenstadt"), ...berlinKeys.map((key, index) => region(key, `Berlin-${index}`))];
+    const pool: AreaCandidate[] = [];
+    const yearly: YearlySeries[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      const geoKey = `koeln:sq:10101000${index}`;
+      pool.push(
+        stampCandidateTargetRegion(
+          candidate({
+            geoKey,
+            kind: "quartier",
+            title: `Quartier ${index}`,
+            name: `Quartier ${index}`,
+            ags: null,
+            plz: null,
+          }),
+          koeln,
+        ),
+      );
+      yearly.push(localUnfall(geoKey, index < 4 ? 20 : 8, index < 4 ? 8 : 20, "quartier"), inhabitants(geoKey, "quartier"));
+    }
+    for (const name of ["Altstadt-Nord", "Altstadt-Süd", "Deutz"]) {
+      const geoKey = `stadtteil:osm:${name}`;
+      pool.push(
+        stampCandidateTargetRegion(
+          candidate({ geoKey, kind: "stadtteil", title: name, name, ags: null, plz: null }),
+          koeln,
+        ),
+      );
+      yearly.push(localUnfall(geoKey, 10, 12, "ortsteil"), inhabitants(geoKey, "ortsteil"));
+    }
+    berlinKeys.forEach((regionKey, regionIndex) => {
+      for (let index = 0; index < 4; index += 1) {
+        const geoKey = `lor:plr:06${regionIndex}${index}`;
+        pool.push(
+          stampCandidateTargetRegion(
+            candidate({
+              geoKey,
+              kind: "lor",
+              title: `LOR ${regionIndex}-${index}`,
+              name: `LOR ${regionIndex}-${index}`,
+              ags: null,
+              plz: null,
+            }),
+            regionKey,
+          ),
+        );
+        yearly.push(localUnfall(geoKey, 20, index === 0 ? 8 : 20, "lor"), inhabitants(geoKey, "lor"));
+      }
+    });
+
+    const scored = rankTeilflaechen(pool, yearly, [trendUp], regions);
+    const ranked = assignRanksByTargetRegion(
+      scored.map((item) => ({ ...item, rationale: "", source: "heuristic" as const })),
+      regions.map((item) => item.geoKey ?? ""),
+    );
+
+    expect(new Set(ranked.map((item) => item.targetRegionGeoKey))).toEqual(
+      new Set([koeln, ...berlinKeys]),
+    );
+    for (const regionKey of [koeln, ...berlinKeys]) {
+      const group = ranked.filter((item) => item.targetRegionGeoKey === regionKey);
+      expect(group.map((item) => item.rank)).toEqual(group.map((_, index) => index + 1));
+      expect(group[0]?.rank).toBe(1);
+      const scores = group.map((item) => item.score);
+      expect(scores).toEqual([...scores].sort((left, right) => right - left));
+    }
+    const koelnGroup = ranked.filter((item) => item.targetRegionGeoKey === koeln);
+    expect(koelnGroup.some((item) => item.kind === "quartier")).toBe(true);
+    expect(koelnGroup.some((item) => item.kind === "stadtteil")).toBe(true);
+    const firstStadtteil = koelnGroup.find((item) => item.kind === "stadtteil");
+    const lastMatchingQuartier = [...koelnGroup].reverse().find((item) => item.kind === "quartier" && item.score === 1);
+    expect(firstStadtteil && lastMatchingQuartier && firstStadtteil.rank > lastMatchingQuartier.rank).toBe(true);
+  });
+
+  it("does not let a dominant region take every slot; each region keeps at least 3 hits", () => {
+    const regions = [region(koeln, "Innenstadt"), ...berlinKeys.map((key) => region(key, key))];
+    const pool: AreaCandidate[] = [];
+    const yearly: YearlySeries[] = [];
+    for (let index = 0; index < 1000; index += 1) {
+      const geoKey = `koeln:sq:${index}`;
+      pool.push(
+        stampCandidateTargetRegion(
+          candidate({ geoKey, kind: "quartier", title: `K ${index}`, name: `K ${index}`, ags: null }),
+          koeln,
+        ),
+      );
+      yearly.push(localUnfall(geoKey, 20, 8, "quartier"), inhabitants(geoKey, "quartier"));
+    }
+    berlinKeys.forEach((regionKey, regionIndex) => {
+      for (let index = 0; index < 8; index += 1) {
+        const geoKey = `lor:plr:${regionIndex}${index}`;
+        pool.push(
+          stampCandidateTargetRegion(
+            candidate({ geoKey, kind: "lor", title: `B ${regionIndex}-${index}`, name: `B ${regionIndex}-${index}`, ags: null }),
+            regionKey,
+          ),
+        );
+        yearly.push(localUnfall(geoKey, 10, 12, "lor"), inhabitants(geoKey, "lor"));
+      }
+    });
+
+    const scored = rankTeilflaechen(pool, yearly, [trendUp], regions);
+    expect(scored.length).toBeLessThanOrEqual(MAX_RANKED_ITEMS);
+    const byRegion = new Map<string, number>();
+    for (const item of scored) {
+      const key = item.targetRegionGeoKey;
+      byRegion.set(key, (byRegion.get(key) ?? 0) + 1);
+    }
+    expect(byRegion.get(koeln) ?? 0).toBeGreaterThan(3);
+    for (const regionKey of berlinKeys) {
+      expect(byRegion.get(regionKey) ?? 0).toBeGreaterThanOrEqual(3);
+    }
+    expect([...byRegion.values()].reduce((sum, value) => sum + value, 0)).toBeLessThanOrEqual(200);
+  });
+
+  it("keeps an overlapping Fläche once per Zielregion with unique ids", () => {
+    const left = "ortsteil:osm:licht";
+    const right = "ortsteil:osm:steg";
+    const geoKey = "plz5:12207";
+    const pool = [
+      stampCandidateTargetRegion(
+        candidate({ geoKey, kind: "plz", grain: "plz5", title: "PLZ 12207", name: "PLZ 12207", ags: null }),
+        left,
+      ),
+      stampCandidateTargetRegion(
+        candidate({ geoKey, kind: "plz", grain: "plz5", title: "PLZ 12207", name: "PLZ 12207", ags: null }),
+        right,
+      ),
+    ];
+    expect(pool[0]?.id).not.toBe(pool[1]?.id);
+    const yearly = [
+      localUnfall(geoKey, 20, 8, "plz"),
+      inhabitants(geoKey, "plz"),
+    ];
+    const scored = rankTeilflaechen(pool, yearly, [trendUp], [region(left, "Lichterfelde"), region(right, "Steglitz")]);
+    expect(scored).toHaveLength(2);
+    expect(new Set(scored.map((item) => item.id)).size).toBe(2);
+    expect(new Set(scored.map((item) => item.targetRegionGeoKey))).toEqual(new Set([left, right]));
+    const ranked = assignRanksByTargetRegion(
+      scored.map((item) => ({ ...item, rationale: "", source: "heuristic" as const })),
+      [left, right],
+    );
+    expect(ranked.map((item) => item.rank)).toEqual([1, 1]);
+    expect(ranked[0]?.targetRegionGeoKey).toBe(left);
+    expect(ranked[1]?.targetRegionGeoKey).toBe(right);
+  });
+});
+
+function localUnfall(geoKey: string, first: number, last: number, level: SeriesLevel = "ortsteil"): YearlySeries {
+  return series({
+    metricId: "unfallatlas",
+    requestedGeoKey: geoKey,
+    requestedLevel: level,
+    sourceLevel: level,
+    sourceGeoKey: geoKey,
+    points: [
+      { period: "2023", status: "present", value: first },
+      { period: "2025", status: "present", value: last },
+    ],
+  });
+}
+
+function region(geoKey: string, label: string): AnalysisRegion {
+  return {
+    label,
+    grain: "other",
+    geoKey,
+    level: "ortsteil",
+    parentLabel: label.startsWith("Berlin") || ["Lichterfelde", "Steglitz"].includes(label) ? "Berlin" : "Köln",
+    ags: null,
+    plz: null,
+    lon: null,
+    lat: null,
+    bounds: null,
+    geometry: null,
+    updatedAt: "2026-10-06T00:00:00.000Z",
+  };
+}
 
 describe("recommendationReason", () => {
   it("is empty only when no Teilfläche exists", () => {

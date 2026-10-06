@@ -77,6 +77,7 @@ function item(partial: Partial<Recommendation> & Pick<Recommendation, "id" | "ra
     source: "heuristic",
     geometry: polygon,
     trend: { direction: "up", summary: "Einwohner steigt seit drei Jahren, je 1.000 Einwohner." },
+    targetRegionGeoKey: "ortsteil:osm:5712247",
     ...partial,
     location: {
       geoKey: "ortsteil:osm:5712247",

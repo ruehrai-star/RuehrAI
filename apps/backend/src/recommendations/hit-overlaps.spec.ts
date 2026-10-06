@@ -28,6 +28,8 @@ function hit(geoKey: string, kind: AreaKind = "plz"): ScoredLocation {
     grain,
     name: geoKey,
     parentLabel: "München",
+    targetRegionGeoKey: "09162000",
+    dataAsOf: null,
     location: { geoKey, grain, lon: null, lat: null, name: geoKey },
     score: 1,
     criteriaEvidence: [],
@@ -179,5 +181,40 @@ describe("hit overlaps", () => {
     expect(query.sql).toContain("ST_Covers");
     expect(query.sql).toContain("ST_Dimension");
     expect(query.sql).not.toContain("<=>");
+  });
+
+  it("clips overlaps to each item's own Zielregion when the same Fläche appears twice", async () => {
+    const left = zielregion({ geoKey: "ortsteil:osm:licht", label: "Lichterfelde", parentLabel: "Berlin" });
+    const right = zielregion({
+      geoKey: "ortsteil:osm:steg",
+      label: "Steglitz",
+      parentLabel: "Berlin",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [13.3, 52.4],
+            [13.4, 52.4],
+            [13.4, 52.5],
+            [13.3, 52.5],
+            [13.3, 52.4],
+          ],
+        ],
+      },
+    });
+    const queryReadingFeatures = jest.fn().mockImplementation(async (_sql: string, params: unknown[]) => {
+      const geom = String(params[2] ?? "");
+      if (geom.includes("6.94")) {
+        return { rows: [row({ hit_geo_key: "12207", label: "Steglitz-Zehlendorf", share: 1, geo_key: "11000006", kind: "bezirk" })] };
+      }
+      return { rows: [row({ hit_geo_key: "12207", label: "Tempelhof-Schöneberg", share: 0.4, geo_key: "11000007", kind: "bezirk" })] };
+    });
+    const leftHit = { ...hit("12207"), id: "plz5:12207@ortsteil:osm:licht", targetRegionGeoKey: left.geoKey ?? "" };
+    const rightHit = { ...hit("12207"), id: "plz5:12207@ortsteil:osm:steg", targetRegionGeoKey: right.geoKey ?? "" };
+    const result = await attachHitOverlaps({ queryReadingFeatures }, [leftHit, rightHit], [left, right]);
+    expect(queryReadingFeatures).toHaveBeenCalledTimes(2);
+    expect(result[0]?.overlaps?.map((part) => part.label)).toEqual(["Steglitz-Zehlendorf"]);
+    expect(result[1]?.overlaps?.map((part) => part.label)).toEqual(["Tempelhof-Schöneberg"]);
+    expect(result[0]?.id).not.toBe(result[1]?.id);
   });
 });

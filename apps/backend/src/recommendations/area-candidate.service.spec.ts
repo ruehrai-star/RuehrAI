@@ -448,4 +448,79 @@ describe("AreaCandidateService", () => {
     ]);
     expect(loaded.items.map((item) => item.geoKey)).toEqual(["ortsteil:osm:1"]);
   });
+
+  it("keeps an overlapping Fläche once per Zielregion with unique ids and per-region geometry", async () => {
+    const leftGeom = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [13.3, 52.4],
+          [13.35, 52.4],
+          [13.35, 52.45],
+          [13.3, 52.45],
+          [13.3, 52.4],
+        ],
+      ],
+    };
+    const rightGeom = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [13.35, 52.4],
+          [13.4, 52.4],
+          [13.4, 52.45],
+          [13.35, 52.45],
+          [13.35, 52.4],
+        ],
+      ],
+    };
+    queryReadingFeatures.mockImplementation(async (sql: string, params?: unknown[]) => {
+      const text = String(sql);
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      const asText = JSON.stringify(params ?? []);
+      const isLeft = asText.includes("ortsteil:osm:licht");
+      const isRight = asText.includes("ortsteil:osm:steg");
+      if (!isLeft && !isRight) return { rows: [] };
+      return {
+        rows: [
+          {
+            geo_key: "12207",
+            grain: "plz5",
+            kind: "plz",
+            name: "12207",
+            ags: null,
+            plz: "12207",
+            lon: 13.35,
+            lat: 52.42,
+            geometry_geojson: JSON.stringify(isLeft ? leftGeom : rightGeom),
+          },
+        ],
+      };
+    });
+
+    const loaded = await service.load([
+      region({
+        label: "Lichterfelde",
+        grain: "other",
+        geoKey: "ortsteil:osm:licht",
+        ags: null,
+        plz: null,
+        geometry: leftGeom,
+      }),
+      region({
+        label: "Steglitz",
+        grain: "other",
+        geoKey: "ortsteil:osm:steg",
+        ags: null,
+        plz: null,
+        geometry: rightGeom,
+      }),
+    ]);
+    const hits = loaded.items.filter((item) => item.geoKey === "12207");
+    expect(hits).toHaveLength(2);
+    expect(new Set(hits.map((item) => item.id)).size).toBe(2);
+    expect(hits.map((item) => item.targetRegionGeoKey).sort()).toEqual(["ortsteil:osm:licht", "ortsteil:osm:steg"]);
+    expect(hits[0]?.id).toContain("@");
+    expect(hits[0]?.geometry).not.toEqual(hits[1]?.geometry);
+  });
 });

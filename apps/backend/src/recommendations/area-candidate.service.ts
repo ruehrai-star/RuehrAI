@@ -35,6 +35,8 @@ import {
   parentMemberships,
   selectCatalogHits,
   skipAddressAndGridForRegion,
+  stampCandidateTargetRegion,
+  targetRegionKeyOf,
   teilCatalogQuery,
 } from "./area-candidates";
 import { displayAreaName } from "./hit-display";
@@ -69,7 +71,9 @@ export class AreaCandidateService {
         const loaded = await this.loadRegion(region);
         await yieldEventLoop();
         if (loaded.truncated) truncated = true;
-        pushAll(collected, selectCatalogHits(loaded.items, [region, ...regions]));
+        const regionKey = targetRegionKeyOf(region);
+        const stamped = loaded.items.map((item) => stampCandidateTargetRegion(item, regionKey));
+        pushAll(collected, selectCatalogHits(stamped, [region, ...regions]));
       }
       const out: AreaCandidate[] = [];
       for (const candidate of collected) {

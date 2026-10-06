@@ -36,9 +36,48 @@ export interface AreaCandidate {
   lat: number | null;
   /** Gemeinde display name from geo_ref_admin / AGS-prefix fallbacks. */
   municipalityName?: string | null;
+  /**
+   * Zielregion this candidate was loaded for (`AnalysisRegion.geoKey`).
+   * Cap, rank, geometry clip, and overlaps stay bound to this key — never
+   * inferred from `ags`/`plz`. A Fläche in two Zielregionen is two candidates.
+   */
+  targetRegionGeoKey?: string;
   /** Clipped hit outline (EPSG:4326), when Brain geom ∩ Zielregion is available. */
   geometry?: RegionGeometry | null;
   geometryUnavailableReason?: string | null;
+}
+
+/** Separates `{grain}:{geoKey}` from the Zielregion in set-unique item ids. */
+export const TARGET_REGION_ID_SEPARATOR = "@";
+
+/**
+ * Set-unique candidate id. Same Fläche in two Zielregionen → two ids:
+ * `{grain}:{geoKey}@{targetRegionGeoKey}`.
+ */
+export function areaCandidateId(
+  grain: Grain | string,
+  geoKey: string,
+  targetRegionGeoKey?: string | null,
+): string {
+  const base = `${grain}:${geoKey}`;
+  const region = targetRegionGeoKey?.trim();
+  return region ? `${base}${TARGET_REGION_ID_SEPARATOR}${region}` : base;
+}
+
+export function stampCandidateTargetRegion(
+  candidate: AreaCandidate,
+  targetRegionGeoKey: string,
+): AreaCandidate {
+  const key = targetRegionGeoKey.trim();
+  return {
+    ...candidate,
+    targetRegionGeoKey: key,
+    id: areaCandidateId(candidate.grain, candidate.geoKey, key),
+  };
+}
+
+export function targetRegionKeyOf(region: Pick<AnalysisRegion, "geoKey" | "ags" | "label">): string {
+  return region.geoKey?.trim() || region.ags?.trim() || region.label;
 }
 
 export interface AreaCandidateSqlRow {

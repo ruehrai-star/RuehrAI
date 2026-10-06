@@ -284,4 +284,40 @@ describe("hit display names", () => {
       ]),
     ).toBe("Hamburg");
   });
+
+  it("never gives a Berliner LOR a Kölner parentLabel even when ags is null", () => {
+    const koeln = region({
+      label: "Innenstadt",
+      level: "bezirk",
+      parentLabel: "Köln",
+      ags: null,
+      geoKey: "bezirk:osm:2613798",
+    });
+    const tempelhof = region({
+      label: "Tempelhof",
+      level: "ortsteil",
+      parentLabel: "Berlin",
+      ags: null,
+      geoKey: "ortsteil:osm:162894",
+    });
+    const lor = area({
+      geoKey: "lor:plr:07400823",
+      kind: "lor",
+      name: "Wittekindstraße",
+      ags: null,
+      targetRegionGeoKey: "ortsteil:osm:162894",
+    });
+    expect(hitParentLabel(lor, [lor], [koeln, tempelhof])).toBe("Berlin");
+    expect(hitParentLabel(lor, [lor], [koeln, tempelhof])).not.toBe("Köln");
+    expect(hitParentLabel(lor, [lor], [koeln, tempelhof])).not.toBe("Innenstadt");
+
+    const unnamed = area({
+      geoKey: "lor:plr:07400823",
+      kind: "lor",
+      name: "Wittekindstraße",
+      ags: null,
+    });
+    expect(hitParentLabel(unnamed, [unnamed], [koeln, tempelhof])).not.toBe("Köln");
+    expect(hitParentLabel(unnamed, [unnamed], [koeln, tempelhof])).not.toBe("Innenstadt");
+  });
 });

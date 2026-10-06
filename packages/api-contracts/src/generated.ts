@@ -591,6 +591,14 @@ export interface paths {
          *     Missing cells are `absent` (`liegt nicht vor`), never `0`.
          *     Kleinräumige yearlySeries rows may have a null embedding.
          *
+         *     `rank` is 1-based and gapless **je Zielregion**
+         *     (`items[].targetRegionGeoKey`), all Ebenen together by score
+         *     descending. A Fläche that intersects two Zielregionen appears
+         *     once per region (own `id`, own clipped `geometry` / `overlaps`).
+         *     Clients show the Musterverlauf by joining
+         *     `criteriaEvidence[].metricId` to `patternByDataset[].yearlySeries`;
+         *     it is not copied onto the item.
+         *
          *     An empty `items` array is success only when no sub-area exists
          *     inside the region (`reason` explains that). `404` when this user
          *     has no completed pattern, or when `runId` is not one of their runs.
@@ -1496,6 +1504,9 @@ export interface components {
              *     metric exists). New `POST /recommendations` always includes
              *     it. Older stored sets may omit the field. Web uses this to
              *     show the relative dataset match, not only Muster je Ebene.
+             *     Clients join `criteriaEvidence[].metricId` to
+             *     `yearlySeries` here for the Musterverlauf — that series is
+             *     not duplicated on each Recommendation item.
              */
             patternByDataset?: components["schemas"]["PatternDatasetProfile"][];
             items: components["schemas"]["Recommendation"][];
@@ -1518,10 +1529,15 @@ export interface components {
         };
         Recommendation: {
             /**
-             * @description Stable area id `{grain}:{geoKey}` inside this set.
-             * @example other:ortsteil:osm:5712247
+             * @description Unique area id inside this set. `{grain}:{geoKey}` when the
+             *     item has no Zielregion; when loaded for a Zielregion (0.19.2)
+             *     `{grain}:{geoKey}@{targetRegionGeoKey}` so the same Fläche
+             *     can appear once per region with its own rank, clipped
+             *     geometry, and overlaps.
+             * @example other:ortsteil:osm:5712247@ortsteil:osm:55737
              */
             id: string;
+            /** @description je Zielregion (targetRegionGeoKey) 1-basiert und lückenlos, über alle Ebenen gemeinsam nach score absteigend */
             rank: number;
             /**
              * @description Card title. Same display name as `name` — never a raw catalog
@@ -1564,9 +1580,30 @@ export interface components {
              *     Zielregion `parentLabel` (München, Hamburg, Berlin, Köln
              *     included). Null when unknown or the hit is the Gemeinde.
              *     Never a PLZ, never the first coarser candidate in an AGS
-             *     pool, never a catalog key.
+             *     pool, never a catalog key. Never taken from another city's
+             *     Zielregion (`ags` match only when both AGS are non-empty;
+             *     no fallback to `regions[0]`).
              */
             parentLabel?: string | null;
+            /**
+             * @description geoKey of the user Zielregion this item belongs to (the
+             *     region the catalog / `geo_ref_zielregion_teil` query ran
+             *     for). Required on new sets (0.19.2). Rank, geometry clip,
+             *     overlaps, and share are scoped to this key. Older stored
+             *     sets may send an empty string after hydration.
+             * @example ortsteil:osm:55737
+             */
+            targetRegionGeoKey: string;
+            /**
+             * @description Newest data point used for this item: year `YYYY` or month
+             *     `YYYY-MM`, taken from `criteriaEvidence.points[].period`
+             *     (present points). Null when no data point exists. The
+             *     Musterverlauf is **not** on the item — join
+             *     `criteriaEvidence[].metricId` to
+             *     `set.patternByDataset[].yearlySeries`.
+             * @example 2025
+             */
+            dataAsOf?: string | null;
             /**
              * @description Named parts of a dataset Schnittfläche so clients can show
              *     „Schnittfläche aus A und B“ without parsing `title`.
@@ -1580,7 +1617,9 @@ export interface components {
              * @description Stadtbezirke / Bezirke this hit spatially intersects, with
              *     `share` = intersection area / **clipped** hit area (0–1).
              *     The hit outline is the same Zielregion clip as
-             *     `items[].geometry`. Bezirke outside the Zielregion are
+             *     `items[].geometry` (the item's own
+             *     `targetRegionGeoKey`, not the union of all regions).
+             *     Bezirke outside that Zielregion are
              *     omitted. Sorted descending. Fragments below 1 % are
              *     omitted. Omit the field when nothing remains (or when the
              *     Brain read failed — the run still completes). Computed for
@@ -2820,10 +2859,12 @@ export interface operations {
                      *       },
                      *       "items": [
                      *         {
-                     *           "id": "other:ortsteil:osm:5712247",
+                     *           "id": "other:ortsteil:osm:5712247@09162000",
                      *           "rank": 1,
                      *           "title": "Schwabing-West",
                      *           "kind": "ortsteil",
+                     *           "targetRegionGeoKey": "09162000",
+                     *           "dataAsOf": "2025",
                      *           "location": {
                      *             "geoKey": "ortsteil:osm:5712247",
                      *             "grain": "other",

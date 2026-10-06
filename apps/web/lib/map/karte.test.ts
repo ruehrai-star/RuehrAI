@@ -548,5 +548,6 @@ function recommendation(id: string, title: string, lon: number | null, lat: numb
     rationale: "Begründung",
     criteriaEvidence: [],
     source: "heuristic",
+    targetRegionGeoKey: "",
   };
 }

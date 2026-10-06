@@ -20,6 +20,8 @@ import { yieldEventLoop } from "../common/safe-array";
 import { runComputeJob } from "../analysis/compute-host";
 import { readAnalysisSeriesCandidateCap } from "../analysis/analysis-env";
 import { throwIfAborted } from "../analysis/run-abort";
+import { assignRanksByTargetRegion, dataAsOfFromEvidence } from "./score";
+import { targetRegionKeyOf } from "./area-candidates";
 
 interface RunRow {
   id: string;
@@ -123,10 +125,12 @@ export class RecommendationsService {
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
     const written = await this.rationales.write(pattern, window, withOverlaps, signal);
     throwIfAborted(signal);
+    const regionOrder = regions.map((region) => targetRegionKeyOf(region)).filter((key) => key.length > 0);
+    const rankedItems = assignRanksByTargetRegion(written, regionOrder);
     const payload: RecommendationPayload = {
       runId: run.id,
       window,
-      count: written.length,
+      count: rankedItems.length,
       reason: recommendationReason({
         candidateCount: capped.candidateCount,
         truncated: loaded.truncated || capped.truncated,
@@ -134,7 +138,7 @@ export class RecommendationsService {
       pattern,
       patternByLevel,
       patternByDataset,
-      items: written.map((item, index) => ({ ...item, rank: index + 1 })),
+      items: rankedItems,
     };
     if (!persist) {
       return toSet("0", new Date().toISOString(), payload);
@@ -259,11 +263,16 @@ function hydrateHitDisplay(item: RecommendationItem): RecommendationItem {
   });
   const grain = item.grain ?? item.location.grain;
   const parentLabel = item.parentLabel !== undefined ? item.parentLabel : null;
+  const targetRegionGeoKey = item.targetRegionGeoKey?.trim() ?? "";
+  const dataAsOf =
+    item.dataAsOf !== undefined ? item.dataAsOf : dataAsOfFromEvidence(item.criteriaEvidence ?? []);
   return {
     ...item,
     grain,
     name,
     parentLabel: parentLabel ?? null,
+    targetRegionGeoKey,
+    dataAsOf,
     title: visibleAreaName(item.title) ?? name,
     location: {
       ...item.location,

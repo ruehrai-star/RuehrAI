@@ -58,6 +58,7 @@ const item: Recommendation = {
     },
   ],
   source: "heuristic",
+  targetRegionGeoKey: "address:nord-1",
 };
 
 function setWith(items: Recommendation[], extra?: Partial<AnalysisPattern>): RecommendationSet {

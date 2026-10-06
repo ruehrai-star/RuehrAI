@@ -29,6 +29,7 @@ import {
   EvidenceScope,
   RecommendationEvidence,
   RecommendationIntersectionPart,
+  RecommendationItem,
   RecommendationTrend,
   ScoredLocation,
 } from "./types";
@@ -70,6 +71,7 @@ export function rankTeilflaechen(
     const name = displayAreaName(candidate);
     const parentLabel = hitParentLabel(candidate, candidates, regions, byGroup);
     const intersectionOf = intersectionParts(candidate, byGroup, byGeoKey, criteria);
+    const targetRegionGeoKey = candidate.targetRegionGeoKey?.trim() ?? "";
     scored.push({
       id: candidate.id,
       title: name,
@@ -78,6 +80,8 @@ export function rankTeilflaechen(
       name,
       parentLabel,
       ...(intersectionOf.length >= 2 ? { intersectionOf } : {}),
+      targetRegionGeoKey,
+      dataAsOf: dataAsOfFromEvidence(withBaseline),
       location: {
         geoKey: candidate.geoKey,
         grain: candidate.grain,
@@ -96,19 +100,110 @@ export function rankTeilflaechen(
     });
   }
 
-  scored.sort((left, right) => {
-    if (right.score !== left.score) return right.score - left.score;
-    const leftKind = areaKindRank(left.kind);
-    const rightKind = areaKindRank(right.kind);
-    if (leftKind !== rightKind) return leftKind - rightKind;
-    const leftPresent = presentEvidenceCount(left.criteriaEvidence);
-    const rightPresent = presentEvidenceCount(right.criteriaEvidence);
-    if (rightPresent !== leftPresent) return rightPresent - leftPresent;
-    const byTitle = left.title.localeCompare(right.title, "de");
-    if (byTitle !== 0) return byTitle;
-    return left.id.localeCompare(right.id, "de");
+  scored.sort(compareScoredLocations);
+  return capRankedByTargetRegion(scored);
+}
+
+/** Newest present `points[].period` (`YYYY` or `YYYY-MM`). Null when none. */
+export function dataAsOfFromEvidence(evidence: RecommendationEvidence[]): string | null {
+  let latest: string | null = null;
+  for (const entry of evidence) {
+    for (const point of entry.points ?? []) {
+      if (point.status && point.status !== "present") continue;
+      const period = point.period?.trim() ?? "";
+      if (!/^\d{4}(-\d{2})?$/.test(period)) continue;
+      if (latest == null || period > latest) latest = period;
+    }
+  }
+  return latest;
+}
+
+export function compareScoredLocations(left: ScoredLocation, right: ScoredLocation): number {
+  if (right.score !== left.score) return right.score - left.score;
+  const leftKind = areaKindRank(left.kind);
+  const rightKind = areaKindRank(right.kind);
+  if (leftKind !== rightKind) return leftKind - rightKind;
+  const leftPresent = presentEvidenceCount(left.criteriaEvidence);
+  const rightPresent = presentEvidenceCount(right.criteriaEvidence);
+  if (rightPresent !== leftPresent) return rightPresent - leftPresent;
+  const byTitle = left.title.localeCompare(right.title, "de");
+  if (byTitle !== 0) return byTitle;
+  return left.id.localeCompare(right.id, "de");
+}
+
+/**
+ * Per-Zielregion cap: quota `max(3, floor(200/n))`, leftover filled by global
+ * score. Total ≤ `MAX_RANKED_ITEMS`. Identical in the worker and setImmediate path.
+ */
+export function capRankedByTargetRegion(scored: ScoredLocation[]): ScoredLocation[] {
+  if (scored.length <= MAX_RANKED_ITEMS) return scored;
+  const groups = groupScoredByTargetRegion(scored);
+  const n = Math.max(groups.size, 1);
+  const perRegionCap = Math.max(3, Math.floor(MAX_RANKED_ITEMS / n));
+  const selected: ScoredLocation[] = [];
+  const leftover: ScoredLocation[] = [];
+  for (const items of groups.values()) {
+    const quota = Math.min(perRegionCap, items.length);
+    selected.push(...items.slice(0, quota));
+    leftover.push(...items.slice(quota));
+  }
+  leftover.sort(compareScoredLocations);
+  const missing = MAX_RANKED_ITEMS - selected.length;
+  if (missing > 0) selected.push(...leftover.slice(0, missing));
+  return selected.slice(0, MAX_RANKED_ITEMS);
+}
+
+/**
+ * Rank 1-based and gapless inside each `targetRegionGeoKey`. List order is
+ * input-region order, then rank. Tie-break is `compareScoredLocations`.
+ */
+export function assignRanksByTargetRegion(
+  items: Array<Omit<RecommendationItem, "rank">>,
+  regionOrder: string[],
+): RecommendationItem[] {
+  const groups = new Map<string, Array<Omit<RecommendationItem, "rank">>>();
+  for (const item of items) {
+    const key = item.targetRegionGeoKey?.trim() || "_unassigned";
+    const list = groups.get(key) ?? [];
+    list.push(item);
+    groups.set(key, list);
+  }
+  const orderIndex = new Map<string, number>();
+  regionOrder.forEach((key, index) => {
+    const trimmed = key.trim();
+    if (trimmed && !orderIndex.has(trimmed)) orderIndex.set(trimmed, index);
   });
-  return scored.slice(0, MAX_RANKED_ITEMS);
+  const keys = [...groups.keys()].sort((left, right) => {
+    const leftIndex = orderIndex.get(left) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = orderIndex.get(right) ?? Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    return left.localeCompare(right, "de");
+  });
+  const ranked: RecommendationItem[] = [];
+  for (const key of keys) {
+    const group = groups.get(key) ?? [];
+    group.sort(compareScoredLocations);
+    group.forEach((item, index) => {
+      ranked.push({
+        ...item,
+        targetRegionGeoKey: item.targetRegionGeoKey ?? "",
+        dataAsOf: item.dataAsOf !== undefined ? item.dataAsOf : dataAsOfFromEvidence(item.criteriaEvidence),
+        rank: index + 1,
+      });
+    });
+  }
+  return ranked;
+}
+
+function groupScoredByTargetRegion(scored: ScoredLocation[]): Map<string, ScoredLocation[]> {
+  const grouped = new Map<string, ScoredLocation[]>();
+  for (const item of scored) {
+    const key = item.targetRegionGeoKey?.trim() || "_unassigned";
+    const list = grouped.get(key) ?? [];
+    list.push(item);
+    grouped.set(key, list);
+  }
+  return grouped;
 }
 
 /**
