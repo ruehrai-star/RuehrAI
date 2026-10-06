@@ -91,9 +91,10 @@ export type RecommendationV192Fields = {
 /**
  * OpenAPI 0.19.6 additive nAktiv on `items[]`. Always set on new sets
  * (including `0`); omitted on older stored rows. Bind the muted nAktiv-0
- * card (hint `INACTIVE_HIT_COPY`) to `localDatasetCount === 0`; fall back
- * to the evidence heuristic only when the field is missing. Not a
- * Score-Zeile „liegt nicht vor“.
+ * card to `localDatasetCount === 0`. The card hint is `INACTIVE_HIT_COPY`
+ * („Für diese Fläche liegen keine eigenen Verlaufsdaten vor. Die
+ * Einordnung beruht auf übergeordneten Werten.“). Fall back to the
+ * evidence heuristic only when the field is missing.
  */
 export type RecommendationV196Fields = {
   localDatasetCount?: number;

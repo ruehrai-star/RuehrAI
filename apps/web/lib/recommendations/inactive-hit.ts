@@ -1,7 +1,9 @@
 import type { Recommendation, RecommendationEvidence } from "@ruehrai/api-contracts";
 
 /**
- * Shown once on a hit that has no own local data (nAktiv 0).
+ * Shown once on a hit that has no own local Verlauf (nAktiv 0):
+ * „Für diese Fläche liegen keine eigenen Verlaufsdaten vor. Die
+ * Einordnung beruht auf übergeordneten Werten.“
  * OpenAPI 0.19.6: bind to `items[].localDatasetCount === 0`.
  */
 export const INACTIVE_HIT_COPY =
