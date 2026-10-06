@@ -347,6 +347,54 @@ test("error JSON from the Backend becomes ApiError", async () => {
   });
 });
 
+test("error JSON keeps a backend code on ApiError for UI mapping, not display", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse(
+        {
+          statusCode: 404,
+          message: "Marked target region not found",
+          code: "marked_target_region_not_found",
+        },
+        404,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun({ geoKey: "ortsteil:osm:999" }), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 404);
+    assert.equal(error.message, "Marked target region not found");
+    assert.equal(error.code, "marked_target_region_not_found");
+    return true;
+  });
+});
+
+test("POST /target-region 400 keeps code TARGET_REGION_WITHOUT_GEOMETRY on ApiError", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse(
+        {
+          statusCode: 400,
+          message:
+            "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.",
+          error: "Bad Request",
+          code: "TARGET_REGION_WITHOUT_GEOMETRY",
+        },
+        400,
+      ),
+  });
+  await assert.rejects(
+    api.addTargetRegion({ label: "Innenstadt", grain: "ags", geoKey: "05315000" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "TARGET_REGION_WITHOUT_GEOMETRY");
+      return true;
+    },
+  );
+});
+
 test("POST /auth/logout revokes the bearer token and accepts an empty body", async () => {
   const seen: { url?: string; method?: string; authorization?: string | null } = {};
   const api = createHttpApi({

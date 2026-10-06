@@ -11,6 +11,7 @@ import type {
   TargetRegion,
 } from "@/lib/api";
 import { getLocationApi } from "@/lib/locations/api";
+import { addTargetRegionUserMessage } from "@/lib/locations/add-error";
 import { toTargetRegionWrite } from "@/lib/locations/model";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import {
@@ -114,6 +115,8 @@ export function StandortePage() {
         setMarkedKey(nextMarkedKeyAfterAdd(current, added, markedKey));
         return next;
       });
+    } catch (caught) {
+      setRegionError(addTargetRegionUserMessage(caught));
     } finally {
       setRegionAdding(false);
     }

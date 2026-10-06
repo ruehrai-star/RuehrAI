@@ -1,15 +1,26 @@
-import { ApiError, NetworkError } from "../api/types.ts";
+import { ApiError } from "../api/types.ts";
+import { TARGET_REGION_WITHOUT_GEOMETRY_CODE, errorText } from "../user-message.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { REGION_LIST_COPY } from "./regions.ts";
 
+export { TARGET_REGION_WITHOUT_GEOMETRY_CODE };
+
 /**
  * Map POST /target-region failures to German UI copy.
- * Backend English (`TARGET_REGION_NO_MAP_AREA`) must never reach the DOM.
+ * Backend `message` (often English) must never reach the DOM.
+ *
+ * Inventory (main, #79, #84 OpenAPI 0.19.6):
+ * - 400 no outline: `code` `TARGET_REGION_WITHOUT_GEOMETRY` (confirmed #84).
+ * - 400 no catalog id: `TARGET_REGION_PLACE_REQUIRED` English, no `code`.
+ * - 400 ValidationPipe: class-validator English, no `code`.
+ * - 401 Unauthorized.
+ * - Duplicate catalog key: HTTP 200 with the stored item, not 4xx.
+ * - List cap 200: none on POST /target-region; 200 is POST /analysis/runs.
  */
 export function addTargetRegionUserMessage(error: unknown): string {
   if (isMissingMapAreaFailure(error)) return REGION_LIST_COPY.noMapArea;
-  if (error instanceof NetworkError && error.message) return error.message;
-  return REGION_LIST_COPY.addFailed;
+  if (isPlaceRequiredFailure(error)) return REGION_LIST_COPY.placeRequired;
+  return errorText(error, REGION_LIST_COPY.addFailed);
 }
 
 /** Client already knows the catalog has no drawable outline. */
@@ -22,34 +33,28 @@ export function isMissingMapAreaFailure(error: unknown): boolean {
     return true;
   }
   if (!(error instanceof ApiError)) return false;
-  if (error.status < 400 || error.status >= 500) return false;
-  if (matchesPublishedMissingMapAreaCode(readErrorCode(error))) return true;
-  return messageLooksLikeMissingMapArea(error.message);
+  if (error.status !== 400) return false;
+  return matchesPublishedMissingMapAreaCode(error.code);
 }
 
-/**
- * TODO(backend-code): return true when `code` equals the published
- * ErrorResponse.code for a missing catalog outline on POST /target-region.
- * Do not invent that name here.
- */
-function matchesPublishedMissingMapAreaCode(code: string): boolean {
-  void code;
-  return false;
+export function isPlaceRequiredFailure(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status !== 400 && error.status !== 422) return false;
+  if (error.code) return false;
+  return messageLooksLikePlaceRequired(error.message);
 }
 
-function readErrorCode(error: ApiError): string {
-  const extra = error as ApiError & { code?: unknown };
-  return typeof extra.code === "string" ? extra.code.trim() : "";
+function matchesPublishedMissingMapAreaCode(code?: string | null): boolean {
+  return (code ?? "").trim() === TARGET_REGION_WITHOUT_GEOMETRY_CODE;
 }
 
-function messageLooksLikeMissingMapArea(message: string): boolean {
+function messageLooksLikePlaceRequired(message: string): boolean {
+  // Assumption (no ErrorResponse.code on main / #79 / #84): Nest 400
+  // `TARGET_REGION_PLACE_REQUIRED` is identified by these English fragments.
   const text = message.trim().toLowerCase();
   if (!text) return false;
-  if (text.includes("no map area")) return true;
-  if (text.includes("map area in the catalog")) return true;
-  if (text.includes("supply geometry or bounds")) return true;
-  if (text.includes("keine fläche")) return true;
-  if (text.includes("keine flaeche")) return true;
+  if (text.includes("free-text label")) return true;
+  if (text.includes("geokey, ags, or plz")) return true;
   return false;
 }
 

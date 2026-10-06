@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { FeatureCollection } from "geojson";
 import type { Recommendation, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import {
-  ApiError,
   coordinatesOf,
   DEFAULT_LAYER_ID,
   getApi,
@@ -89,7 +88,7 @@ export function MapPage() {
         if (cancelled) return;
         setLayer(null);
         setLayerName(null);
-        setLayerError(error instanceof ApiError ? error.message : "Layer konnte nicht geladen werden.");
+        setLayerError(errorText(error, "Layer konnte nicht geladen werden."));
       });
     return () => {
       cancelled = true;
@@ -199,7 +198,7 @@ export function MapPage() {
           if (cancelled) return;
           setResults([]);
           setResultQuery(trimmed);
-          setSearchError(error instanceof ApiError ? error.message : "Suche fehlgeschlagen.");
+          setSearchError(errorText(error, "Suche fehlgeschlagen."));
         });
     }, 180);
 
