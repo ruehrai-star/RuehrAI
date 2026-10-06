@@ -219,6 +219,23 @@ test("protected calls fail before fetch when no token is stored", async () => {
   assert.equal(called, false);
 });
 
+test("a 401 with a bearer token drops the session and sends the tab to login", async () => {
+  const source = readFileSync(new URL("./http.ts", import.meta.url), "utf8");
+  const requestFn = source.slice(source.indexOf("async function request"), source.indexOf("return {"));
+  assert.match(requestFn, /init\.auth && response\.status === 401/);
+  assert.match(requestFn, /clearStoredSessionAndGoToLogin/);
+  assert.equal(requestFn.includes("sessionFromToken"), false);
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-expired",
+    fetch: async () => jsonResponse({ statusCode: 401, message: "Unauthorized" }, 401),
+  });
+  await assert.rejects(api.search("Berlin"), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 401);
+    return true;
+  });
+});
+
 test("GET /layers/{id} keeps the contract collection and adds a map centroid", async () => {
   const api = createHttpApi({
     baseUrl: "http://backend.test/",
