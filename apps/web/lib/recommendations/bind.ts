@@ -3,7 +3,7 @@ import type { RuehrApi } from "../api/client.ts";
 import { ApiError } from "../api/types.ts";
 import type { RecommendationSet } from "../api/types.ts";
 import { analysisFailureFromHttp, analysisFailureMessage } from "../analysis/failure.ts";
-import { isInFlightStatus, pollAnalysisRun, type PollAnalysisOptions } from "../analysis/poll.ts";
+import { isInFlightStatus, pollAnalysisRun, type InFlightRunStatus, type PollAnalysisOptions } from "../analysis/poll.ts";
 import { loadPatternForMarkedRegion } from "../verlauf/bind.ts";
 import type { BoundVerlauf } from "../verlauf/bind.ts";
 import type { PlaceRef } from "../locations/regions.ts";
@@ -32,7 +32,7 @@ export function recommendationSetForRun(
 export type TrefferlisteBind =
   | { kind: "empty" }
   | { kind: "ready"; bound: BoundVerlauf; set: RecommendationSet | null }
-  | { kind: "in_flight"; runId: string; status: "queued" | "running" }
+  | { kind: "in_flight"; runId: string; status: InFlightRunStatus }
   | { kind: "failed"; runId: string; message: string };
 
 type MarkedRegion = (PlaceRef & {

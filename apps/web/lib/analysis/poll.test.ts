@@ -31,7 +31,15 @@ test("interpretRun keeps queued and running in flight and maps failed reasons", 
   if (failed.kind === "failed") {
     assert.equal(failed.message, analysisFailureMessage("timeout"));
   }
-  const unknown = interpretRun({ status: "failed", failureReason: "brain_search_failed" });
+  const interrupted = interpretRun({ status: "failed", failureReason: "interrupted" });
+  assert.equal(interrupted.kind, "failed");
+  if (interrupted.kind === "failed") {
+    assert.equal(interrupted.message, analysisFailureMessage("interrupted"));
+  }
+  const unknown = interpretRun({
+    status: "failed",
+    failureReason: "brain_search_failed" as AnalysisRun["failureReason"],
+  });
   assert.equal(unknown.kind, "failed");
   if (unknown.kind === "failed") {
     assert.equal(unknown.message, analysisFailureMessage("internal_error"));
@@ -146,26 +154,6 @@ test("poll stops on errors other than a missing run", async () => {
   assert.equal(calls, 1);
 });
 
-<<<<<<< HEAD
-test("poll stops on a failed run and surfaces failureReason", async () => {
-  await assert.rejects(
-    pollAnalysisRun(
-      {
-        getAnalysisRun: async () =>
-          ({
-            ...run,
-            status: "failed",
-            failureReason: "pattern_failed",
-          }) as AnalysisRun,
-      },
-      "9",
-      { attempts: 4, sleep: async () => {} },
-    ),
-    (error: unknown) => {
-      assert.ok(error instanceof ApiError);
-      assert.equal(error.message, "pattern_failed");
-      return true;
-=======
 test("poll stops at the client deadline while the run stays queued", async () => {
   let now = 0;
   let calls = 0;
@@ -184,7 +172,6 @@ test("poll stops at the client deadline while the run stays queued", async () =>
       sleep: async (ms) => {
         now += ms;
       },
->>>>>>> 3c65ff5 (Web: poll async Musteranalyse and bind Trefferliste by runId)
     },
   );
   assert.equal(settled.kind, "deadline");

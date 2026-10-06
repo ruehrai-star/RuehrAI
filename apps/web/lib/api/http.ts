@@ -26,6 +26,7 @@ import type {
   YearlySeries,
 } from "@ruehrai/api-contracts";
 import { catalogLevelOf, catalogParentName, visibleSavedRegions } from "../format.ts";
+import { isAnalysisRunFailureReason } from "../analysis/failure.ts";
 import { readContractBounds, readRegionGeometry } from "../map/karte.ts";
 import { coordinatesOf, pointFromGeometry } from "./geo.ts";
 import { parseAddressPair } from "../addresses/parse.ts";
@@ -562,16 +563,8 @@ function parseAnalysisRun(body: AnalysisRun, options: { allowIncomplete?: boolea
   if (!createdAt) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
-  if (body.failureReason != null) {
-    if (
-      body.failureReason !== "timeout" &&
-      body.failureReason !== "pattern_failed" &&
-      body.failureReason !== "set_save_failed" &&
-      body.failureReason !== "interrupted" &&
-      body.failureReason !== "internal_error"
-    ) {
-      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
-    }
+  if (body.failureReason != null && !isAnalysisRunFailureReason(body.failureReason)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.startedAt != null && typeof body.startedAt !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);

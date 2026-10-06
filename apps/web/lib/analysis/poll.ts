@@ -1,14 +1,13 @@
-import type { AnalysisRun } from "@ruehrai/api-contracts";
+import type { AnalysisRun, AnalysisRunStatus } from "@ruehrai/api-contracts";
 import type { RuehrApi } from "../api/client.ts";
 import { ApiError } from "../api/types.ts";
 import { analysisFailureFromHttp, analysisFailureMessage, clientDeadlineMessage } from "./failure.ts";
 
-/** Confirmed 0.19.0 poll interval. */
+/** Official 0.19.0 poll interval. */
 export const POLL_INTERVAL_MS = 2_000;
-export const POLL_INITIAL_INTERVAL_MS = POLL_INTERVAL_MS;
 export const POLL_DEADLINE_MS = 3 * 60 * 1_000;
 
-export type InFlightRunStatus = "queued" | "running";
+export type InFlightRunStatus = Extract<AnalysisRunStatus, "queued" | "running">;
 
 export type PollOutcome =
   | { kind: "completed"; run: AnalysisRun }
@@ -62,7 +61,7 @@ export async function sleepMs(ms: number, signal?: AbortSignal): Promise<void> {
  * Read `GET /analysis/runs/{id}` until the run is terminal, the 3-minute
  * client safety deadline elapses, or `signal` aborts. Interval is ~2 s.
  * Unknown or foreign ids (404) are a generic failure — not retried.
- * A completed 200 still works if POST was synchronous.
+ * POST 202 queued and GET 200 completed both work.
  */
 export async function pollAnalysisRun(
   api: Pick<RuehrApi, "getAnalysisRun">,

@@ -215,6 +215,18 @@ test("GET /analysis/runs accepts queued, running, and failed when the payload is
   assert.equal(failed.failureReason, "timeout");
 });
 
+test("GET /analysis/runs rejects a failureReason outside the closed enum", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ ...run, status: "failed", failureReason: "timed_out" }),
+  });
+  await assert.rejects(api.getAnalysisRun("7"), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
+});
+
 test("GET /analysis/pattern accepts an old run without yearlySeries", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

@@ -151,6 +151,26 @@ test("bind of a failed known run maps the reason and does not POST", async () =>
   }
 });
 
+test("bind of an interrupted known run maps the restart copy", async () => {
+  const next = await bindTrefferlisteForRegion(
+    {
+      getAnalysisPattern: async () => null,
+      getAnalysisRun: async () => run({ id: "46", status: "failed", failureReason: "interrupted" }),
+      getRecommendations: async () => {
+        throw new Error("recs must not load for an interrupted run");
+      },
+    },
+    marked,
+    "46",
+  );
+  assert.equal(next.kind, "failed");
+  if (next.kind === "failed") {
+    assert.equal(next.message, "Analyse fehlgeschlagen: Die Analyse wurde unterbrochen.");
+    assert.equal(next.message.includes("interrupted"), false);
+    assert.equal(next.runId, "46");
+  }
+});
+
 test("a 404 for a known run id is a generic failure, not empty", async () => {
   const next = await bindTrefferlisteForRegion(
     {

@@ -1,14 +1,21 @@
-/** Closed `failureReason` enum → German copy. Never show the key. */
+/** Closed OpenAPI `AnalysisRunFailureReason` → German copy. Never show the key. */
 
-export const ANALYSIS_FAILURE_REASONS = [
+import type { AnalysisRun } from "@ruehrai/api-contracts";
+
+export type AnalysisRunFailureReason = NonNullable<AnalysisRun["failureReason"]>;
+
+/** Must stay identical to OpenAPI `AnalysisRunFailureReason`. */
+export const ANALYSIS_RUN_FAILURE_REASONS = [
   "timeout",
   "pattern_failed",
   "set_save_failed",
   "interrupted",
   "internal_error",
-] as const;
+] as const satisfies readonly AnalysisRunFailureReason[];
 
-export type AnalysisFailureReason = (typeof ANALYSIS_FAILURE_REASONS)[number];
+type MissingReason = Exclude<AnalysisRunFailureReason, (typeof ANALYSIS_RUN_FAILURE_REASONS)[number]>;
+const _exhaustiveReasons: MissingReason extends never ? true : never = true;
+void _exhaustiveReasons;
 
 export const ANALYSIS_FAILURE_COPY = {
   prefix: "Analyse fehlgeschlagen: ",
@@ -20,7 +27,7 @@ export const ANALYSIS_FAILURE_COPY = {
   restart: "Erneut starten",
 } as const;
 
-const REASON_DETAIL: Record<AnalysisFailureReason, string> = {
+const REASON_DETAIL: Record<AnalysisRunFailureReason, string> = {
   timeout: ANALYSIS_FAILURE_COPY.timeout,
   pattern_failed: ANALYSIS_FAILURE_COPY.pattern,
   set_save_failed: ANALYSIS_FAILURE_COPY.setSave,
@@ -28,27 +35,23 @@ const REASON_DETAIL: Record<AnalysisFailureReason, string> = {
   internal_error: ANALYSIS_FAILURE_COPY.unexpected,
 };
 
+const REASON_SET = new Set<string>(ANALYSIS_RUN_FAILURE_REASONS);
+
 function withPrefix(detail: string): string {
   return `${ANALYSIS_FAILURE_COPY.prefix}${detail}`;
 }
 
-function normalizeReasonKey(reason: string): string {
-  return reason.trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
-
-function isClosedReason(key: string): key is AnalysisFailureReason {
-  return (ANALYSIS_FAILURE_REASONS as readonly string[]).includes(key);
+export function isAnalysisRunFailureReason(value: string): value is AnalysisRunFailureReason {
+  return REASON_SET.has(value);
 }
 
 /**
  * Map the closed `failureReason` enum to a prefixed German sentence.
- * Unknown values, empty text, SQL, stacks, and codes use the unexpected line.
+ * Unknown values use the unexpected line. Keys are never shown.
  */
 export function analysisFailureMessage(reason: string | null | undefined): string {
-  const trimmed = typeof reason === "string" ? reason.trim() : "";
-  if (!trimmed) return withPrefix(ANALYSIS_FAILURE_COPY.unexpected);
-  const key = normalizeReasonKey(trimmed);
-  if (isClosedReason(key)) return withPrefix(REASON_DETAIL[key]);
+  if (typeof reason !== "string") return withPrefix(ANALYSIS_FAILURE_COPY.unexpected);
+  if (isAnalysisRunFailureReason(reason)) return withPrefix(REASON_DETAIL[reason]);
   return withPrefix(ANALYSIS_FAILURE_COPY.unexpected);
 }
 
