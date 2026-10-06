@@ -155,11 +155,59 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.rawValue).toBe(8);
     expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBe(0.8);
     expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
+    expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Dreijahresverlauf");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("je 1.000 Einwohner");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain("sechs Monaten");
     expect(ranked.map((item) => item.kind)).not.toContain("plz");
     expect(ranked.map((item) => item.location.geoKey)).not.toContain("09162000");
+  });
+
+  it("ranks yearly trend rates so a two-year jump is not compared as a three-year span", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:gap", kind: "ortsteil", title: "Mit Lücke" }),
+        candidate({ geoKey: "ortsteil:osm:steep", kind: "ortsteil", title: "Zwei Jahre" }),
+        candidate({ geoKey: "ortsteil:osm:far", kind: "ortsteil", title: "Gegenrichtung" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:gap",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2024", status: "absent" },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:gap"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:steep",
+          points: [
+            { period: "2024", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:steep"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:far",
+          points: [
+            { period: "2023", status: "present", value: 5 },
+            { period: "2025", status: "present", value: 30 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:far"),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    expect(ranked[0]?.title).toBe("Mit Lücke");
+    expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
+    expect(ranked.find((item) => item.title === "Zwei Jahre")?.score).toBeLessThan(ranked[0]?.score ?? 0);
+    expect(ranked[ranked.length - 1]?.title).toBe("Gegenrichtung");
   });
 
   it("labels a single period as Stichtag and never invents 0 for absent cells", () => {

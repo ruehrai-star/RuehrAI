@@ -1,6 +1,8 @@
 import { Client } from "pg";
 import { AnalysisRegion } from "../analysis/types";
 import {
+  areaCandidateQuery,
+  buildAreaCandidateSql,
   buildLorPlrCatalogSql,
   buildTeilCatalogSql,
   lorPlrCatalogQuery,
@@ -150,8 +152,20 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         ('06200420', 'Lichterfelde-Ost', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
         ('01100310', 'Alexanderplatzviertel', '11000000', '11000001', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
         ('02100103', 'Am Berlin Museum', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
-        ('02400623', 'Andreasviertel', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326))`,
-      [box(13.36, 52.46, 13.41, 52.48), box(13.29, 52.42, 13.34, 52.44), box(13.39, 52.51, 13.42, 52.53)],
+        ('02400623', 'Andreasviertel', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('09999999', 'Alt-Lankwitz-Rand', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326))`,
+      [
+        box(13.36, 52.46, 13.41, 52.48),
+        box(13.29, 52.42, 13.34, 52.44),
+        box(13.39, 52.51, 13.42, 52.53),
+        box(13.35, 52.4, 13.42, 52.4500001),
+      ],
+    );
+    await client.query(
+      `INSERT INTO geo.geo_ref_ortsteil (geo_ortsteil_id, kind, name, geo_ags, geom) VALUES
+        ('osm:tempelhof-mitte', 'ortsteil', 'Tempelhof-Mitte', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+        ('osm:alt-lankwitz', 'ortsteil', 'Alt-Lankwitz', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))`,
+      [box(13.36, 52.46, 13.41, 52.48), box(13.35, 52.4, 13.42, 52.4500001)],
     );
     await client.query(`
       INSERT INTO geo.geo_ref_zielregion_teil (parent_grain, parent_id, child_grain, child_id) VALUES
@@ -172,6 +186,7 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
       query.params,
     );
     expect(result.rows.map((row) => row.geo_key)).toEqual(["lor:plr:07400720"]);
+    expect(result.rows.map((row) => row.name)).not.toContain("Alt-Lankwitz-Rand");
     expect(result.rows[0]?.name).toBe("Germaniagarten");
     expect(result.rows[0]?.geometry_geojson).toContain("Polygon");
     await assertRowsIntersectRegion(result.rows, TEMPELHOF.geometry!);
@@ -202,6 +217,17 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     expect(lor[0]?.name).not.toMatch(/^lor:/);
     expect(lor[0]?.geometry_geojson).toContain("Polygon");
     await assertRowsIntersectRegion(lor, LICHTERFELDE.geometry!);
+  });
+
+  it("drops Tempelhof edge fragments such as Alt-Lankwitz and keeps inner Teilflächen", async () => {
+    const query = areaCandidateQuery(TEMPELHOF);
+    expect(query.sql).toBe(buildAreaCandidateSql());
+    const result = await client.query<{ geo_key: string; name: string | null }>(query.sql, query.params);
+    const names = result.rows.map((row) => row.name);
+    expect(names).toContain("Tempelhof-Mitte");
+    expect(names).not.toContain("Alt-Lankwitz");
+    expect(result.rows.map((row) => row.geo_key)).toContain("ortsteil:osm:tempelhof-mitte");
+    expect(result.rows.map((row) => row.geo_key)).not.toContain("ortsteil:osm:alt-lankwitz");
   });
 
   async function assertRowsIntersectRegion(

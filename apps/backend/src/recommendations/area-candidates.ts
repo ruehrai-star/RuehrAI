@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ANALYSIS_ENV_DEFAULTS, readAnalysisMinOverlapShare } from "../analysis/analysis-env";
 import { AnalysisRegion } from "../analysis/types";
 import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
@@ -9,6 +10,9 @@ import { minNumber } from "../common/safe-array";
 
 /** Cap the geo_ref / feature-doc read. Ranking still returns every loaded Teilfläche. */
 export const AREA_CANDIDATE_LIMIT = 200;
+
+/** Default polygon share inside the Zielregion (see `ANALYSIS_MIN_OVERLAP_SHARE`). */
+export const DEFAULT_MIN_OVERLAP_SHARE = ANALYSIS_ENV_DEFAULTS.minOverlapShare;
 
 export const AREA_KINDS = [
   "address",
@@ -723,7 +727,10 @@ export function buildAddressCandidateSql(): string {
  * $5 Kreis AGS5 prefix (nullable)
  * $6 include Gemeinden (Kreis Zielregion)
  */
-export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer"): string {
+export function buildAreaCandidateSql(
+  adminMode: "prefer" | "legacy" = "prefer",
+  minOverlapShare: number = readAnalysisMinOverlapShare(),
+): string {
   const adminGeom = adminGeom4326("a", adminMode);
   const plzGeom = geom4326("plz_src");
   return `
@@ -758,7 +765,7 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
     WHERE ${hasArea("o")}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
       AND NULLIF(btrim(o.name), '') IS NOT NULL
-      AND ${polygonHit("o", "o.geo_ags::text")}
+      AND ${polygonHit("o", "o.geo_ags::text", minOverlapShare)}
 
     UNION ALL
 
@@ -787,7 +794,7 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
     FROM geo.geo_ref_bezirk b, region_geom g
     WHERE ${hasArea("b")}
       AND NULLIF(btrim(b.name), '') IS NOT NULL
-      AND ${polygonHit("b", "b.geo_ags::text")}
+      AND ${polygonHit("b", "b.geo_ags::text", minOverlapShare)}
 
     UNION ALL
 
@@ -804,7 +811,7 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
     FROM geo.geo_ref_plz p, region_geom g
     WHERE ${hasArea("p")}
       AND NULLIF(btrim(p.geo_plz5::text), '') IS NOT NULL
-      AND ${polygonHit("p", "p.geo_ags::text")}
+      AND ${polygonHit("p", "p.geo_ags::text", minOverlapShare)}
 
     UNION ALL
 
@@ -905,7 +912,7 @@ function berlinLorMembershipSql(): string {
  * $3 bezirk id variants[]
  * $4 Zielregion GeoJSON (nullable) for clipped outlines
  */
-export function buildLorPlrCatalogSql(): string {
+export function buildLorPlrCatalogSql(minOverlapShare: number = readAnalysisMinOverlapShare()): string {
   const geom = geom4326("l");
   const plrKey = lorGeoKeyExpr("l");
   return `
@@ -937,6 +944,7 @@ export function buildLorPlrCatalogSql(): string {
       OR ($1::text IS NOT NULL AND $1 IS DISTINCT FROM '11000000' AND (
         l.geo_ags::text = $1
       ))`,
+      minOverlapShare,
     )}
   ORDER BY ${plrKey} ASC
 `;
@@ -1515,10 +1523,49 @@ function hasArea(alias: string): string {
   return `${alias}.geom IS NOT NULL AND NOT ST_IsEmpty(${alias}.geom)`;
 }
 
-function polygonHit(alias: string, agsExpr: string): string {
+/**
+ * Share of candidate polygon area inside the Zielregion, EPSG:3035.
+ * Points (dimension 0) skip the area ratio and stay eligible.
+ */
+export function polygonMinOverlapPredicate(
+  hitGeom: string,
+  regionGeom: string,
+  minShare: number = readAnalysisMinOverlapShare(),
+): string {
+  return `(
+    ST_Dimension(${hitGeom}) = 0
+    OR GeometryType(${hitGeom}) IN ('POINT', 'MULTIPOINT')
+    OR (
+      ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${regionGeom})), 3035))
+      / NULLIF(ST_Area(ST_Transform(ST_MakeValid(${hitGeom}), 3035)), 0)
+    ) >= ${sqlNumericLiteral(minShare)}
+  )`;
+}
+
+/** True when intersection / candidate area meets the polygon share threshold. */
+export function meetsMinOverlapShare(
+  intersectionAreaM2: number,
+  candidateAreaM2: number,
+  minShare: number = DEFAULT_MIN_OVERLAP_SHARE,
+): boolean {
+  if (!(candidateAreaM2 > 0) || !Number.isFinite(intersectionAreaM2) || intersectionAreaM2 < 0) {
+    return false;
+  }
+  return intersectionAreaM2 / candidateAreaM2 >= minShare;
+}
+
+function sqlNumericLiteral(value: number): string {
+  if (!Number.isFinite(value)) return sqlNumericLiteral(DEFAULT_MIN_OVERLAP_SHARE);
+  const clamped = Math.min(1, Math.max(0, value));
+  const formatted = clamped.toFixed(10).replace(/\.?0+$/, "");
+  return formatted.length > 0 ? formatted : "0";
+}
+
+function polygonHit(alias: string, agsExpr: string, minOverlapShare: number): string {
   const geom = geom4326(alias);
   return `(
-      (g.geom IS NOT NULL AND ST_Intersects(${geom}, g.geom))
+      (g.geom IS NOT NULL AND ST_Intersects(${geom}, g.geom)
+        AND ${polygonMinOverlapPredicate(geom, "g.geom", minOverlapShare)})
       OR (g.geom IS NULL AND $2::text IS NOT NULL AND (
         ${agsExpr} = $2
         OR ${agsExpr} LIKE $2 || '%'
@@ -1558,10 +1605,18 @@ function pointGeom3035(lonExpr: string, latExpr: string): string {
  * Spatial cut first (EPSG:3035). AGS / Bezirk membership only when the
  * Zielregion has no stored outline.
  */
-function intersectOrFallback(hitGeom3035: string, fallbackSql: string): string {
+function intersectOrFallback(
+  hitGeom3035: string,
+  fallbackSql: string,
+  minOverlapShare?: number,
+): string {
+  const shareFilter =
+    minOverlapShare == null
+      ? ""
+      : ` AND ${polygonMinOverlapPredicate(hitGeom3035, regionGeom3035(), minOverlapShare)}`;
   return `(
       (g.geom IS NOT NULL AND ${hitGeom3035} IS NOT NULL
-        AND ST_Intersects(${hitGeom3035}, ${regionGeom3035()}))
+        AND ST_Intersects(${hitGeom3035}, ${regionGeom3035()})${shareFilter})
       OR (g.geom IS NULL AND (${fallbackSql}))
     )`;
 }

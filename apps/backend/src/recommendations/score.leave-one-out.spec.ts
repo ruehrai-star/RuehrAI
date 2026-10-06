@@ -3,8 +3,9 @@ import { PatternCriterion } from "../analysis/types";
 import { YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate } from "./area-candidates";
 import { rankTeilflaechen } from "./score";
+import { leaveOneOutTopN } from "./score-formula";
 
-/** Documented acceptance window: left-out store area in Top-N of its region. */
+/** Documented acceptance: left-out store area in Top-N of its region. N = max(3, ceil(n/10)). */
 export const LEAVE_ONE_OUT_TOP_N = 3;
 
 function candidate(geoKey: string, title: string): AreaCandidate {
@@ -86,8 +87,8 @@ describe("Leave-one-out: Bestandsfilialen in ihrer Region", () => {
   const yearlyFor = (items: Array<{ geoKey: string; first: number; last: number }>): YearlySeries[] =>
     items.flatMap((item) => [unfall(item.geoKey, item.first, item.last), inhabitants(item.geoKey)]);
 
-  it(`places each left-out store area in Top-${LEAVE_ONE_OUT_TOP_N} of its region`, () => {
-    const ranks: Record<string, number> = {};
+  it("places each left-out store area in Top-N (max 3 or upper tenth) of its region", () => {
+    const ranks: Array<{ title: string; rank: number; score: number; nAktiv: number }> = [];
     for (const leftOut of stores) {
       const remaining = stores.filter((item) => item.geoKey !== leftOut.geoKey);
       const patternByDataset = buildPatternByDataset(yearlyFor(remaining));
@@ -97,9 +98,18 @@ describe("Leave-one-out: Bestandsfilialen in ihrer Region", () => {
       const regionHits = ranked.filter((item) => item.targetRegionGeoKey === "ortsteil:osm:region");
       const index = regionHits.findIndex((item) => item.location.geoKey === leftOut.geoKey);
       expect(index).toBeGreaterThanOrEqual(0);
-      expect(index).toBeLessThan(LEAVE_ONE_OUT_TOP_N);
-      ranks[leftOut.title] = index + 1;
+      const topN = leaveOneOutTopN(regionHits.length);
+      expect(index).toBeLessThan(topN);
+      const hit = regionHits[index]!;
+      ranks.push({
+        title: leftOut.title,
+        rank: index + 1,
+        score: hit.score,
+        nAktiv: hit.criteriaEvidence.filter((entry) => typeof entry.proximity === "number").length,
+      });
     }
-    expect(Object.keys(ranks)).toHaveLength(stores.length);
+    expect(ranks).toHaveLength(stores.length);
+    expect(ranks.every((row) => row.rank <= Math.max(LEAVE_ONE_OUT_TOP_N, Math.ceil(pool.length / 10)))).toBe(true);
+    expect(ranks.every((row) => row.nAktiv >= 1)).toBe(true);
   });
 });

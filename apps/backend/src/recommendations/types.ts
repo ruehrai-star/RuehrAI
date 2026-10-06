@@ -70,6 +70,11 @@ export interface RecommendationEvidence {
    * Additive; missing data is never stored as `0`.
    */
   proximity?: number;
+  /**
+   * Distinct calendar years used for this dataset's trend.
+   * 2 means a two-year trend. Omitted when there is no trend.
+   */
+  trendYears?: number;
 }
 
 export interface ScoredLocation {

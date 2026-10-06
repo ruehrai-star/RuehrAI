@@ -39,8 +39,11 @@ import {
   SPATIAL_SAMPLE_CELL_DEG,
   clipToRegionSql,
   clippedHitGeoJsonSql,
+  DEFAULT_MIN_OVERLAP_SHARE,
   overlapJoinSql,
   overlapShareSql,
+  meetsMinOverlapShare,
+  polygonMinOverlapPredicate,
   teilCatalogQuery,
   resolveTargetRegionKey,
   targetRegionKeyOf,
@@ -220,6 +223,41 @@ describe("area candidate SQL", () => {
     expect(sql).toContain("ST_Intersection");
     expect(sql).toMatch(/SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson/);
     expect(sql).toContain("FROM geo.geo_ref_admin a, region_geom g");
+  });
+
+  it("filters polygon candidates by min overlap share before the spatial LIMIT", () => {
+    expect(DEFAULT_MIN_OVERLAP_SHARE).toBe(0.1);
+    expect(meetsMinOverlapShare(500, 5_000)).toBe(true);
+    expect(meetsMinOverlapShare(499, 5_000)).toBe(false);
+    expect(meetsMinOverlapShare(1, 10_000)).toBe(false);
+    expect(meetsMinOverlapShare(1_100, 10_000, 0.1)).toBe(true);
+    expect(meetsMinOverlapShare(900, 10_000, 0.1)).toBe(false);
+    expect(meetsMinOverlapShare(1, 1, 0.25)).toBe(true);
+    expect(meetsMinOverlapShare(0.24, 1, 0.25)).toBe(false);
+    expect(meetsMinOverlapShare(1, 0)).toBe(false);
+
+    const area = buildAreaCandidateSql("prefer", 0.1);
+    const lor = buildLorPlrCatalogSql(0.1);
+    const custom = buildAreaCandidateSql("prefer", 0.25);
+    const predicate = polygonMinOverlapPredicate("hit.geom", "g.geom", 0.1);
+    expect(predicate).toContain("ST_Area");
+    expect(predicate).toContain("3035");
+    expect(predicate).toContain(">= 0.1");
+    expect(area).toContain("ST_Area(ST_Transform(ST_MakeValid(ST_Intersection");
+    expect(area).toContain(">= 0.1");
+    expect(area).toContain("sampled_hits");
+    expect(lor).toContain("ST_Area(ST_Transform(ST_MakeValid(ST_Intersection");
+    expect(lor).toContain(">= 0.1");
+    expect(custom).toContain(">= 0.25");
+    expect(custom).not.toContain(">= 0.1");
+
+    const teil = buildTeilCatalogSql();
+    const address = buildAddressCandidateSql();
+    const grid = buildGrid100CandidateSql();
+    const geoAddress = buildGeoAddressCandidateSql();
+    for (const sql of [teil, address, grid, geoAddress]) {
+      expect(sql).not.toContain("NULLIF(ST_Area(ST_Transform(ST_MakeValid(");
+    }
   });
 
   it("sends geometry and Kreis parent memberships for Gemeinden", () => {

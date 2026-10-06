@@ -596,10 +596,14 @@ export interface paths {
          *     the baseline (`0.19.4`): trend before niveau, robust spread
          *     (MAD/IQR) per dataset and Ebene, inherited and under-dispersed
          *     series neutral, coverage factor so one dataset never yields
-         *     1.0. Snapshot values are labeled `stichtag`. Missing cells are
+         *     1.0. Trend is a yearly rate (delta / year span). Snapshot values
+         *     are labeled `stichtag`. Missing cells are
          *     `absent` (`liegt nicht vor`), never `0`. Kleinräumige
          *     yearlySeries rows may have a null embedding. Additive
-         *     `criteriaEvidence[].proximity` is the per-dataset closeness.
+         *     `criteriaEvidence[].proximity` is the per-dataset closeness;
+         *     `trendYears` is the calendar-year count of a trend.
+         *     Polygon candidates require `ANALYSIS_MIN_OVERLAP_SHARE`
+         *     (default 0.10) of their area inside the Zielregion.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1709,13 +1713,16 @@ export interface components {
              *     1 − min(1, |Kandidat − Muster| / robuste Streuung) with MAD
              *     (IQR fallback) over candidates of that dataset and Ebene.
              *     Trend (weight 0.6) before niveau (0.4); coverage `single` is
-             *     not a trend. Inherited or under-dispersed datasets are
+             *     not a trend. The trend delta is divided by the year span.
+             *     Inherited or under-dispersed datasets are
              *     neutral (omitted). Grain weights prefer the finer Ebene the
              *     dataset is present on. Coverage factor
              *     min(1, nAktiv / kMin) with kMin default 2 so a single
              *     dataset never yields 1.0. Missing cells stay absent, never
              *     `0`. Additive `criteriaEvidence[].proximity` is the
              *     per-dataset closeness before the item coverage factor.
+             *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
+             *     (default 0.10) of their area inside the Zielregion.
              */
             score: number;
             /**
@@ -1832,7 +1839,8 @@ export interface components {
          *     `sourceLevel` (Flächenebene) describe the dataset compare.
          *     Additive `proximity` (0.19.4) is closeness to the Musterwert on
          *     the baseline; omitted when the dataset is absent, inherited, or
-         *     statistically neutral.
+         *     statistically neutral. Additive `trendYears` is the number of
+         *     distinct calendar years of a local trend (2 = two-year trend).
          */
         RecommendationEvidence: {
             key: string;
@@ -1883,6 +1891,14 @@ export interface components {
              *     coverage factor.
              */
             proximity?: number;
+            /**
+             * @description Additive 0.19.4. Distinct calendar years used for this
+             *     dataset's yearly trend rate (last−first normalizedValue /
+             *     year span). `2` means a two-year trend (clients may label
+             *     „Trend aus 2 Jahren“). Omitted when coverage is `single` /
+             *     `none` or fewer than two years. Never `0`.
+             */
+            trendYears?: number;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

@@ -6,6 +6,7 @@ import {
   datasetCloseness,
   grainWeight,
   iqr,
+  leaveOneOutTopN,
   mad,
   median,
   niveauValue,
@@ -13,6 +14,8 @@ import {
   readScoreFormulaConfig,
   robustSpread,
   trendDelta,
+  trendYearCount,
+  trendYearSpan,
 } from "./score-formula";
 import { SeriesPoint } from "../analysis/yearly-series";
 
@@ -41,13 +44,39 @@ describe("score formula primitives", () => {
       { period: "2023", status: "present", value: 10, normalizedValue: 1 },
       { period: "2025", status: "present", value: 20, normalizedValue: 2 },
     ];
-    expect(trendDelta(twoYears, "multi")).toBe(1);
-    expect(trendDelta(twoYears, "series")).toBe(1);
+    expect(trendDelta(twoYears, "multi")).toBe(0.5);
+    expect(trendDelta(twoYears, "series")).toBe(0.5);
+    expect(trendYearSpan(twoYears, "multi")).toBe(2);
+    expect(trendYearCount(twoYears, "multi")).toBe(2);
     expect(trendDelta(twoYears, "single")).toBeNull();
     expect(trendDelta(twoYears, "none")).toBeNull();
     expect(trendDelta([{ period: "2024", status: "present", value: 10, normalizedValue: 1 }], "multi")).toBeNull();
     expect(niveauValue(twoYears)).toBe(2);
     expect(niveauValue([{ period: "2024", status: "absent" }])).toBeNull();
+  });
+
+  it("annualizes the trend so a gap does not inflate the delta", () => {
+    const withGap: SeriesPoint[] = [
+      { period: "2023", status: "present", value: 20, normalizedValue: 2 },
+      { period: "2024", status: "absent" },
+      { period: "2025", status: "present", value: 8, normalizedValue: 0.8 },
+    ];
+    const consecutive: SeriesPoint[] = [
+      { period: "2024", status: "present", value: 20, normalizedValue: 2 },
+      { period: "2025", status: "present", value: 8, normalizedValue: 0.8 },
+    ];
+    const threeYears: SeriesPoint[] = [
+      { period: "2023", status: "present", value: 20, normalizedValue: 2 },
+      { period: "2024", status: "present", value: 14, normalizedValue: 1.4 },
+      { period: "2025", status: "present", value: 8, normalizedValue: 0.8 },
+    ];
+    expect(trendDelta(withGap, "multi")).toBe(-0.6);
+    expect(trendDelta(consecutive, "multi")).toBe(-1.2);
+    expect(trendDelta(threeYears, "multi")).toBe(-0.6);
+    expect(trendYearCount(withGap, "multi")).toBe(2);
+    expect(trendYearCount(threeYears, "multi")).toBe(3);
+    expect(leaveOneOutTopN(9)).toBe(3);
+    expect(leaveOneOutTopN(40)).toBe(4);
   });
 
   it("caps a single active dataset below 1.0", () => {

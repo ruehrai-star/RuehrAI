@@ -98,10 +98,15 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.19.3"));
   assert.ok(doc.info.description.includes("0.19.4"));
   assert.ok(doc.info.description.includes("ANALYSIS_SCORE_TREND_WEIGHT"));
+  assert.ok(doc.info.description.includes("ANALYSIS_MIN_OVERLAP_SHARE"));
+  assert.ok(doc.info.description.includes("year span"));
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.proximity.type, "number");
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.proximity.minimum, 0);
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.proximity.maximum, 1);
   assert.equal(doc.components.schemas.RecommendationEvidence.required.includes("proximity"), false);
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendYears.type, "integer");
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendYears.minimum, 2);
+  assert.equal(doc.components.schemas.RecommendationEvidence.required.includes("trendYears"), false);
   assert.ok(doc.components.schemas.Recommendation.properties.score.description.includes("robust"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.proximity.description.includes("0.19.4"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||

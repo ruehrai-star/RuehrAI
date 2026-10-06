@@ -36,6 +36,7 @@ import {
   robustSpread,
   sampleFromPoints,
   ScoreFormulaConfig,
+  trendYearCount,
 } from "./score-formula";
 import {
   EvidenceScope,
@@ -140,10 +141,12 @@ export function rankTeilflaechen(
       if (closeness != null) {
         parts.push({ closeness, weight: grainWeight(entry.sourceLevel ?? item.candidate.kind) });
       }
+      const years = trendYearCount(entry.points ?? [], entry.coverage);
       return {
         ...entry,
         baselineMatch,
         ...(closeness != null ? { proximity: roundScore(closeness) } : {}),
+        ...(years != null ? { trendYears: years } : {}),
       };
     });
     const combined = combineCandidateScore(parts, config);

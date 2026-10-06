@@ -133,16 +133,51 @@ export function grainWeight(level: string | null | undefined): number {
 }
 
 /**
- * Change of the baselined series (last − first present normalizedValue).
- * Coverage `single` / `none` is not a trend. Needs at least two calendar years.
+ * Yearly rate of the baselined series: (last − first present
+ * normalizedValue) / year span. Coverage `single` / `none` is not a
+ * trend. Needs at least two calendar years. Gaps do not inflate the
+ * rate — a two-year jump over 2023–2025 is half a same-sized 2024–2025 jump.
  */
 export function trendDelta(points: SeriesPoint[], coverage?: SeriesCoverage): number | null {
-  if (coverage === "single" || coverage === "none") return null;
+  const span = trendYearSpan(points, coverage);
+  if (span == null) return null;
   const present = presentNormalizedPoints(points);
-  if (present.length < 2) return null;
-  const years = new Set(present.map((point) => point.period.slice(0, 4)).filter((year) => /^\d{4}$/.test(year)));
-  if (years.size < 2) return null;
-  return present[present.length - 1]!.normalizedValue - present[0]!.normalizedValue;
+  return (present[present.length - 1]!.normalizedValue - present[0]!.normalizedValue) / span;
+}
+
+/** Distinct calendar years in a valid trend (2 or 3 typically). Null when no trend. */
+export function trendYearCount(points: SeriesPoint[], coverage?: SeriesCoverage): number | null {
+  if (coverage === "single" || coverage === "none") return null;
+  const years = trendYears(points);
+  return years.length >= 2 ? years.length : null;
+}
+
+/** Last year − first year of a valid trend. Null when no trend. */
+export function trendYearSpan(points: SeriesPoint[], coverage?: SeriesCoverage): number | null {
+  if (coverage === "single" || coverage === "none") return null;
+  const years = trendYears(points);
+  if (years.length < 2) return null;
+  const span = years[years.length - 1]! - years[0]!;
+  return span > 0 ? span : null;
+}
+
+function trendYears(points: SeriesPoint[]): number[] {
+  const present = presentNormalizedPoints(points);
+  const years: number[] = [];
+  const seen = new Set<number>();
+  for (const point of present) {
+    const year = Number.parseInt(point.period.slice(0, 4), 10);
+    if (!Number.isInteger(year) || year < 1000 || year > 9999 || seen.has(year)) continue;
+    seen.add(year);
+    years.push(year);
+  }
+  return years;
+}
+
+/** Top-N for leave-one-out: max(3, ceil(n/10)). */
+export function leaveOneOutTopN(candidateCount: number): number {
+  if (candidateCount <= 0) return 3;
+  return Math.max(3, Math.ceil(candidateCount / 10));
 }
 
 export function niveauValue(points: SeriesPoint[]): number | null {
