@@ -132,6 +132,7 @@ describe("area candidate SQL", () => {
       buildGeoAddressCandidateSql(),
       buildTeilCatalogSql(),
       buildAreaCandidateSql(),
+      buildKoelnQuartierCandidateSql(),
     ]) {
       expect(sql).toContain("md5(");
       expect(sql).toContain("spatial_rank");
@@ -156,6 +157,7 @@ describe("area candidate SQL", () => {
       buildGeoAddressCandidateSql(),
       buildTeilCatalogSql(),
       buildAreaCandidateSql(),
+      buildKoelnQuartierCandidateSql(),
     ]) {
       expect(sql).toMatch(/ORDER BY md5\(/);
       expect(sql).not.toMatch(/PARTITION BY[\s\S]*ORDER BY [^\n]*geo_key ASC/);
@@ -194,6 +196,9 @@ describe("area candidate SQL", () => {
     expect(quartier).toContain("parent_fallback");
     expect(quartier).toContain("$3");
     expect(quartier).toContain("ST_Intersects");
+    expect(quartier).toContain("geo.geo_ref_quartier");
+    expect(quartier).toContain("geometry_geojson");
+    expect(quartier).toContain("ST_Intersection");
     expect(geoAddress).toContain("geo.geo_ref_address");
     expect(geoAddress).toContain("geo_addr_id");
     expect(geoAddress).toContain("geom_3035");
@@ -209,6 +214,7 @@ describe("area candidate SQL", () => {
     expect(teil).toContain("koeln_statistischer_datenkatalog");
     expect(teil).not.toContain("name = child_id");
     expect(teil).toContain("koeln_quartier");
+    expect(teil).toContain("geo.geo_ref_quartier");
     expect(teil).toContain("WHEN 'lor' THEN 2");
     expect(teil).toContain("WHEN 'quartier' THEN 2");
     expect(teil).toContain("WHEN 'ortsteil' THEN 3");
@@ -252,10 +258,18 @@ describe("area candidate SQL", () => {
     expect(custom).not.toContain(">= 0.1");
 
     const teil = buildTeilCatalogSql();
+    const teilWithoutQuartier = buildTeilCatalogSql("prefer", { includeQuartierGeom: false });
     const address = buildAddressCandidateSql();
     const grid = buildGrid100CandidateSql();
     const geoAddress = buildGeoAddressCandidateSql();
-    expect(teil).not.toContain(">= 0.1");
+    const quartierSql = buildKoelnQuartierCandidateSql();
+    expect(teil).toContain(">= 0.1");
+    expect(teil).toContain("geo.geo_ref_quartier");
+    expect(teilWithoutQuartier).not.toContain("geo.geo_ref_quartier");
+    expect(teilWithoutQuartier).not.toContain(">= 0.1");
+    expect(quartierSql).toContain("geo.geo_ref_quartier");
+    expect(quartierSql).toContain(">= 0.1");
+    expect(quartierSql).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
     expect(address).not.toContain(">= 0.1");
     expect(grid).not.toContain(">= 0.1");
     expect(geoAddress).not.toContain(">= 0.1");

@@ -3,7 +3,7 @@ import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
-import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
+import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, compareScoreCoverageShare, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion, sortScoredLocations, spatialCellOfScored } from "./score";
 import { SCORE_FORMULA_DEFAULTS } from "./score-formula";
 import { ScoredLocation } from "./types";
 
@@ -1397,7 +1397,7 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.scope).toBe("inherited");
   });
 
-  it("breaks ties by coverage, then overlaps-share, then stable id, never the visible name", () => {
+  it("breaks ties by coverage, then overlaps-share, then spatial cell, never the visible name", () => {
     const left: ScoredLocation = {
       id: "other:z-last",
       title: "AAA zuerst",
@@ -1459,10 +1459,11 @@ describe("score formula on rankTeilflaechen", () => {
       id: "other:b-second",
       title: "AAA",
     };
-    expect(compareScoredLocations(sameShare, { ...right, id: "other:a-first" })).toBeGreaterThan(0);
+    expect(sameShare.title.localeCompare(right.title, "de")).toBeLessThan(0);
+    expect(compareScoreCoverageShare(sameShare, right)).toBe(0);
   });
 
-  it("keeps score-0 inherited/Stichtag items and orders them by Zielregion share, then id", () => {
+  it("keeps score-0 inherited/Stichtag items and orders them by Zielregion share, then spatial cells", () => {
     const lowShare: ScoredLocation = {
       id: "other:zzz-edge",
       title: "Randfläche zuerst nach id",
@@ -1488,9 +1489,67 @@ describe("score formula on rankTeilflaechen", () => {
       overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.99, isTargetRegion: true }],
     };
     expect(compareScoredLocations(lowShare, highShare)).toBeGreaterThan(0);
-    const laterId: ScoredLocation = { ...lowShare, id: "other:b-second", targetOverlapShare: 0.5, overlaps: [{ ...lowShare.overlaps![0], share: 0.5 }] };
-    const earlierId: ScoredLocation = { ...highShare, id: "other:a-first", targetOverlapShare: 0.5, overlaps: [{ ...highShare.overlaps![0], share: 0.5 }] };
-    expect(compareScoredLocations(laterId, earlierId)).toBeGreaterThan(0);
+    const west: ScoredLocation = {
+      ...lowShare,
+      id: "other:agnes",
+      title: "Agnes-Viertel - Alte Feuerwache",
+      location: { geoKey: "koeln:sq:104030005", grain: "other", lon: 6.955, lat: 50.955, name: "Agnes" },
+      targetOverlapShare: 0.5,
+      overlaps: [{ ...lowShare.overlaps![0], share: 0.5 }],
+    };
+    const east: ScoredLocation = {
+      ...highShare,
+      id: "other:altstadt",
+      title: "AAA Altstadt-Süd",
+      location: { geoKey: "koeln:sq:101010001", grain: "other", lon: 6.975, lat: 50.935, name: "Altstadt" },
+      targetOverlapShare: 0.5,
+      overlaps: [{ ...highShare.overlaps![0], share: 0.5 }],
+    };
+    expect(compareScoreCoverageShare(west, east)).toBe(0);
+    expect(spatialCellOfScored(west)).not.toBe(spatialCellOfScored(east));
+  });
+
+  it("round-robins equal-score Köln Quartiere across 1-km cells instead of clustering by title", () => {
+    const share = [{ geoKey: "stadtbezirk:osm:2613798", label: "Innenstadt", kind: "stadtbezirk" as const, share: 1, isTargetRegion: true }];
+    const evidence = [{ key: "unfallatlas", label: "Unfälle", direction: "down" as const, patternDirection: "down" as const, evidence: "x" }];
+    const quartier = (
+      geoKey: string,
+      title: string,
+      lon: number,
+      lat: number,
+    ): ScoredLocation => ({
+      id: `other:${geoKey}@stadtbezirk:osm:2613798`,
+      title,
+      kind: "quartier",
+      grain: "other",
+      name: title,
+      parentLabel: "Köln",
+      targetRegionGeoKey: "stadtbezirk:osm:2613798",
+      dataAsOf: "2025",
+      location: { geoKey, grain: "other", lon, lat, name: title },
+      score: 0,
+      targetOverlapShare: 1,
+      criteriaEvidence: evidence,
+      overlaps: share,
+    });
+    const agnesFeuerwache = quartier("koeln:sq:104030005", "Agnes-Viertel - Alte Feuerwache", 6.954, 50.954);
+    const agnesAquino = quartier("koeln:sq:104030001", "Agnes-Viertel - Aquinostr.", 6.955, 50.955);
+    const altstadt = quartier("koeln:sq:101010001", "Kapitolviertel", 6.958, 50.936);
+    const deutz = quartier("koeln:sq:103010002", "Deutz-Messe", 6.974, 50.941);
+    const ranked = sortScoredLocations([agnesFeuerwache, agnesAquino, altstadt, deutz]);
+    const top3 = ranked.slice(0, 3);
+    const cells = new Set(top3.map((item) => spatialCellOfScored(item)));
+    expect(cells.size).toBe(3);
+    expect(top3.map((item) => item.location.geoKey)).not.toEqual([
+      "koeln:sq:104030001",
+      "koeln:sq:104030005",
+      "koeln:sq:104030003",
+    ]);
+    expect(spatialCellOfScored(agnesFeuerwache)).toBe(spatialCellOfScored(agnesAquino));
+    expect(spatialCellOfScored(agnesFeuerwache)).not.toBe(spatialCellOfScored(altstadt));
+    expect(spatialCellOfScored(altstadt)).not.toBe(spatialCellOfScored(deutz));
+    const agnesKeys = new Set(["koeln:sq:104030005", "koeln:sq:104030001"]);
+    expect(top3.filter((item) => agnesKeys.has(item.location.geoKey))).toHaveLength(1);
   });
 });
 

@@ -88,6 +88,38 @@ export const AREA_BASELINE_SQL = `
    WHERE geo_key::text = ANY($1::text[])
 `;
 
+/**
+ * km² from Quartier polygons when `geo.area_baseline.flaeche_km2` is missing.
+ * `geom` may be EPSG:3035 (Brain) or another SRID — always measure in 3035.
+ * Data-Engineer should fill `area_baseline.flaeche_km2`; this is a backend fallback.
+ *
+ * $1 geo_key[] (`koeln:sq:*`)
+ */
+export const QUARTIER_GEOM_AREA_SQL = `
+  SELECT q.geo_quartier_id::text AS geo_key,
+         'quartier'::text AS grain,
+         ${AREA_SNAPSHOT_YEAR} AS ref_year,
+         NULL::float8 AS einwohner,
+         (
+           ST_Area(
+             CASE
+               WHEN ST_SRID(q.geom) IN (0, 3035) THEN ST_SetSRID(q.geom, 3035)
+               WHEN ST_SRID(q.geom) IN (4326) THEN ST_Transform(ST_SetSRID(q.geom, 4326), 3035)
+               ELSE ST_Transform(q.geom, 3035)
+             END
+           ) / 1000000.0
+         )::float8 AS flaeche_km2,
+         NULL::float8 AS haushalte,
+         NULL::text AS einwohner_method,
+         NULL::text AS haushalte_method,
+         'geom'::text AS flaeche_method,
+         NULL::jsonb AS attrs
+    FROM geo.geo_ref_quartier q
+   WHERE q.geo_quartier_id::text = ANY($1::text[])
+     AND q.geom IS NOT NULL
+     AND NOT ST_IsEmpty(q.geom)
+`;
+
 export const BASELINE_METRIC_CATALOG_SQL = `
   SELECT source_theme::text AS source_theme,
          recommended_baseline::text AS recommended_baseline,
@@ -221,6 +253,21 @@ export function areaKeyAliases(geoKey: string): string[] {
     if (/^stadtbezirk:/i.test(trimmed)) keys.push(`bezirk:${prefixed[2]}`);
   }
   if (/^110000(0[1-9]|1[0-2])$/.test(trimmed)) keys.push(`bezirk:${trimmed}`);
+  return unique(keys);
+}
+
+export function isKoelnQuartierBaselineKey(value: string | null | undefined): boolean {
+  return /^koeln:sq:/i.test(value?.trim() ?? "") || /^quartier:/i.test(value?.trim() ?? "");
+}
+
+export function quartierGeomLookupKeys(geoKeys: string[]): string[] {
+  const keys: string[] = [];
+  for (const raw of geoKeys) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    if (/^koeln:sq:/i.test(trimmed)) keys.push(trimmed);
+    else if (/^quartier:/i.test(trimmed)) keys.push(`koeln:sq:${trimmed.replace(/^quartier:/i, "")}`);
+  }
   return unique(keys);
 }
 

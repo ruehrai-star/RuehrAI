@@ -5,6 +5,7 @@ import {
   buildAreaCandidateSql,
   buildLorPlrCatalogSql,
   buildTeilCatalogSql,
+  koelnQuartierCandidateQuery,
   lorPlrCatalogQuery,
   teilCatalogQuery,
 } from "./area-candidates";
@@ -65,6 +66,32 @@ const LICHTERFELDE: AnalysisRegion = {
   updatedAt: "2026-10-06T00:00:00.000Z",
 };
 
+const KOELN_INNENSTADT: AnalysisRegion = {
+  label: "Innenstadt",
+  grain: "other",
+  geoKey: "stadtbezirk:osm:2613798",
+  level: "stadtbezirk",
+  parentLabel: "Köln",
+  ags: "05315000",
+  plz: null,
+  lon: 6.96,
+  lat: 50.94,
+  bounds: null,
+  geometry: {
+    type: "Polygon",
+    coordinates: [
+      [
+        [6.94, 50.928],
+        [6.985, 50.928],
+        [6.985, 50.965],
+        [6.94, 50.965],
+        [6.94, 50.928],
+      ],
+    ],
+  },
+  updatedAt: "2026-10-06T00:00:00.000Z",
+};
+
 function box(west: number, south: number, east: number, north: number): string {
   return JSON.stringify({
     type: "Polygon",
@@ -96,6 +123,7 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
       DROP TABLE IF EXISTS geo.geo_ref_plz;
       DROP TABLE IF EXISTS geo.geo_ref_admin;
       DROP TABLE IF EXISTS features.location_feature_docs;
+      DROP TABLE IF EXISTS geo.geo_ref_quartier;
       CREATE TABLE geo.geo_ref_lor (
         geo_lor_id text PRIMARY KEY,
         name text,
@@ -144,6 +172,14 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         lon float8,
         lat float8,
         ref_period date
+      );
+      CREATE TABLE geo.geo_ref_quartier (
+        geo_quartier_id text PRIMARY KEY,
+        name text,
+        geo_ags text,
+        parent_ortsteil_id text,
+        geo_bezirk_id text,
+        geom geometry(Geometry, 4326)
       );
     `);
     await client.query(
@@ -199,8 +235,29 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400722'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400824'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400926'),
-        ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200420')
+        ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200420'),
+        ('stadtbezirk', 'osm:2613798', 'quartier', 'koeln:sq:104030005'),
+        ('stadtbezirk', 'stadtbezirk:osm:2613798', 'quartier', 'koeln:sq:104030005'),
+        ('stadtbezirk', 'osm:2613798', 'quartier', 'koeln:sq:101010001'),
+        ('stadtbezirk', 'stadtbezirk:osm:2613798', 'quartier', 'koeln:sq:101010001'),
+        ('stadtbezirk', 'osm:2613798', 'quartier', 'koeln:sq:103010002'),
+        ('stadtbezirk', 'stadtbezirk:osm:2613798', 'quartier', 'koeln:sq:103010002'),
+        ('stadtbezirk', 'osm:2613798', 'quartier', 'koeln:sq:199990099'),
+        ('stadtbezirk', 'stadtbezirk:osm:2613798', 'quartier', 'koeln:sq:199990099')
     `);
+    await client.query(
+      `INSERT INTO geo.geo_ref_quartier (geo_quartier_id, name, geo_ags, geom) VALUES
+        ('koeln:sq:104030005', 'Agnes-Viertel - Alte Feuerwache', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+        ('koeln:sq:101010001', 'Kapitolviertel', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+        ('koeln:sq:103010002', 'Deutz-Messe', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('koeln:sq:199990099', 'Rand-Splitter', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($4), 4326))`,
+      [
+        box(6.95, 50.95, 6.96, 50.96),
+        box(6.95, 50.93, 6.96, 50.94),
+        box(6.97, 50.94, 6.98, 50.95),
+        box(6.9, 50.9, 6.952, 50.932),
+      ],
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -273,6 +330,33 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     expect(names).not.toContain("Lankwitz");
     expect(result.rows.map((row) => row.geo_key)).toContain("ortsteil:osm:tempelhof-mitte");
     expect(result.rows.map((row) => row.geo_key)).not.toContain("ortsteil:osm:alt-lankwitz");
+  });
+
+  it("loads Köln Quartier polygons clipped to Innenstadt and drops edge fragments", async () => {
+    const query = teilCatalogQuery(KOELN_INNENSTADT);
+    const result = await client.query<{
+      geo_key: string;
+      kind: string;
+      name: string | null;
+      geometry_geojson: string | null;
+      target_overlap_share: number | string | null;
+    }>(query.sql, query.params);
+    const quartiere = result.rows.filter((row) => row.kind === "quartier");
+    expect(quartiere.map((row) => row.geo_key)).toEqual(
+      expect.arrayContaining(["koeln:sq:104030005", "koeln:sq:101010001", "koeln:sq:103010002"]),
+    );
+    expect(quartiere.map((row) => row.geo_key)).not.toContain("koeln:sq:199990099");
+    expect(quartiere.every((row) => Number(row.target_overlap_share) >= 0.1)).toBe(true);
+    expect(quartiere.every((row) => row.geometry_geojson?.includes("Polygon"))).toBe(true);
+    expect(quartiere.map((row) => row.name)).not.toContain("koeln:sq:104030005");
+    await assertRowsIntersectRegion(quartiere, KOELN_INNENSTADT.geometry!);
+
+    const driver = koelnQuartierCandidateQuery(KOELN_INNENSTADT);
+    const fromTable = await client.query<{ geo_key: string; name: string | null }>(driver.sql, driver.params);
+    expect(fromTable.rows.map((row) => row.geo_key)).toEqual(
+      expect.arrayContaining(["koeln:sq:104030005", "koeln:sq:101010001", "koeln:sq:103010002"]),
+    );
+    expect(fromTable.rows.map((row) => row.geo_key)).not.toContain("koeln:sq:199990099");
   });
 
   async function assertRowsIntersectRegion(

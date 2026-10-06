@@ -108,6 +108,27 @@ export function isFeaturesAccessDenied(error: unknown): boolean {
   return pgErrorCode(error) === "42501";
 }
 
+/** Undefined column (42703). */
+export function isUndefinedColumn(error: unknown): boolean {
+  return pgErrorCode(error) === "42703";
+}
+
+/**
+ * `geo.geo_ref_quartier` is missing, unreadable, or has unexpected columns.
+ * Callers keep geometry null / omit quartier joins instead of 500.
+ */
+export function isGeoRefQuartierUnavailable(error: unknown): boolean {
+  if (
+    !isMissingFeaturesRelation(error) &&
+    !isGeoCatalogUnavailable(error) &&
+    !isFeaturesAccessDenied(error) &&
+    !isUndefinedColumn(error)
+  ) {
+    return false;
+  }
+  return /geo_ref_quartier|geo_quartier/i.test(errorMessage(error));
+}
+
 /**
  * pgvector query cannot run: missing operator/column, dimension mismatch,
  * or the embedding column is not a vector. Used only around the optional

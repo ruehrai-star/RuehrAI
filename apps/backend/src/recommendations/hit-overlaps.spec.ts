@@ -203,6 +203,8 @@ describe("hit overlaps", () => {
     expect(query.sql).toContain("geo.geo_ref_ortsteil");
     expect(query.sql).toContain("geo.geo_ref_plz");
     expect(query.sql).toContain("geo.geo_ref_address");
+    expect(query.sql).toContain("geo.geo_ref_quartier");
+    expect(query.sql).toContain("kind = 'quartier'");
     expect(query.sql).toContain("grid100");
     expect(query.sql).toContain("region_geom");
     expect(query.sql).toContain("is_target_region");

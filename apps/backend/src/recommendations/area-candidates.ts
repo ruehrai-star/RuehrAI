@@ -218,6 +218,11 @@ function finestKindOrderSql(): string {
 /** ~1 km WGS84 cells. Round-robin per cell so SQL LIMIT is not alphabetical. */
 export const SPATIAL_SAMPLE_CELL_DEG = 0.01;
 
+/** 1-km cell id from WGS84 lon/lat (`floor(lon/0.01)/floor(lat/0.01)`). */
+export function spatialCellId(lon: number, lat: number, cellDeg: number = SPATIAL_SAMPLE_CELL_DEG): string {
+  return `${Math.floor(lon / cellDeg)}/${Math.floor(lat / cellDeg)}`;
+}
+
 /** Same digest as Postgres `md5(text)` (hex). Deterministic, not alphabetical. */
 export function spatialMd5(geoKey: string): string {
   return createHash("md5").update(geoKey, "utf8").digest("hex");
@@ -389,10 +394,19 @@ export function excludeKeys(region: AnalysisRegion): string[] {
  *
  * $1 parent_grain[]  $2 parent_id[]  $3 exclude geoKey[]
  * $4 Zielregion GeoJSON (nullable) for clipped hit outlines
+ *
+ * Köln Quartier polygons come from `geo.geo_ref_quartier` when that table
+ * is readable. `includeQuartierGeom: false` keeps the docs-only branch
+ * (geometry null) so a missing table is not a 500.
  */
-export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): string {
+export function buildTeilCatalogSql(
+  adminMode: "prefer" | "legacy" = "prefer",
+  options: { includeQuartierGeom?: boolean; minOverlapShare?: number } = {},
+): string {
   const adminGeom = adminGeom4326("a", adminMode);
-  return `
+  const includeQuartierGeom = options.includeQuartierGeom !== false;
+  const minOverlapShare = options.minOverlapShare ?? readAnalysisMinOverlapShare();
+  return {
   WITH parents AS (
     SELECT parent_grain, parent_id
       FROM unnest($1::text[], $2::text[]) AS t(parent_grain, parent_id)
@@ -453,33 +467,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
 
     UNION ALL
 
-    SELECT
-      ${koelnQuartierKeyExpr("c.child_id")} AS geo_key,
-      'other'::text AS grain,
-      'quartier'::text AS kind,
-      NULLIF(btrim(q.title), '') AS name,
-      COALESCE(
-        NULLIF(btrim(q.metadata->>'ags'), ''),
-        NULLIF(btrim(q.metadata->>'geo_ags'), ''),
-        '05315000'
-      ) AS ags,
-      NULL::text AS plz,
-      q.lon::float8 AS lon,
-      q.lat::float8 AS lat,
-      NULL::text AS geometry_geojson,
-      NULL::float8 AS target_overlap_share
-    FROM children c
-    LEFT JOIN LATERAL (
-      SELECT d.title, d.metadata, d.lon, d.lat
-        FROM features.location_feature_docs d
-       WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
-         AND d.geo_key = ${koelnQuartierKeyExpr("c.child_id")}
-         AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
-       ORDER BY d.ref_period DESC NULLS LAST
-       LIMIT 1
-    ) q ON true
-    WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
-      AND NULLIF(btrim(c.child_id), '') IS NOT NULL
+    ${includeQuartierGeom ? teilQuartierGeomSql(minOverlapShare) : teilQuartierDocsOnlySql()}
 
     UNION ALL
 
@@ -1053,40 +1041,61 @@ export function buildLorFeatureCandidateSql(): string {
  * $1 ags (nullable, derived Gemeinde AGS allowed)
  * $2 exclude geoKey[]
  * $3 Zielregion GeoJSON (nullable)
+ *
+ * Driver is `geo.geo_ref_quartier` (570 Köln polygons, keys `koeln:sq:*`).
+ * Feature docs only supply the title. Missing table → optional read returns [].
  */
-export function buildKoelnQuartierCandidateSql(): string {
+export function buildKoelnQuartierCandidateSql(
+  minOverlapShare: number = readAnalysisMinOverlapShare(),
+): string {
+  const geom = geom4326("q");
   return `
   WITH region_geom AS (
     SELECT ${regionGeomFromParam("$3")} AS geom
-  )
-  SELECT DISTINCT ON (d.geo_key)
-    d.geo_key::text AS geo_key,
+  ),
+  hits AS (
+  SELECT
+    q.geo_quartier_id::text AS geo_key,
     'other'::text AS grain,
     'quartier'::text AS kind,
-    NULLIF(btrim(d.title), '') AS name,
-    NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
+    COALESCE(NULLIF(btrim(q.name), ''), NULLIF(btrim(d.title), '')) AS name,
+    COALESCE(
+      NULLIF(btrim(q.geo_ags::text), ''),
+      NULLIF(btrim(d.metadata->>'ags'), ''),
+      NULLIF(btrim(d.metadata->>'geo_ags'), ''),
+      '05315000'
+    ) AS ags,
     NULL::text AS plz,
-    d.lon::float8 AS lon,
-    d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson,
-      NULL::float8 AS target_overlap_share
-  FROM features.location_feature_docs d, region_geom g
-  WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
-    AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
-    AND d.geo_key LIKE 'koeln:sq:%'
-    AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
-    AND NOT (d.geo_key = ANY($2::text[]))
-    AND ${pointIntersectOrFallback(
-      "d.lon",
-      "d.lat",
+    ST_X(ST_PointOnSurface(${geom})) AS lon,
+    ST_Y(ST_PointOnSurface(${geom})) AS lat,
+    ${clippedHitGeoJsonSql(geom)} AS geometry_geojson,
+    ${targetOverlapShareSql(geom)}
+  FROM geo.geo_ref_quartier q
+  LEFT JOIN LATERAL (
+    SELECT doc.title, doc.metadata
+      FROM features.location_feature_docs doc
+     WHERE doc.source_theme = 'koeln_statistischer_datenkatalog'
+       AND doc.geo_key = q.geo_quartier_id::text
+       AND COALESCE(doc.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
+     ORDER BY doc.ref_period DESC NULLS LAST
+     LIMIT 1
+  ) d ON true
+  , region_geom g
+  WHERE NULLIF(btrim(q.geo_quartier_id::text), '') IS NOT NULL
+    AND q.geo_quartier_id::text LIKE 'koeln:sq:%'
+    AND NOT (q.geo_quartier_id::text = ANY($2::text[]))
+    AND ${hasArea("q")}
+    AND ${intersectOrFallback(
+      geom3035("q"),
       `$1::text IS NOT NULL AND (
         $1 = '05315000'
         OR $1 LIKE '05315%'
-        OR d.metadata->>'geo_ags' = $1
-        OR d.metadata->>'ags' = $1
+        OR q.geo_ags::text = $1
       )`,
+      minOverlapShare,
     )}
-  ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
+  )
+  ${spatialEvenHitsLimitSql()}
 `;
 }
 
@@ -1218,13 +1227,14 @@ export function hamburgStadtteilFallbackQuery(region: AnalysisRegion): Candidate
 export function teilCatalogQuery(
   region: AnalysisRegion,
   adminMode: "prefer" | "legacy" = "prefer",
+  options: { includeQuartierGeom?: boolean } = {},
 ): CandidateQuery {
   const membership = parentMemberships(region);
   const exclude = [region.geoKey?.trim(), region.ags?.trim(), region.plz?.trim()].filter(
     (value): value is string => Boolean(value),
   );
   return {
-    sql: buildTeilCatalogSql(adminMode),
+    sql: buildTeilCatalogSql(adminMode, options),
     params: [membership.grains, membership.ids, exclude, regionGeometryParam(region)],
   };
 }
@@ -1291,6 +1301,90 @@ function koelnQuartierKeyExpr(childIdExpr: string): string {
       WHEN ${childIdExpr} LIKE 'quartier:%' THEN regexp_replace(${childIdExpr}, '^quartier:', 'koeln:sq:')
       ELSE 'koeln:sq:' || ${childIdExpr}
     END`;
+}
+
+function koelnQuartierJoinOnHit(alias: string, geoKeyExpr: string): string {
+  const id = `${alias}.geo_quartier_id::text`;
+  return `(
+      ${id} = ${geoKeyExpr}
+      OR ${id} = regexp_replace(${geoKeyExpr}, '^quartier:', 'koeln:sq:')
+      OR ('koeln:sq:' || ${id}) = ${geoKeyExpr}
+    )`;
+}
+
+function teilQuartierDocsJoin(): string {
+  return `
+    LEFT JOIN LATERAL (
+      SELECT d.title, d.metadata, d.lon, d.lat
+        FROM features.location_feature_docs d
+       WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
+         AND d.geo_key = ${koelnQuartierKeyExpr("c.child_id")}
+         AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
+       ORDER BY d.ref_period DESC NULLS LAST
+       LIMIT 1
+    ) q ON true`;
+}
+
+/** Teil-catalog Quartier without `geo.geo_ref_quartier` — geometry stays null. */
+function teilQuartierDocsOnlySql(): string {
+  return `
+    SELECT
+      ${koelnQuartierKeyExpr("c.child_id")} AS geo_key,
+      'other'::text AS grain,
+      'quartier'::text AS kind,
+      NULLIF(btrim(q.title), '') AS name,
+      COALESCE(
+        NULLIF(btrim(q.metadata->>'ags'), ''),
+        NULLIF(btrim(q.metadata->>'geo_ags'), ''),
+        '05315000'
+      ) AS ags,
+      NULL::text AS plz,
+      q.lon::float8 AS lon,
+      q.lat::float8 AS lat,
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
+    FROM children c
+    ${teilQuartierDocsJoin()}
+    WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
+      AND NULLIF(btrim(c.child_id), '') IS NOT NULL`;
+}
+
+/**
+ * Teil-catalog Quartier with `geo.geo_ref_quartier`. Clip and share like other
+ * polygon layers. Rows without a polygon stay (geometry null). Min overlap
+ * applies only when both the Quartier and the Zielregion have area.
+ */
+function teilQuartierGeomSql(minOverlapShare: number): string {
+  const geom = geom4326("gq");
+  return `
+    SELECT
+      ${koelnQuartierKeyExpr("c.child_id")} AS geo_key,
+      'other'::text AS grain,
+      'quartier'::text AS kind,
+      COALESCE(NULLIF(btrim(gq.name), ''), NULLIF(btrim(q.title), '')) AS name,
+      COALESCE(
+        NULLIF(btrim(gq.geo_ags::text), ''),
+        NULLIF(btrim(q.metadata->>'ags'), ''),
+        NULLIF(btrim(q.metadata->>'geo_ags'), ''),
+        '05315000'
+      ) AS ags,
+      NULL::text AS plz,
+      COALESCE(ST_X(ST_PointOnSurface(${geom})), q.lon::float8) AS lon,
+      COALESCE(ST_Y(ST_PointOnSurface(${geom})), q.lat::float8) AS lat,
+      ${clippedHitGeoJsonSql(geom)} AS geometry_geojson,
+      ${targetOverlapShareSql(geom, "1")}
+    FROM children c
+    LEFT JOIN geo.geo_ref_quartier gq
+      ON gq.geo_quartier_id::text = ${koelnQuartierKeyExpr("c.child_id")}
+    ${teilQuartierDocsJoin()}
+    CROSS JOIN region_geom g
+    WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
+      AND NULLIF(btrim(c.child_id), '') IS NOT NULL
+      AND (
+        gq.geom IS NULL
+        OR g.geom IS NULL
+        OR ${polygonMinOverlapPredicate(geom, "g.geom", minOverlapShare)}
+      )`;
 }
 
 /**
@@ -1361,12 +1455,26 @@ export function overlapRegionMeta(
  * $1 geo_key[]  $2 kind[]  $3 Zielregion GeoJSON
  * $4 region geoKey  $5 region label  $6 region kind
  */
-export function buildHitOverlapSql(): string {
+export function buildHitOverlapSql(options: { includeQuartierGeom?: boolean } = {}): string {
+  const includeQuartierGeom = options.includeQuartierGeom !== false;
   const plzGeom = geom4326("p");
   const lorGeom = geom4326("l");
   const ortGeom = geom4326("o");
+  const quartierGeom = geom4326("qq");
   const parentOrtGeom = geom4326("ot");
   const addrGeom = addressGeom4326("a");
+  const quartierHitSql = includeQuartierGeom
+    ? `
+    UNION ALL
+
+    SELECT h.geo_key, ${quartierGeom} AS geom
+      FROM hits h
+      JOIN geo.geo_ref_quartier qq
+        ON ${koelnQuartierJoinOnHit("qq", "h.geo_key")}
+     WHERE h.kind = 'quartier'
+       AND ${hasArea("qq")}
+`
+    : "";
   return `
   WITH hits AS (
     SELECT geo_key, kind
@@ -1398,7 +1506,7 @@ export function buildHitOverlapSql(): string {
         ON ${lorJoinOnChild("l", "h.geo_key")}
      WHERE h.kind = 'lor'
        AND ${hasArea("l")}
-
+    ${quartierHitSql}
     UNION ALL
 
     SELECT h.geo_key, ${ortGeom} AS geom
@@ -1497,11 +1605,12 @@ export function hitOverlapQuery(
   hits: Array<{ geoKey: string; kind: AreaKind }>,
   regionGeometry: string | null = null,
   region: OverlapRegionMeta | null = null,
+  options: { includeQuartierGeom?: boolean } = {},
 ): CandidateQuery {
   const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
   const meta = region ?? { geoKey: null, label: null, kind: null };
   return {
-    sql: buildHitOverlapSql(),
+    sql: buildHitOverlapSql(options),
     params: [
       eligible.map((hit) => hit.geoKey),
       eligible.map((hit) => hit.kind),

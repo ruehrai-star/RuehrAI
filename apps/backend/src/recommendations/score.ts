@@ -24,7 +24,8 @@ import {
   SeriesBaseline,
 } from "../analysis/series-baseline";
 import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-series";
-import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
+import { AreaCandidate, AreaKind, areaKindRank, compareSpatialGeoKey, spatialCellId } from "./area-candidates";
+import { centroid } from "../geo/region-geometry";
 import { areaGroupKey, displayAreaName, hitParentLabel } from "./hit-display";
 import {
   canonicalScoreLevel,
@@ -184,8 +185,8 @@ export function rankTeilflaechen(
     });
   }
 
-  scored.sort(compareScoredLocations);
-  return capRankedByTargetRegion(scored);
+  const ordered = sortScoredLocations(scored);
+  return capRankedByTargetRegion(ordered);
 }
 
 /** Newest present `points[].period` (`YYYY` or `YYYY-MM`). Null when none. */
@@ -204,10 +205,21 @@ export function dataAsOfFromEvidence(evidence: RecommendationEvidence[]): string
 
 /**
  * Tie-break: score, then coverage (nAktiv), then share of the candidate
- * inside the Zielregion, then stable id. Never the visible name.
- * Randflächen with a tiny Zielregion share lose to inner Planungsräume.
+ * inside the Zielregion, then spatial round-robin over 1-km cells
+ * (`floor(lon/0.01)`, `floor(lat/0.01)` or geometry centroid), then
+ * `md5(geo_key)`. Never the visible name and never a raw `id` sort that
+ * would cluster Köln Quartiere.
+ *
+ * Pairwise `compareScoredLocations` uses md5 when cell ranks are unknown.
+ * Round-robin needs the full set — use `sortScoredLocations`.
  */
 export function compareScoredLocations(left: ScoredLocation, right: ScoredLocation): number {
+  const prefix = compareScoreCoverageShare(left, right);
+  if (prefix !== 0) return prefix;
+  return compareSpatialGeoKey(scoredGeoKey(left), scoredGeoKey(right));
+}
+
+export function compareScoreCoverageShare(left: ScoredLocation, right: ScoredLocation): number {
   if (right.score !== left.score) return right.score - left.score;
   const leftCoverage = activeCoverageCount(left.criteriaEvidence);
   const rightCoverage = activeCoverageCount(right.criteriaEvidence);
@@ -219,7 +231,57 @@ export function compareScoredLocations(left: ScoredLocation, right: ScoredLocati
     const rightValue = rightShare ?? -1;
     if (rightValue !== leftValue) return rightValue - leftValue;
   }
-  return left.id.localeCompare(right.id, "de");
+  return 0;
+}
+
+/** Round-robin one hit per 1-km cell, then md5(geo_key) inside the cell. */
+export function sortScoredLocations<T extends ScoredLocation>(items: T[]): T[] {
+  const ranks = spatialCellRanks(items);
+  return [...items].sort((left, right) => {
+    const prefix = compareScoreCoverageShare(left, right);
+    if (prefix !== 0) return prefix;
+    const leftRank = ranks.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = ranks.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return compareSpatialGeoKey(scoredGeoKey(left), scoredGeoKey(right));
+  });
+}
+
+export function spatialCellOfScored(item: Pick<ScoredLocation, "location" | "geometry" | "id">): string {
+  const lon = item.location.lon;
+  const lat = item.location.lat;
+  if (lon != null && lat != null && Number.isFinite(lon) && Number.isFinite(lat)) {
+    return spatialCellId(lon, lat);
+  }
+  if (item.geometry) {
+    try {
+      const point = centroid(item.geometry);
+      if (Number.isFinite(point.lon) && Number.isFinite(point.lat)) return spatialCellId(point.lon, point.lat);
+    } catch {
+      /* fall through */
+    }
+  }
+  return `solo:${item.id}`;
+}
+
+export function spatialCellRanks(items: Array<Pick<ScoredLocation, "id" | "location" | "geometry">>): Map<string, number> {
+  const ranks = new Map<string, number>();
+  const byCell = new Map<string, Array<Pick<ScoredLocation, "id" | "location">>>();
+  for (const item of items) {
+    const cell = spatialCellOfScored(item);
+    const list = byCell.get(cell) ?? [];
+    list.push(item);
+    byCell.set(cell, list);
+  }
+  for (const list of byCell.values()) {
+    list.sort((left, right) => compareSpatialGeoKey(left.location.geoKey, right.location.geoKey));
+    list.forEach((item, index) => ranks.set(item.id, index));
+  }
+  return ranks;
+}
+
+function scoredGeoKey(item: ScoredLocation): string {
+  return item.location.geoKey || item.id;
 }
 
 /**
@@ -236,19 +298,20 @@ export function capRankedByTargetRegion(scored: ScoredLocation[]): ScoredLocatio
   const selected: ScoredLocation[] = [];
   const leftover: ScoredLocation[] = [];
   for (const items of groups.values()) {
-    const quota = Math.min(perRegionCap, items.length);
-    selected.push(...items.slice(0, quota));
-    leftover.push(...items.slice(quota));
+    const ordered = sortScoredLocations(items);
+    const quota = Math.min(perRegionCap, ordered.length);
+    selected.push(...ordered.slice(0, quota));
+    leftover.push(...ordered.slice(quota));
   }
-  leftover.sort(compareScoredLocations);
+  const sortedLeftover = sortScoredLocations(leftover);
   const missing = MAX_RANKED_ITEMS - selected.length;
-  if (missing > 0) selected.push(...leftover.slice(0, missing));
+  if (missing > 0) selected.push(...sortedLeftover.slice(0, missing));
   return selected.slice(0, MAX_RANKED_ITEMS);
 }
 
 /**
  * Rank 1-based and gapless inside each `targetRegionGeoKey`. List order is
- * input-region order, then rank. Tie-break is `compareScoredLocations`.
+ * input-region order, then rank. Tie-break is `sortScoredLocations`.
  */
 export function assignRanksByTargetRegion(
   items: Array<Omit<RecommendationItem, "rank">>,
@@ -275,8 +338,8 @@ export function assignRanksByTargetRegion(
   const ranked: RecommendationItem[] = [];
   for (const key of keys) {
     const group = groups.get(key) ?? [];
-    group.sort(compareScoredLocations);
-    group.forEach((item, index) => {
+    const ordered = sortScoredLocations(group);
+    ordered.forEach((item, index) => {
       ranked.push({
         ...item,
         targetRegionGeoKey: item.targetRegionGeoKey ?? "",

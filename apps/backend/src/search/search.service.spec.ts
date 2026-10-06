@@ -154,6 +154,17 @@ describe("SearchService", () => {
         lon: 11.46,
         lat: 48.2,
       },
+      {
+        id: "stadtbezirk:osm:schwabing-west",
+        label: "Schwabing-West",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:schwabing-west",
+        level: "stadtbezirk",
+        parentLabel: "München",
+        geoAgs: "09162000",
+        lon: 11.56,
+        lat: 48.17,
+      },
     ]);
     lookupAdminNames.mockResolvedValue(new Map([["09162000", "München"]]));
 
@@ -161,14 +172,10 @@ describe("SearchService", () => {
     const byKey = Object.fromEntries(result.hits.map((hit) => [hit.geoKey, hit]));
     expect(byKey["09162000"]).toMatchObject({ level: "gemeinde", label: "München" });
     expect(byKey["09162000"]?.parentLabel).toBeUndefined();
-    expect(byKey["09162004"]).toMatchObject({
-      label: "Bezirk München Schwabing-West",
-      grain: "ags",
-      level: "stadtbezirk",
-      parentLabel: "München",
-    });
-    expect(byKey["09162001"]).toMatchObject({
-      label: "Bezirk München Altstadt-Lehel",
+    expect(byKey["09162004"]).toBeUndefined();
+    expect(byKey["09162001"]).toBeUndefined();
+    expect(byKey["stadtbezirk:osm:schwabing-west"]).toMatchObject({
+      label: "Schwabing-West",
       level: "stadtbezirk",
       parentLabel: "München",
     });
@@ -176,7 +183,53 @@ describe("SearchService", () => {
       level: "stadtbezirk",
       parentLabel: "München",
     });
-    expect(result.hits.some((hit) => hit.geoKey === "09162004" && hit.level === "gemeinde")).toBe(false);
+    expect(result.hits.some((hit) => hit.geoKey === "09162004")).toBe(false);
+    expect(result.hits.filter((hit) => hit.label === "Schwabing-West")).toHaveLength(1);
+  });
+
+  it("maps Köln AGS Innenstadt onto the catalog Stadtbezirk and drops the duplicate", async () => {
+    queryReadingFeatures
+      .mockReset()
+      .mockResolvedValueOnce({ rows: [{ has_rows: true }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "124308",
+            label: "Bezirk Köln Innenstadt",
+            grain: "ags",
+            geo_key: "05315001",
+            lon: 6.96,
+            lat: 50.94,
+          },
+        ],
+      });
+    lookupAdminNames.mockResolvedValue(new Map([["05315000", "Köln"]]));
+    geoSearch.mockResolvedValue([
+      {
+        id: "stadtbezirk:osm:2613798",
+        label: "Innenstadt",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:2613798",
+        level: "stadtbezirk",
+        parentLabel: "Köln",
+        geoAgs: "05315000",
+        lon: 6.96,
+        lat: 50.94,
+      },
+    ]);
+
+    const result = await service.search({ q: "Köln Innenstadt" });
+    expect(result.hits).toEqual([
+      expect.objectContaining({
+        id: "stadtbezirk:osm:2613798",
+        label: "Innenstadt",
+        geoKey: "stadtbezirk:osm:2613798",
+        level: "stadtbezirk",
+        parentLabel: "Köln",
+      }),
+    ]);
+    expect(result.hits.some((hit) => hit.geoKey === "05315001")).toBe(false);
+    expect(result.hits.filter((hit) => /innenstadt/i.test(hit.label))).toHaveLength(1);
   });
 
   it("uses the seed catalog when the feature view has no rows", async () => {

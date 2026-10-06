@@ -1,3 +1,4 @@
+import { officialAgsKey, parentMunicipalityAgs } from "../geo/geo-catalog";
 import { SearchQueryDto } from "./search.dto";
 
 /** LIKE/ILIKE contains-pattern. `%`, `_`, and `\` in the input are matched literally. */
@@ -59,4 +60,64 @@ export function searchTokenPatterns(q?: string): string[] | null {
   const tokens = searchQueryTokens(q);
   if (tokens.length === 0) return null;
   return tokens.map(toContainsPattern);
+}
+
+const AREALESS_ADMIN_LEVELS = new Set(["bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
+
+/** Feature-view AGS districts (e.g. `05315001`) have no catalog polygon. */
+export function isArealessAdminHit(hit: {
+  grain: string;
+  geoKey?: string | null;
+  level?: string | null;
+}): boolean {
+  const level = hit.level?.trim().toLowerCase() ?? "";
+  if (!AREALESS_ADMIN_LEVELS.has(level)) return false;
+  const key = hit.geoKey?.trim() ?? "";
+  if (/^(bezirk|stadtbezirk|stadtteil|ortsteil):/i.test(key)) return false;
+  if (/^[0-9]{8}$/.test(key) && !key.endsWith("000")) return true;
+  return hit.grain === "ags" && /^[0-9]{5,8}$/.test(key);
+}
+
+export function normalizeAdminSearchName(label: string, parentLabel?: string | null): string {
+  let text = label.trim().toLocaleLowerCase("de").replace(/[-–—]/g, " ");
+  text = text.replace(/^(bezirk|stadtbezirk|stadtteil|ortsteil)\s+/i, "");
+  const parent = (parentLabel ?? "").trim().toLocaleLowerCase("de");
+  if (parent) {
+    const escaped = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`^${escaped}\\s+`, "i"), "");
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function sameSearchMunicipality(
+  left: { parentLabel?: string | null; geoKey?: string | null; geoAgs?: string | null },
+  right: { parentLabel?: string | null; geoKey?: string | null; geoAgs?: string | null },
+): boolean {
+  const parentLeft = (left.parentLabel ?? "").trim().toLocaleLowerCase("de");
+  const parentRight = (right.parentLabel ?? "").trim().toLocaleLowerCase("de");
+  if (parentLeft && parentRight && parentLeft === parentRight) return true;
+  const agsLeft = parentMunicipalityAgs(left.geoKey) ?? officialAgsKey(left.geoAgs) ?? parentMunicipalityAgs(left.geoAgs);
+  const agsRight =
+    officialAgsKey(right.geoAgs) ?? parentMunicipalityAgs(right.geoKey) ?? parentMunicipalityAgs(right.geoAgs);
+  if (agsLeft && agsRight && agsLeft === agsRight) return true;
+  return false;
+}
+
+export function matchCatalogAdminHit<T extends {
+  label: string;
+  level?: string | null;
+  parentLabel?: string | null;
+  geoKey?: string | null;
+  geoAgs?: string | null;
+}>(hit: T, catalog: T[]): T | null {
+  const needle = normalizeAdminSearchName(hit.label, hit.parentLabel);
+  if (!needle) return null;
+  for (const candidate of catalog) {
+    const level = candidate.level?.trim().toLowerCase() ?? "";
+    const hitLevel = hit.level?.trim().toLowerCase() ?? "";
+    if (hitLevel && level && level !== hitLevel) continue;
+    if (!sameSearchMunicipality(hit, candidate)) continue;
+    if (normalizeAdminSearchName(candidate.label, candidate.parentLabel) === needle) return candidate;
+  }
+  return null;
 }
