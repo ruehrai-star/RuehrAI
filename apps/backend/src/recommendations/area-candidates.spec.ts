@@ -1,8 +1,10 @@
 import { AnalysisRegion } from "../analysis/types";
 import {
   AREA_CANDIDATE_LIMIT,
+  addressCandidateQuery,
   adminGeom4326,
   areaCandidateParams,
+  areaCandidateQuery,
   buildAddressCandidateSql,
   buildAreaCandidateSql,
   buildGeoAddressCandidateSql,
@@ -13,11 +15,20 @@ import {
   buildLorPlrCatalogSql,
   buildLorPlrFeatureCandidateSql,
   buildTeilCatalogSql,
+  geoAddressCandidateQuery,
+  grid100CandidateQuery,
+  hamburgStadtteilFallbackQuery,
+  highestSqlPlaceholder,
   isRegionAnchor,
+  koelnQuartierCandidateQuery,
+  lorFeatureCandidateQuery,
+  lorPlrCatalogQuery,
+  lorPlrFeatureCandidateQuery,
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
   clippedHitGeoJsonSql,
+  teilCatalogQuery,
 } from "./area-candidates";
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
@@ -101,7 +112,7 @@ describe("area candidate SQL", () => {
     expect(geoAddress).toContain("geo.geo_ref_address");
     expect(geoAddress).not.toMatch(/embedding/i);
     expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
-    expect(teil).toContain("child_grain)) = 'lor'");
+    expect(teil).toMatch(/child_grain\)\) IN \('lor', 'lor_plr'\)/);
     expect(teil).toContain("koeln_quartier");
     expect(teil).toContain("WHEN 'lor' THEN 2");
     expect(teil).toContain("WHEN 'quartier' THEN 2");
@@ -140,6 +151,18 @@ describe("area candidate SQL", () => {
     );
     expect(kreis.grains).toContain("kreis");
     expect(kreis.ids).toContain("05315");
+
+    const plr = parentMemberships(
+      region({
+        label: "Gontermannstraße",
+        grain: "other",
+        geoKey: "lor:plr:07400720",
+        ags: "11000000",
+        geometry: null,
+      }),
+    );
+    expect(plr.grains).toEqual(expect.arrayContaining(["lor", "lor_plr", "gemeinde"]));
+    expect(plr.ids).toContain("lor:plr:07400720");
   });
 });
 
@@ -428,5 +451,44 @@ describe("clippedHitGeoJsonSql", () => {
     expect(sql).toContain("ST_Intersection");
     expect(sql).toContain("ST_AsGeoJSON");
     expect(sql).toContain("g.geom");
+  });
+});
+
+describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
+  const muenchen = region();
+  const tempelhof = region({
+    label: "Tempelhof",
+    grain: "other",
+    geoKey: "ortsteil:osm:162894",
+    ags: "11000000",
+    geometry: null,
+  });
+
+  it.each([
+    ["geoAddressCandidateQuery", geoAddressCandidateQuery],
+    ["addressCandidateQuery", addressCandidateQuery],
+    ["grid100CandidateQuery", grid100CandidateQuery],
+    ["lorPlrCatalogQuery", lorPlrCatalogQuery],
+    ["lorPlrFeatureCandidateQuery", lorPlrFeatureCandidateQuery],
+    ["lorFeatureCandidateQuery", lorFeatureCandidateQuery],
+    ["koelnQuartierCandidateQuery", koelnQuartierCandidateQuery],
+    ["hamburgStadtteilFallbackQuery", hamburgStadtteilFallbackQuery],
+    ["teilCatalogQuery", teilCatalogQuery],
+    ["areaCandidateQuery", areaCandidateQuery],
+  ] as const)("%s params match the highest $n for München and Tempelhof", (_name, factory) => {
+    for (const place of [muenchen, tempelhof]) {
+      const query = factory(place);
+      expect(query.params).toHaveLength(highestSqlPlaceholder(query.sql));
+      expect(highestSqlPlaceholder(query.sql)).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not pass the catalog geometry $4 into LOR feature-doc SQL", () => {
+    expect(highestSqlPlaceholder(lorPlrCatalogQuery(tempelhof).sql)).toBe(4);
+    expect(lorPlrCatalogQuery(tempelhof).params).toHaveLength(4);
+    expect(highestSqlPlaceholder(lorPlrFeatureCandidateQuery(tempelhof).sql)).toBe(3);
+    expect(lorPlrFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
+    expect(highestSqlPlaceholder(lorFeatureCandidateQuery(tempelhof).sql)).toBe(3);
+    expect(lorFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
   });
 });

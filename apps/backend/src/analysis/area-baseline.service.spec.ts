@@ -67,7 +67,7 @@ describe("AreaBaselineService", () => {
     });
   });
 
-  it("always loads the 2022 Zensus year with the 2026 snapshot", async () => {
+  it("loads every year for the geo keys so nearest-year fallback can run", async () => {
     const queryReadingFeatures = jest.fn(async (sql: string) => {
       if (sql.includes("baseline_metric_catalog")) return { rows: [] };
       if (sql.includes("area_baseline")) return { rows: [] };
@@ -76,8 +76,10 @@ describe("AreaBaselineService", () => {
     const service = new AreaBaselineService({ queryReadingFeatures } as unknown as DatabaseService);
     await service.normalize(series());
     const areaCall = queryReadingFeatures.mock.calls.find((call) => String(call[0]).includes("area_baseline")) as
-      | [string, [string[], number[]]]
+      | [string, [string[]]]
       | undefined;
-    expect(areaCall?.[1]?.[1]).toEqual(expect.arrayContaining([2022, 2026]));
+    expect(String(areaCall?.[0])).not.toContain("ref_year = ANY");
+    expect(areaCall?.[1]?.[0]).toEqual(expect.arrayContaining(["11000000"]));
+    expect(areaCall?.[1]).toHaveLength(1);
   });
 });

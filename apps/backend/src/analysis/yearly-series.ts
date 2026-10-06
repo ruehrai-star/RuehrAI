@@ -43,6 +43,10 @@ export interface SeriesPoint {
   normalizedValue?: number;
   /** Method of the divisor from `geo.area_baseline`. Omitted on feature fallback. */
   baselineMethod?: BaselineMethod;
+  /** Year of the `geo.area_baseline` divisor actually used. */
+  baselineYear?: number;
+  /** `nearest` when the divisor year is not the series year. */
+  baselineYearRule?: "exact" | "nearest";
 }
 
 export interface YearlySeries {

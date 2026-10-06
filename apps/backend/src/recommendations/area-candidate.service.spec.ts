@@ -250,6 +250,95 @@ describe("AreaCandidateService", () => {
     await expect(service.load([region()])).resolves.toEqual({ items: [], truncated: false });
   });
 
+  it("accepts child_grain lor_plr and lists Tempelhof and Lichterfelde PLR Teilflächen", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("geo_ref_zielregion_teil")) {
+        expect(text).toMatch(/'lor_plr'/);
+        expect(text).toMatch(/'lor'/);
+        expect(text).not.toMatch(/embedding/i);
+        return {
+          rows: [
+            {
+              geo_key: "lor:plr:07400720",
+              grain: "other",
+              kind: "lor",
+              name: "Gontermannstraße",
+              ags: "11000000",
+              plz: null,
+              lon: 13.38,
+              lat: 52.47,
+            },
+            {
+              geo_key: "lor:plr:07400721",
+              grain: "other",
+              kind: "lor",
+              name: "Paradestraße",
+              ags: "11000000",
+              plz: null,
+              lon: 13.39,
+              lat: 52.48,
+            },
+            {
+              geo_key: "lor:plr:06200420",
+              grain: "other",
+              kind: "lor",
+              name: "Lichterfelde Süd",
+              ags: "11000000",
+              plz: null,
+              lon: 13.32,
+              lat: 52.41,
+            },
+            {
+              geo_key: "lor:plr:06200421",
+              grain: "other",
+              kind: "lor",
+              name: "Königsberger Straße",
+              ags: "11000000",
+              plz: null,
+              lon: 13.31,
+              lat: 52.42,
+            },
+          ],
+        };
+      }
+      if (emptyOptionalSql(text)) return { rows: [] };
+      return { rows: [] };
+    });
+
+    const loaded = await service.load([
+      region({
+        label: "Tempelhof",
+        grain: "other",
+        geoKey: "ortsteil:osm:162894",
+        ags: "11000000",
+        geometry: null,
+      }),
+      region({
+        label: "Lichterfelde",
+        grain: "other",
+        geoKey: "ortsteil:osm:55737",
+        ags: "11000000",
+        geometry: null,
+      }),
+    ]);
+    const plr = loaded.items.filter((item) => item.kind === "lor");
+    expect(plr.map((item) => item.geoKey)).toEqual(
+      expect.arrayContaining([
+        "lor:plr:07400720",
+        "lor:plr:07400721",
+        "lor:plr:06200420",
+        "lor:plr:06200421",
+      ]),
+    );
+    expect(plr.every((item) => item.kind === "lor")).toBe(true);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) => String(call[0]).includes("geo_ref_zielregion_teil") && String(call[0]).includes("lor_plr"),
+      ),
+    ).toBe(true);
+  });
+
   it("parses clipped GeoJSON outlines and explains when geometry is missing", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);

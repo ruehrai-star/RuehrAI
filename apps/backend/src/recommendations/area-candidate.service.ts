@@ -14,26 +14,22 @@ import {
   AreaCandidate,
   AreaCandidateSqlRow,
   AreaKind,
-  areaCandidateParams,
-  buildAddressCandidateSql,
-  buildAreaCandidateSql,
-  buildGeoAddressCandidateSql,
-  buildGrid100CandidateSql,
-  buildHamburgStadtteilFallbackSql,
-  buildKoelnQuartierCandidateSql,
-  buildLorFeatureCandidateSql,
-  buildLorPlrCatalogSql,
-  buildLorPlrFeatureCandidateSql,
-  buildTeilCatalogSql,
-  featureCandidateParams,
-  geoAddressCandidateParams,
-  hamburgFallbackParams,
+  addressCandidateQuery,
+  areaCandidateQuery,
+  assertCandidateQueryArity,
+  CandidateQuery,
+  geoAddressCandidateQuery,
+  grid100CandidateQuery,
+  hamburgStadtteilFallbackQuery,
   isAreaKind,
   isLorPlrKey,
-  lorCandidateParams,
+  koelnQuartierCandidateQuery,
+  lorFeatureCandidateQuery,
+  lorPlrCatalogQuery,
+  lorPlrFeatureCandidateQuery,
   parentMemberships,
-  regionGeometryParam,
   selectCatalogHits,
+  teilCatalogQuery,
 } from "./area-candidates";
 
 const GRAIN_SET = new Set<string>(["address", "grid100", "plz8", "plz5", "ags", "ags5", "other"]);
@@ -83,19 +79,19 @@ export class AreaCandidateService {
   }
 
   private async loadRegion(region: AnalysisRegion): Promise<AreaCandidateLoad> {
-    const geoAddress = await this.readOptional(buildGeoAddressCandidateSql(), geoAddressCandidateParams(region));
-    const address = await this.readOptional(buildAddressCandidateSql(), featureCandidateParams(region));
-    const grid = await this.readOptional(buildGrid100CandidateSql(), featureCandidateParams(region));
-    const lorPlrCatalog = await this.readOptional(buildLorPlrCatalogSql(), lorCandidateParams(region));
-    const lorPlrFeatures = await this.readOptional(buildLorPlrFeatureCandidateSql(), lorCandidateParams(region));
-    const quartier = await this.readOptional(buildKoelnQuartierCandidateSql(), hamburgFallbackParams(region));
+    const geoAddress = await this.readOptionalQuery(geoAddressCandidateQuery(region));
+    const address = await this.readOptionalQuery(addressCandidateQuery(region));
+    const grid = await this.readOptionalQuery(grid100CandidateQuery(region));
+    const lorPlrCatalog = await this.readOptionalQuery(lorPlrCatalogQuery(region));
+    const lorPlrFeatures = await this.readOptionalQuery(lorPlrFeatureCandidateQuery(region));
+    const quartier = await this.readOptionalQuery(koelnQuartierCandidateQuery(region));
     const catalog = await this.readCatalog(region);
     const plrItems = [...lorPlrCatalog.items, ...lorPlrFeatures.items];
     const hasPlr = plrItems.some((item) => isLorPlrKey(item.geoKey));
     const lor2006 = hasPlr
       ? { items: [], truncated: false }
-      : await this.readOptional(buildLorFeatureCandidateSql(), lorCandidateParams(region));
-    const hamburg = await this.readOptional(buildHamburgStadtteilFallbackSql(), hamburgFallbackParams(region));
+      : await this.readOptionalQuery(lorFeatureCandidateQuery(region));
+    const hamburg = await this.readOptionalQuery(hamburgStadtteilFallbackQuery(region));
     const combined = [
       ...geoAddress.items,
       ...address.items,
@@ -130,38 +126,19 @@ export class AreaCandidateService {
   private async readCatalog(region: AnalysisRegion): Promise<AreaCandidateLoad> {
     const membership = parentMemberships(region);
     if (membership.grains.length > 0) {
-      const teil = await this.readTeil(region, membership.grains, membership.ids);
+      const teil = await this.readTeil(region);
       if (teil) return teil;
     }
     return this.readIntersectFallback(region);
   }
 
-  private async readTeil(
-    region: AnalysisRegion,
-    grains: string[],
-    ids: string[],
-  ): Promise<AreaCandidateLoad | null> {
-    const exclude = [
-      region.geoKey?.trim(),
-      region.ags?.trim(),
-      region.plz?.trim(),
-    ].filter((value): value is string => Boolean(value));
+  private async readTeil(region: AnalysisRegion): Promise<AreaCandidateLoad | null> {
     try {
-      return await this.readSql(buildTeilCatalogSql("prefer"), [
-        grains,
-        ids,
-        exclude,
-        regionGeometryParam(region),
-      ]);
+      return await this.readQuery(teilCatalogQuery(region, "prefer"));
     } catch (error) {
       if (isUndefinedColumn(error)) {
         try {
-          return await this.readSql(buildTeilCatalogSql("legacy"), [
-            grains,
-            ids,
-            exclude,
-            regionGeometryParam(region),
-          ]);
+          return await this.readQuery(teilCatalogQuery(region, "legacy"));
         } catch (legacyError) {
           if (isMissingTeilCatalog(legacyError)) return null;
           throw legacyError;
@@ -174,18 +151,18 @@ export class AreaCandidateService {
 
   private async readIntersectFallback(region: AnalysisRegion): Promise<AreaCandidateLoad> {
     try {
-      return await this.readSql(buildAreaCandidateSql("prefer"), areaCandidateParams(region));
+      return await this.readQuery(areaCandidateQuery(region, "prefer"));
     } catch (error) {
       if (isUndefinedColumn(error)) {
-        return this.readSql(buildAreaCandidateSql("legacy"), areaCandidateParams(region));
+        return this.readQuery(areaCandidateQuery(region, "legacy"));
       }
       throw error;
     }
   }
 
-  private async readOptional(sql: string, params: unknown[]): Promise<AreaCandidateLoad> {
+  private async readOptionalQuery(query: CandidateQuery): Promise<AreaCandidateLoad> {
     try {
-      return await this.readSql(sql, params);
+      return await this.readQuery(query);
     } catch (error) {
       if (
         isGeoCatalogUnavailable(error) ||
@@ -200,8 +177,9 @@ export class AreaCandidateService {
     }
   }
 
-  private async readSql(sql: string, params: unknown[]): Promise<AreaCandidateLoad> {
-    const result = await this.db.queryReadingFeatures<AreaCandidateSqlRow>(sql, params);
+  private async readQuery(query: CandidateQuery): Promise<AreaCandidateLoad> {
+    assertCandidateQueryArity(query);
+    const result = await this.db.queryReadingFeatures<AreaCandidateSqlRow>(query.sql, query.params);
     const items: AreaCandidate[] = [];
     for (const row of result.rows) {
       const candidate = toCandidate(row);

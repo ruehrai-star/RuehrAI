@@ -39,6 +39,8 @@ export interface AreaBaselineRow {
   flaecheMethod: string | null;
   attrs?: Record<string, unknown> | null;
   agsAliasOf?: string | null;
+  /** Set when findAreaBaseline picked a year other than the requested one. */
+  baselineYearRule?: "exact" | "nearest";
 }
 
 export interface AreaBaselineIndex {
@@ -66,9 +68,10 @@ export interface MetricCatalogSqlRow {
 }
 
 /**
- * $1 geo_key[]  $2 ref_year[]
- * PK is (geo_key, grain, ref_year). Keys follow analysis conventions
- * (AGS8 / AGS5 / PLZ5 bare, bezirk:, ortsteil:, koeln:sq:, lor:plr:, …).
+ * $1 geo_key[]
+ * PK is (geo_key, grain, ref_year). All years for those keys so
+ * `findAreaBaseline` can pick the nearest year. Keys follow analysis
+ * conventions (AGS8 / AGS5 / PLZ5 bare, bezirk:, ortsteil:, koeln:sq:, lor:plr:, …).
  */
 export const AREA_BASELINE_SQL = `
   SELECT geo_key::text AS geo_key,
@@ -83,7 +86,6 @@ export const AREA_BASELINE_SQL = `
          attrs
     FROM geo.area_baseline
    WHERE geo_key::text = ANY($1::text[])
-     AND ref_year = ANY($2::int[])
 `;
 
 export const BASELINE_METRIC_CATALOG_SQL = `
@@ -244,6 +246,9 @@ export function buildAreaBaselineIndex(rows: AreaBaselineRow[]): AreaBaselineInd
  * Exact (geo_key, ref_year). For km², fall back to the 2026 geom snapshot.
  * Einwohner: same-year official wins; otherwise follow `attrs.preferred_ew`
  * to the Zensus row and never silently keep estimate_address when Zensus exists.
+ * When the year is missing, the nearest official year (same geoKey/grain;
+ * later year on a tie) is used and marked `baselineYearRule: nearest`.
+ * Official 0 EW for the chosen year stays missing — never a rate of 0.
  */
 export function findAreaBaseline(
   index: AreaBaselineIndex,
@@ -255,7 +260,7 @@ export function findAreaBaseline(
   if (column === "einwohner") return findEinwohnerBaseline(index, aliases, year);
   for (const geoKey of aliases) {
     const exact = index.byKeyYear.get(`${geoKey}|${year}`);
-    if (exact && usableDivisor(exact, column)) return exact;
+    if (exact && usableDivisor(exact, column)) return withYearRule(exact, "exact");
   }
   if (column === "flaeche_km2" && year !== AREA_SNAPSHOT_YEAR) {
     for (const geoKey of aliases) {
@@ -265,9 +270,9 @@ export function findAreaBaseline(
   }
   for (const geoKey of aliases) {
     const exact = index.byKeyYear.get(`${geoKey}|${year}`);
-    if (exact) return exact;
+    if (exact) return withYearRule(exact, "exact");
   }
-  return null;
+  return findNearestYearRow(index, aliases, year, column);
 }
 
 function findEinwohnerBaseline(index: AreaBaselineIndex, aliases: string[], year: number): AreaBaselineRow | null {
@@ -276,7 +281,12 @@ function findEinwohnerBaseline(index: AreaBaselineIndex, aliases: string[], year
   const preferred = resolvePreferredEw(index, aliases, exact, related);
   const zensus = bestZensusRow(related);
 
-  if (exact && usableDivisor(exact, "einwohner") && exact.einwohnerMethod === "official") return exact;
+  if (exact && usableDivisor(exact, "einwohner") && exact.einwohnerMethod === "official") {
+    return withYearRule(exact, "exact");
+  }
+  if (exact && exact.einwohnerMethod === "official" && !usableDivisor(exact, "einwohner")) {
+    return withYearRule(exact, "exact");
+  }
   if (preferred && usableDivisor(preferred, "einwohner")) return preferred;
   if (
     zensus &&
@@ -284,9 +294,51 @@ function findEinwohnerBaseline(index: AreaBaselineIndex, aliases: string[], year
   ) {
     return zensus;
   }
-  if (exact && usableDivisor(exact, "einwohner")) return exact;
-  if (exact) return exact;
+  if (exact && usableDivisor(exact, "einwohner")) return withYearRule(exact, "exact");
+  if (exact) return withYearRule(exact, "exact");
+  const nearest = findNearestYearRow(index, aliases, year, "einwohner");
+  if (nearest) return nearest;
   return zensus;
+}
+
+function withYearRule(row: AreaBaselineRow, rule: "exact" | "nearest"): AreaBaselineRow {
+  return { ...row, baselineYearRule: rule };
+}
+
+/** Same geoKey/grain; closest year wins; later year on a distance tie. */
+function findNearestYearRow(
+  index: AreaBaselineIndex,
+  aliases: string[],
+  year: number,
+  column: CatalogBaselineColumn,
+): AreaBaselineRow | null {
+  let best: AreaBaselineRow | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const geoKey of aliases) {
+    const byGrain = new Map<string, AreaBaselineRow[]>();
+    for (const row of index.byGeoKey.get(geoKey) ?? []) {
+      const list = byGrain.get(row.grain) ?? [];
+      list.push(row);
+      byGrain.set(row.grain, list);
+    }
+    for (const rows of byGrain.values()) {
+      const usable = rows.filter((row) => row.refYear !== year && usableDivisor(row, column));
+      if (usable.length === 0) continue;
+      usable.sort((left, right) => {
+        const distL = Math.abs(left.refYear - year);
+        const distR = Math.abs(right.refYear - year);
+        if (distL !== distR) return distL - distR;
+        return right.refYear - left.refYear;
+      });
+      const candidate = usable[0]!;
+      const dist = Math.abs(candidate.refYear - year);
+      if (!best || dist < bestDist || (dist === bestDist && candidate.refYear > best.refYear)) {
+        best = candidate;
+        bestDist = dist;
+      }
+    }
+  }
+  return best ? withYearRule(best, "nearest") : null;
 }
 
 function firstExact(index: AreaBaselineIndex, aliases: string[], year: number): AreaBaselineRow | null {

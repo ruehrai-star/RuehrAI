@@ -7,8 +7,6 @@ import {
 } from "../database/pg-error";
 import {
   AREA_BASELINE_SQL,
-  AREA_SNAPSHOT_YEAR,
-  AREA_ZENSUS_YEAR,
   AreaBaselineRow,
   AreaBaselineSqlRow,
   BASELINE_METRIC_CATALOG_SQL,
@@ -37,10 +35,7 @@ export class AreaBaselineService {
     if (series.length === 0) return series;
     const catalog = await this.loadCatalog();
     const keys = collectAreaLookupKeys(series.flatMap((item) => [item.sourceGeoKey, item.requestedGeoKey]));
-    const years = collectYears(series);
-    years.add(AREA_SNAPSHOT_YEAR);
-    years.add(AREA_ZENSUS_YEAR);
-    const rows = keys.length === 0 || years.size === 0 ? [] : await this.loadRows(keys, [...years]);
+    const rows = keys.length === 0 ? [] : await this.loadRows(keys);
     return attachNormalizedValues(series, { catalog, rows });
   }
 
@@ -65,10 +60,10 @@ export class AreaBaselineService {
     return map;
   }
 
-  async loadRows(geoKeys: string[], years: number[]): Promise<AreaBaselineRow[]> {
-    if (geoKeys.length === 0 || years.length === 0) return [];
+  async loadRows(geoKeys: string[]): Promise<AreaBaselineRow[]> {
+    if (geoKeys.length === 0) return [];
     try {
-      const result = await this.db.queryReadingFeatures<AreaBaselineSqlRow>(AREA_BASELINE_SQL, [geoKeys, years]);
+      const result = await this.db.queryReadingFeatures<AreaBaselineSqlRow>(AREA_BASELINE_SQL, [geoKeys]);
       return result.rows.map(parseAreaBaselineRow).filter((row): row is AreaBaselineRow => row !== null);
     } catch (error) {
       if (isCatalogMiss(error)) {
@@ -78,17 +73,6 @@ export class AreaBaselineService {
       throw error;
     }
   }
-}
-
-function collectYears(series: YearlySeries[]): Set<number> {
-  const years = new Set<number>();
-  for (const item of series) {
-    for (const point of item.points) {
-      const year = Number(point.period.slice(0, 4));
-      if (Number.isFinite(year)) years.add(year);
-    }
-  }
-  return years;
 }
 
 function isCatalogMiss(error: unknown): boolean {

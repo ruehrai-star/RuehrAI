@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { Logger, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
@@ -116,7 +116,12 @@ describe("AnalysisService", () => {
   });
 
   it("still returns the run when ranking the recommendation set fails", async () => {
-    createRecommendations.mockRejectedValue(new Error("catalog missed"));
+    const log = jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    createRecommendations.mockRejectedValue(
+      Object.assign(new Error('bind message supplies 4 parameters, but prepared statement "" requires 3'), {
+        code: "08P01",
+      }),
+    );
     query
       .mockResolvedValueOnce({ rows: [regionRow()] })
       .mockResolvedValueOnce({
@@ -131,7 +136,11 @@ describe("AnalysisService", () => {
 
     const run = await service.createRun("4");
     expect(run.id).toBe("15");
+    expect(run.status).toBe("completed");
     expect(createRecommendations).toHaveBeenCalledWith("4", "15");
+    expect(String(log.mock.calls[0]?.[0])).toContain("Recommendation set for run 15 was not stored");
+    expect(String(log.mock.calls[0]?.[0])).toContain("requires 3");
+    log.mockRestore();
   });
 
   it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
