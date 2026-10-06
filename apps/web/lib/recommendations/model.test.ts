@@ -155,6 +155,8 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
+  assert.equal(RECOMMENDATION_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(RECOMMENDATION_COPY.retryLoad, "Erneut versuchen");
   assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
   assert.equal(RECOMMENDATION_COPY.analysisDeadline, "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.");
   assert.equal(RECOMMENDATION_COPY.missingGeometry, "Die Fläche kann noch nicht gezeichnet werden.");
@@ -167,7 +169,34 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(recommendationSubtitle(2), "Top 3 in Ihrer Zielregion");
   assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in der Zielregion.");
   assert.equal(recommendationSubtitle("Berlin, Gemeinde"), "Top 3 in Ihrer Zielregion Berlin, Gemeinde");
-  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin, Gemeinde");
+  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin");
+  assert.equal(headingForMarkedRegion(null), null);
+});
+
+test("Trefferliste heading is always singular for the currently marked Zielregion", () => {
+  const markedRodenkirchen = {
+    label: "Rodenkirchen",
+    geoKey: "stadtbezirk:koeln:rodenkirchen",
+    grain: "ags" as const,
+    level: "gemeinde" as const,
+    parentLabel: "Köln",
+  };
+  assert.equal(headingForMarkedRegion(markedRodenkirchen), "Top 3 in Ihrer Zielregion Rodenkirchen (Köln)");
+  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin");
+  assert.equal(RECOMMENDATION_COPY.subtitle, "Top 3 in Ihrer Zielregion");
+  assert.equal(RECOMMENDATION_COPY.subtitlePlural, "Top 3 in Ihren Zielregionen");
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("Zielregionen"), false);
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("weitere"), false);
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("Innenstadt"), false);
+
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /headingForMarkedRegion\(marked\)/);
+  assert.equal(page.includes("subtitlePlural"), false);
+  assert.equal(page.includes("formatRunRegionLabel"), false);
+  assert.match(page, /<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
+  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
+  assert.match(page, /RECOMMENDATION_COPY\.empty/);
+  assert.equal(page.includes("emptyPlural"), false);
 });
 
 test("a card address, score, window, and short criteria stay in German", () => {
@@ -580,6 +609,28 @@ test("loading copy stays neutral; Analyse läuft is only the in-flight line", ()
     text: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
     tone: "error",
   });
+});
+
+test("bindFailed uses a neutral load sentence and Erneut versuchen, not Analyse fehlgeschlagen", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.equal(RECOMMENDATION_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(RECOMMENDATION_COPY.retryLoad, "Erneut versuchen");
+  assert.match(page, /RECOMMENDATION_COPY\.loadFailed/);
+  assert.match(page, /RECOMMENDATION_COPY\.retryLoad/);
+  const failedBlock = page.slice(page.indexOf("bindPhase === \"failed\""));
+  assert.match(failedBlock, /loadFailed/);
+  assert.equal(failedBlock.slice(0, 400).includes("analysisFailed"), false);
+});
+
+test("Musteranalyse starten and Erneut starten stay disabled while a run is in flight", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /analysisStartLocked/);
+  assert.match(page, /disabled=\{startLocked\}/);
+  assert.match(page, /RECOMMENDATION_COPY\.startAnalysis/);
+  assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
+  assert.match(page, /startGate\.current/);
+  assert.match(page, /\{showEmptyRun \?[\s\S]*RECOMMENDATION_COPY\.startAnalysis[\s\S]*disabled=\{startLocked\}/);
+  assert.match(page, /async function onStartAnalysis\(\) \{[\s\S]*startGate\.current[\s\S]*analysisStartLocked/);
 });
 
 test("pattern profile lists datasets without ids or method codes", () => {

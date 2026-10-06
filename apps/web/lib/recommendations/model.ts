@@ -29,6 +29,7 @@ export const RECOMMENDATION_COPY = {
   details: "Details",
   empty: "Keine passenden Standorte in der Zielregion.",
   emptyPlural: "Keine passenden Standorte in den Zielregionen.",
+  /** Not used on Trefferliste. The heading is always singular for the marked region. */
   subtitlePlural: "Top 3 in Ihren Zielregionen",
   thin: "Die Zielregion ist dünn besetzt.",
   compute: "Empfehlungen berechnen",
@@ -36,6 +37,8 @@ export const RECOMMENDATION_COPY = {
   analysisRunning: "Analyse läuft …",
   loading: "Wird geladen …",
   analysisFailed: "Analyse fehlgeschlagen.",
+  loadFailed: "Der Stand konnte gerade nicht geladen werden.",
+  retryLoad: "Erneut versuchen",
   analysisDeadline: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
   missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
   startAnalysis: "Musteranalyse starten",
@@ -83,7 +86,10 @@ const AREA_RANK: Record<string, number> = {
 const SERIES_LEVEL_BADGE: Record<SeriesLevel, string> = {
   address: "Adresse",
   grid100: "Raster",
+  // Badge = Ebene. Backend evidence text for Berlin LOR PLR names the
+  // Flächenart "Planungsraum"; the badge stays Quartier. See apps/web/docs/ebenen.md.
   lor: "Quartier",
+  // Köln Stadtquartier (`koeln:sq:` / kind quartier): Ebene Quartier.
   quartier: "Quartier",
   plz: "PLZ",
   bezirk: "Bezirk",
@@ -297,6 +303,9 @@ export function hitBadge(item: Recommendation): string {
   const grain = item.grain ?? item.location.grain;
   const keys = [item.id, locationKey(item), grain].filter((part): part is string => Boolean(part));
   const blob = keys.join(" ");
+  // Ebene Quartier: Berlin LOR Planungsraum (`lor:plr:` / kind lor) and
+  // Köln Stadtquartier (`koeln:sq:` / kind quartier). The hit *name* may be
+  // Planungsraum; that is the Flächenart, not the badge.
   if (/lor:plr:/i.test(blob) || item.kind === "lor") return "Quartier";
   if (/koeln:sq:/i.test(blob) || item.kind === "quartier") return "Quartier";
   if (item.kind) return areaKindBadge(item.kind);
@@ -463,6 +472,12 @@ export function buildTrefferlisteCards(
   return topHits(set.items, marked).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
 }
 
+/**
+ * Trefferliste heading: always `Top 3 in Ihrer Zielregion [markierte Region]`.
+ * Singular, and always the currently marked Zielregion — never the run's
+ * first/latest region and never `X (Stadt) + N weitere`. That collapsed
+ * run label belongs only on the Stand line.
+ */
 export function headingForMarkedRegion(
   region: (TargetRegion & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
 ): string | null {

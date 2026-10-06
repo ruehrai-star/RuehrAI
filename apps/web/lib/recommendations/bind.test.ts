@@ -234,6 +234,25 @@ test("recommendations are loaded only after the run is completed", async () => {
   );
 });
 
+test("a 502 for a known in-flight run stays in flight so polling can continue", async () => {
+  const next = await bindTrefferlisteForRegion(
+    {
+      getAnalysisPattern: async () => {
+        throw new Error("pattern must not run after a transient GET");
+      },
+      getAnalysisRun: async () => {
+        throw new ApiError("Bad Gateway", 502);
+      },
+      getRecommendations: async () => {
+        throw new Error("recs must not load after a transient GET");
+      },
+    },
+    marked,
+    "44",
+  );
+  assert.deepEqual(next, { kind: "in_flight", runId: "44", status: "running" });
+});
+
 test("Trefferliste bind is GET-only; start is an explicit button", () => {
   const empfehlungen = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   const verlauf = readFileSync(new URL("../../components/verlauf-page.tsx", import.meta.url), "utf8");
@@ -250,5 +269,7 @@ test("Trefferliste bind is GET-only; start is an explicit button", () => {
   const verlaufBind = afterBind.slice(0, afterBind.indexOf("async function onCreate"));
   assert.match(verlaufBind, /loadRecommendationsForRun/);
   assert.equal(verlaufBind.includes("createRecommendations"), false);
-  assert.equal(verlauf.includes("createAnalysisRun"), false);
+  assert.match(empfehlungen, /disabled=\{startLocked\}/);
+  assert.match(empfehlungen, /RECOMMENDATION_COPY\.loadFailed/);
+  assert.match(empfehlungen, /RunRegionLabel/);
 });

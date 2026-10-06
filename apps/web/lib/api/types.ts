@@ -136,6 +136,17 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thrown only when `fetch` itself fails (offline, DNS, CORS, connection reset).
+ * Parse and render TypeErrors must not use this class.
+ */
+export class NetworkError extends ApiError {
+  constructor(message: string) {
+    super(message, 0);
+    this.name = "NetworkError";
+  }
+}
+
 const GRAINS = new Set<Grain>([
   "address",
   "grid100",

@@ -80,6 +80,6 @@ export type {
   AddressTopic,
   SharedTopic,
 } from "../addresses/types";
-export { ApiError, CATALOG_LEVELS, isCatalogLevel, isGrain } from "./types";
+export { ApiError, CATALOG_LEVELS, NetworkError, isCatalogLevel, isGrain } from "./types";
 export { coordinatesOf } from "./geo";
 export { toMapFeatureCollection } from "./http";

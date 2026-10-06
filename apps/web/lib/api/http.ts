@@ -34,6 +34,7 @@ import type { AddressPairRequest, AddressPairResult } from "../addresses/types.t
 import type { RuehrApi } from "./client";
 import {
   ApiError,
+  NetworkError,
   isCatalogLevel,
   isGrain,
   type AnalysisPatternQuery,
@@ -96,8 +97,9 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
         headers,
         body: init.body,
       });
-    } catch {
-      throw new ApiError(`Backend nicht erreichbar (${baseUrl}).`, 0);
+    } catch (error) {
+      if (error instanceof NetworkError) throw error;
+      throw new NetworkError(`Backend nicht erreichbar (${baseUrl}).`);
     }
 
     if (init.nullOn404 && response.status === 404) {

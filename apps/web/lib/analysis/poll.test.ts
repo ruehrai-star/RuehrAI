@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AnalysisRun } from "@ruehrai/api-contracts";
-import { ApiError } from "../api/types.ts";
+import { ApiError, NetworkError } from "../api/types.ts";
 import { ANALYSIS_FAILURE_COPY, analysisFailureMessage, clientDeadlineMessage } from "./failure.ts";
 import {
+  POLL_BACKOFF_MAX_MS,
   POLL_DEADLINE_MS,
   POLL_INTERVAL_MS,
+  analysisStartLocked,
   deadlineExceeded,
   deadlineMessage,
   interpretRun,
+  isTransientPollError,
   pollAnalysisRun,
+  pollDelayMs,
 } from "./poll.ts";
 
 const completed = { id: "9", status: "completed" } as AnalysisRun;
@@ -204,4 +208,159 @@ test("poll stops on unmount and does not read after abort", async () => {
   const settled = await pending;
   assert.equal(settled.kind, "aborted");
   assert.equal(calls, 1);
+});
+
+test("502, 504, and network errors keep polling and do not use the timeout sentence", async () => {
+  const seen: string[] = [];
+  const sleeps: number[] = [];
+  let step = 0;
+  const statuses: string[] = [];
+  const settled = await pollAnalysisRun(
+    {
+      getAnalysisRun: async () => {
+        step += 1;
+        if (step === 1) throw new ApiError("Bad Gateway", 502);
+        if (step === 2) throw new ApiError("Gateway Time-out", 504);
+        if (step === 3) throw new NetworkError("Backend nicht erreichbar (http://backend.test).");
+        seen.push("completed");
+        return completed;
+      },
+    },
+    "9",
+    {
+      intervalMs: 2_000,
+      random: () => 0.5,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      now: () => 0,
+      deadlineMs: 60_000,
+      onStatus: (status) => statuses.push(status),
+    },
+  );
+  assert.equal(settled.kind, "completed");
+  assert.deepEqual(seen, ["completed"]);
+  assert.deepEqual(sleeps, [4_000, 8_000, 10_000]);
+  assert.deepEqual(statuses, ["running", "running", "running"]);
+  assert.equal(isTransientPollError(new ApiError("Bad Gateway", 502)), true);
+  assert.equal(isTransientPollError(new ApiError("Gateway Time-out", 504)), true);
+  assert.equal(isTransientPollError(new ApiError("Backend nicht erreichbar.", 0)), true);
+  assert.equal(isTransientPollError(new ApiError("Die Analyse wurde nicht gefunden.", 404)), false);
+  assert.equal(isTransientPollError(new NetworkError("Backend nicht erreichbar.")), true);
+  assert.equal(isTransientPollError(new TypeError("fetch failed")), false);
+});
+
+test("a TypeError from parsing or rendering is a final error and is not retried", async () => {
+  let calls = 0;
+  const parseError = new TypeError("Cannot read properties of undefined (reading 'status')");
+  await assert.rejects(
+    () =>
+      pollAnalysisRun(
+        {
+          getAnalysisRun: async () => {
+            calls += 1;
+            throw parseError;
+          },
+        },
+        "9",
+        { sleep: async () => {}, now: () => 0, deadlineMs: 60_000 },
+      ),
+    (error: unknown) => {
+      assert.equal(error, parseError);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+  assert.equal(isTransientPollError(parseError), false);
+  assert.equal(isTransientPollError(new TypeError("Failed to execute 'json' on 'Response'")), false);
+});
+
+test("a fetch abort that is not the poll signal is transient", async () => {
+  let step = 0;
+  const settled = await pollAnalysisRun(
+    {
+      getAnalysisRun: async () => {
+        step += 1;
+        if (step === 1) {
+          const error = new Error("The operation was aborted.");
+          error.name = "AbortError";
+          throw error;
+        }
+        return completed;
+      },
+    },
+    "9",
+    { sleep: async () => {}, now: () => 0, deadlineMs: 60_000, random: () => 0.5 },
+  );
+  assert.equal(settled.kind, "completed");
+  assert.equal(step, 2);
+});
+
+test("POLL_DEADLINE 180s during 502s is a timeout, not a GET error", async () => {
+  let now = 0;
+  let calls = 0;
+  const settled = await pollAnalysisRun(
+    {
+      getAnalysisRun: async () => {
+        calls += 1;
+        throw new ApiError("Bad Gateway", 502);
+      },
+    },
+    "9",
+    {
+      deadlineMs: POLL_DEADLINE_MS,
+      now: () => now,
+      random: () => 0.5,
+      sleep: async () => {
+        now = POLL_DEADLINE_MS;
+      },
+    },
+  );
+  assert.equal(settled.kind, "deadline");
+  assert.equal(deadlineMessage(), analysisFailureMessage("timeout"));
+  assert.equal(deadlineMessage().includes("502"), false);
+  assert.ok(calls >= 1);
+});
+
+test("timeout copy comes from failureReason=timeout or the deadline, not from 504", async () => {
+  const fromBackend = await pollAnalysisRun(
+    {
+      getAnalysisRun: async () =>
+        ({ ...completed, status: "failed", failureReason: "timeout" }) as AnalysisRun,
+    },
+    "9",
+    { sleep: async () => {}, now: () => 0 },
+  );
+  assert.equal(fromBackend.kind, "failed");
+  if (fromBackend.kind === "failed") {
+    assert.equal(fromBackend.message, analysisFailureMessage("timeout"));
+  }
+
+  const patternFailed = await pollAnalysisRun(
+    {
+      getAnalysisRun: async () =>
+        ({ ...completed, status: "failed", failureReason: "pattern_failed" }) as AnalysisRun,
+    },
+    "9",
+    { sleep: async () => {}, now: () => 0 },
+  );
+  assert.equal(patternFailed.kind, "failed");
+  if (patternFailed.kind === "failed") {
+    assert.equal(patternFailed.message.includes("zu lange gedauert"), false);
+  }
+
+  assert.equal(POLL_BACKOFF_MAX_MS, 10_000);
+  assert.equal(pollDelayMs(0), 2_000);
+  assert.equal(pollDelayMs(1, { random: () => 0.5 }), 4_000);
+  assert.equal(pollDelayMs(2, { random: () => 0.5 }), 8_000);
+  assert.equal(pollDelayMs(3, { random: () => 0.5 }), 10_000);
+});
+
+test("start stays locked while queued, running, starting, or another run is in flight", () => {
+  assert.equal(analysisStartLocked({ runStatus: "queued" }), true);
+  assert.equal(analysisStartLocked({ runStatus: "running" }), true);
+  assert.equal(analysisStartLocked({ starting: true, runStatus: "idle" }), true);
+  assert.equal(analysisStartLocked({ otherInFlight: true, runStatus: "idle" }), true);
+  assert.equal(analysisStartLocked({ runStatus: "idle" }), false);
+  assert.equal(analysisStartLocked({ runStatus: "failed" }), false);
 });

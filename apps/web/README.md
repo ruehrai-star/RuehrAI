@@ -8,6 +8,8 @@ Search, layers, and Standort-Eingaben send `Authorization: Bearer`. Anmelden and
 
 Labels follow the UX gate: **Anmelden**, **Registrieren**, **Abmelden**, **Suche**, **Treffer**, **Layer**, **Musteranalyse**, **Zielregion**, **Noch keine Filialadressen**.
 
+Ebene vs Flächenart (Quartier / Planungsraum) and async run polling: [`docs/ebenen.md`](docs/ebenen.md).
+
 ## Run against the Backend
 
 Start the Backend first (see [`apps/backend/README.md`](../backend/README.md)): Postgres, `pnpm db:migrate`, `pnpm start:dev`. Seed login: `dev@ruehrai.local` / `dev-password`.
@@ -32,8 +34,8 @@ Open http://localhost:3001.
 | Filialadressen | `/standorte#filialadressen` | `GET/POST /stores`, `PUT/DELETE /stores/{id}`. |
 | Umsatz | `/standorte#umsatz` | Last three years, Jahr and Monat, at most 36 points. `GET/PUT /stores/{id}/revenue`. Empty months are sent as `revenueEur: null` and marked **fehlend**. `0` is a stored value. |
 | Verlauf | `/verlauf` | After Standorte the app opens Verlauf, not the map. Hero is `AnalysisPattern.yearlySeries` (OpenAPI 0.8.0): three-year Kleinraum change and the derived next step. `coverage` `single` or `none` is not a trend. Absent points show **liegt nicht vor**. `sourceLevel` ≠ `requestedLevel` is labeled as Gemeinde-/Kreiswerte. Store revenue stays optional and is not part of `yearlySeries`. The smaller map is a proof overlay (Polygon/MultiPolygon only, no `demo-gemeinden`). |
-| Musteranalyse | `/musteranalyse` | `GET /analysis/input`, `POST /analysis/runs`, `GET /analysis/runs/{id}`, `GET /analysis/pattern`. The page shows the input summary, Brain-Suche status (`vector` or SQL filter), and the derived pattern (Kurzfassung). After a pattern exists, **Verlauf** and **Empfehlungen** stay available. It does not call oMLX. |
-| Empfehlungen | `/empfehlungen` | `GET /recommendations`, `POST /recommendations`. Shows **Top 3 in Ihrer Zielregion**, the pattern's Kurzkriterien, and cards with Rang, Adresse, Begründung, and Details. Fewer than three matches show the thin-region hint plus the Backend `reason`. |
+| Musteranalyse | `/musteranalyse` | `GET /analysis/input`, `POST /analysis/runs` (202 `queued`), `GET /analysis/runs/{id}` (`queued` / `running` / `completed` / `failed`), `GET /analysis/pattern`. The page shows the input summary, Brain-Suche status (`vector` or SQL filter), and the derived pattern (Kurzfassung). After a pattern exists, **Verlauf** and **Empfehlungen** stay available. It does not call oMLX. **Analyse starten** stays disabled while a run is queued or running, with the same start lock as Empfehlungen. Polling is documented in [`docs/ebenen.md`](docs/ebenen.md). |
+| Empfehlungen | `/empfehlungen` | `GET /recommendations?runId=` after a completed run. The heading is always **Top 3 in Ihrer Zielregion [markierte Region]** (singular, currently marked Zielregion). The collapsed `X (Stadt) + N weitere` run label belongs only on the Stand line. Cards show Rang, Adresse, Begründung, and Details. Fewer than three matches show the thin-region hint plus the Backend `reason`. **Musteranalyse starten** / **Erneut starten** stay disabled while a run is `queued` or `running`. A bind/load error uses a neutral sentence plus **Erneut versuchen**, not **Analyse fehlgeschlagen**. |
 
 These calls use [`@ruehrai/api-contracts`](../../packages/api-contracts/README.md) from this repo. There is no client fixture and no separate copy of the OpenAPI document. A missing Backend shows an error, not Demo-Daten.
 

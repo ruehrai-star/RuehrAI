@@ -71,6 +71,23 @@ test("summary counts stores and months that have a revenue, including zero", () 
     formatAnalysisSummary(input),
     "Zielregion: München · Filialen: 2 · Monate Umsatz: 3",
   );
+  const six = {
+    ...input,
+    region: { ...input.region, label: "Innenstadt", parentLabel: "Köln", geoKey: "stadtbezirk:koeln:innenstadt" },
+    regions: [
+      { ...input.region, label: "Innenstadt", parentLabel: "Köln", geoKey: "a" },
+      { ...input.region, label: "Rodenkirchen", parentLabel: "Köln", geoKey: "b" },
+      { ...input.region, label: "Lindenthal", parentLabel: "Köln", geoKey: "c" },
+      { ...input.region, label: "Ehrenfeld", parentLabel: "Köln", geoKey: "d" },
+      { ...input.region, label: "Nippes", parentLabel: "Köln", geoKey: "e" },
+      { ...input.region, label: "Chorweiler", parentLabel: "Köln", geoKey: "f" },
+    ],
+  };
+  assert.equal(
+    formatAnalysisSummary(six),
+    "Zielregion: Innenstadt (Köln) + 5 weitere · Filialen: 2 · Monate Umsatz: 3",
+  );
+  assert.equal(formatAnalysisSummary(six).includes("geoKey"), false);
   assert.equal(revenueDirectionLabel("up"), "steigend");
   assert.equal(revenueDirectionLabel("down"), "fallend");
   assert.equal(revenueDirectionLabel("flat"), "unverändert");
@@ -107,4 +124,12 @@ test("Musteranalyse shows embedding notes as info, not as an error", () => {
   const page = readFileSync(new URL("../../components/musteranalyse-page.tsx", import.meta.url), "utf8");
   assert.match(page, /brain\.tone === "info" \? "hint"/);
   assert.doesNotMatch(page, /brain\.detail[\s\S]{0,80}message-error/);
+});
+
+test("Musteranalyse start uses the same lock as Empfehlungen while a run is in flight", () => {
+  const page = readFileSync(new URL("../../components/musteranalyse-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /analysisStartLocked/);
+  assert.match(page, /disabled=\{startLocked\}/);
+  assert.match(page, /startGate\.current/);
+  assert.match(page, /async function onStart\(\) \{[\s\S]*if \(startGate\.current \|\| startLocked\) return;[\s\S]*createAnalysisRun/);
 });

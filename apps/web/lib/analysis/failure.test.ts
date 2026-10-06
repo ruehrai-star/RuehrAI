@@ -75,13 +75,15 @@ test("unknown, empty, and unsafe values use the unexpected sentence", () => {
   assert.equal(analysisFailureMessage('{"stack":"Error: x"}'), unexpected);
 });
 
-test("HTTP 404 is a generic failure; gateway timeouts map to timeout", () => {
+test("HTTP 404 is a generic failure; gateway status codes are not timeout copy", () => {
   assert.equal(analysisFailureFromHttp(404), line(ANALYSIS_FAILURE_COPY.unexpected));
   assert.equal(analysisFailureFromHttp(404, "Die Analyse wurde nicht gefunden."), line(ANALYSIS_FAILURE_COPY.unexpected));
-  assert.equal(analysisFailureFromHttp(504), line(ANALYSIS_FAILURE_COPY.timeout));
-  assert.equal(analysisFailureFromHttp(408, "Gateway Time-out"), line(ANALYSIS_FAILURE_COPY.timeout));
+  assert.equal(analysisFailureFromHttp(504), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(502, "Bad Gateway"), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(408, "Gateway Time-out"), line(ANALYSIS_FAILURE_COPY.unexpected));
   assert.equal(analysisFailureFromHttp(500, "internal_error"), line(ANALYSIS_FAILURE_COPY.unexpected));
   assert.equal(analysisFailureFromHttp(500, "set_save_failed"), line(ANALYSIS_FAILURE_COPY.setSave));
+  assert.equal(analysisFailureFromHttp(504).includes("zu lange gedauert"), false);
 });
 
 test("the client safety deadline uses the timeout sentence", () => {

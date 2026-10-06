@@ -8,13 +8,15 @@ import {
   ANALYSIS_COPY,
   brainStatusText,
   criterionDirectionLabel,
-  formatAnalysisSummary,
   patternSourceLabel,
   revenueDirectionLabel,
+  revenueMonthCount,
 } from "@/lib/analysis/model";
+import { regionsFromRunInput } from "@/lib/analysis/run-label";
 import { analysisFailureFromHttp, analysisFailureMessage } from "@/lib/analysis/failure";
-import { isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
+import { analysisStartLocked, isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
+import { RunRegionLabel } from "./run-region-label";
 import { useSession } from "./session-provider";
 
 type Phase = "loading" | "idle" | "running" | "failed" | "deadline";
@@ -32,12 +34,17 @@ export function MusteranalysePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const request = useRef(0);
   const pollAbort = useRef<AbortController | null>(null);
+  const startGate = useRef(false);
 
   const visible = Boolean(session && loadedEmail === session.email && phase !== "loading");
   const visibleInput = visible ? input : null;
   const visibleRun = visible && phase !== "running" ? run : null;
   const visiblePattern = visible && phase !== "running" ? pattern : null;
   const status = statusText(phase, visible, Boolean(visiblePattern));
+  const startLocked = analysisStartLocked({
+    starting: phase === "loading",
+    runStatus: phase === "running" ? "running" : "idle",
+  });
 
   useEffect(() => {
     if (!session) return;
@@ -96,6 +103,8 @@ export function MusteranalysePage() {
   }, [session, api]);
 
   async function onStart() {
+    if (startGate.current || startLocked) return;
+    startGate.current = true;
     const token = request.current + 1;
     request.current = token;
     pollAbort.current?.abort();
@@ -139,6 +148,8 @@ export function MusteranalysePage() {
         analysisFailureFromHttp(status, caught instanceof Error ? caught.message : ANALYSIS_COPY.failed),
       );
       setPhase("failed");
+    } finally {
+      startGate.current = false;
     }
   }
 
@@ -174,7 +185,10 @@ export function MusteranalysePage() {
         <p className="summary-caption">{ANALYSIS_COPY.summary}</p>
         {visibleInput ? (
           <>
-            <p className="summary-line">{formatAnalysisSummary(visibleInput)}</p>
+            <p className="summary-line">
+              Zielregion: <RunRegionLabel regions={regionsFromRunInput(visibleInput)} />
+              {` · Filialen: ${visibleInput.stores.length} · Monate Umsatz: ${revenueMonthCount(visibleInput)}`}
+            </p>
             <p className="hint">Umsatzrichtung: {revenueDirectionLabel(visibleInput.revenueDirection)}</p>
           </>
         ) : null}
@@ -204,7 +218,7 @@ export function MusteranalysePage() {
       ) : null}
 
       <div className="auth-actions">
-        <button type="button" className="button" onClick={onStart} disabled={phase === "loading" || phase === "running"}>
+        <button type="button" className="button" onClick={onStart} disabled={startLocked}>
           {phase === "failed" || phase === "deadline" ? ANALYSIS_COPY.restart : ANALYSIS_COPY.start}
         </button>
         <Link href="/standorte" className="button button-quiet">

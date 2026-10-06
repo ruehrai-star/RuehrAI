@@ -5,6 +5,7 @@ import type {
   CriterionDirection,
   RevenueDirection,
 } from "@ruehrai/api-contracts";
+import { formatRunRegionLabel, regionsFromRunInput } from "./run-label.ts";
 
 /** UX-Gate KAN-33. These strings are the product labels, not paraphrases. */
 export const ANALYSIS_COPY = {
@@ -33,7 +34,8 @@ export function revenueMonthCount(input: AnalysisInput): number {
 
 /** Filled summary. The caption stays the exact UX-Gate line. */
 export function formatAnalysisSummary(input: AnalysisInput): string {
-  return `Zielregion: ${input.region.label} · Filialen: ${input.stores.length} · Monate Umsatz: ${revenueMonthCount(input)}`;
+  const regions = formatRunRegionLabel(regionsFromRunInput(input)).summary || input.region.label;
+  return `Zielregion: ${regions} · Filialen: ${input.stores.length} · Monate Umsatz: ${revenueMonthCount(input)}`;
 }
 
 export function revenueDirectionLabel(direction: RevenueDirection): string {
