@@ -88,6 +88,16 @@ export type RecommendationV192Fields = {
   dataAsOf?: string | null;
 };
 
+/**
+ * OpenAPI 0.19.6 additive nAktiv on `items[]`. Always set on new sets
+ * (including `0`); omitted on older stored rows. Bind the inactive /
+ * „liegt nicht vor“ card to `localDatasetCount === 0`; fall back to the
+ * evidence heuristic only when the field is missing.
+ */
+export type RecommendationV196Fields = {
+  localDatasetCount?: number;
+};
+
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
 };

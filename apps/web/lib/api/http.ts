@@ -922,6 +922,12 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
   if (body.dataAsOf !== undefined && body.dataAsOf != null && typeof body.dataAsOf !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+  if (
+    body.localDatasetCount !== undefined &&
+    (!Number.isInteger(body.localDatasetCount) || body.localDatasetCount < 0)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   if (body.intersectionOf !== undefined) {
     if (!Array.isArray(body.intersectionOf)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);

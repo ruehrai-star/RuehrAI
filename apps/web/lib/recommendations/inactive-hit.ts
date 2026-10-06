@@ -1,8 +1,8 @@
 import type { Recommendation, RecommendationEvidence } from "@ruehrai/api-contracts";
 
 /**
- * Shown once on a hit that has no own local trend (nAktiv 0).
- * OpenAPI 0.19.5 has no item-level nAktiv field — see isInactiveHit.
+ * Shown once on a hit that has no own local data (nAktiv 0).
+ * OpenAPI 0.19.6: bind to `items[].localDatasetCount === 0`.
  */
 export const INACTIVE_HIT_COPY =
   "Für diese Fläche liegen keine eigenen Verlaufsdaten vor. Die Einordnung beruht auf übergeordneten Werten.";
@@ -10,6 +10,7 @@ export const INACTIVE_HIT_COPY =
 /**
  * True when this evidence is a local trend series (eigener Verlauf).
  * Inherited, Stichtag (`single` / `stichtag`), and absent rows are not.
+ * Fallback only — new sets use `localDatasetCount`, not this heuristic.
  */
 export function isOwnTrendEvidence(entry: RecommendationEvidence): boolean {
   if (entry.scope === "inherited") return false;
@@ -19,9 +20,25 @@ export function isOwnTrendEvidence(entry: RecommendationEvidence): boolean {
 }
 
 /**
- * No 0.19.5 item field names nAktiv. Inactive = no `criteriaEvidence` with
- * own Verlauf (local trend / series). Matches PO: only inherited or Stichtag.
+ * Official OpenAPI 0.19.6 nAktiv on this item. Integer ≥ 0 on new sets;
+ * omitted on older stored rows. `0` is a real count, not missing.
  */
-export function isInactiveHit(item: Pick<Recommendation, "criteriaEvidence">): boolean {
+export function hasLocalDatasetCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Inactive card when nAktiv is 0.
+ *
+ * - `localDatasetCount === 0` → inactive
+ * - `localDatasetCount > 0` → active (do not apply the evidence heuristic)
+ * - field missing (older sets) → no `criteriaEvidence` with own Verlauf
+ */
+export function isInactiveHit(
+  item: Pick<Recommendation, "criteriaEvidence" | "localDatasetCount">,
+): boolean {
+  if (hasLocalDatasetCount(item.localDatasetCount)) {
+    return item.localDatasetCount === 0;
+  }
   return !(item.criteriaEvidence ?? []).some(isOwnTrendEvidence);
 }
