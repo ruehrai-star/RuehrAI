@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Recommendation, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import {
@@ -518,6 +519,7 @@ test("Trefferliste map title and aria-label use hitName, never a catalog key", (
   const named = recommendation("lor:plr:1", "lor:plr:1", null, null);
   named.kind = "lor";
   named.geometry = MUNICH_BOX;
+  named.name = "Planungsraum";
   named.location = { ...named.location, name: "Planungsraum", grain: "other" };
   const keyed = recommendation("lor:plr:2", "lor:plr:2", null, null);
   keyed.kind = "lor";
@@ -526,15 +528,60 @@ test("Trefferliste map title and aria-label use hitName, never a catalog key", (
   const namedModel = buildTrefferlisteKarte({ region: null, items: [named] });
   const keyedModel = buildTrefferlisteKarte({ region: null, items: [keyed] });
   assert.equal(namedModel.hitMarkers[0]?.title, "Planungsraum");
-  assert.equal(namedModel.hitMarkers[0]?.ariaLabel, "Planungsraum, Rang 1");
+  assert.equal(namedModel.hitMarkers[0]?.badge, "Planungsraum");
+  assert.match(namedModel.hitMarkers[0]?.ariaLabel ?? "", /Rang 1/);
+  assert.match(namedModel.hitMarkers[0]?.ariaLabel ?? "", /Planungsraum/);
   assert.equal(namedModel.hits.features[0]?.properties?.name, "Planungsraum");
   assert.equal(namedModel.hitMarkers[0]?.title.includes("lor:"), false);
   assert.equal(namedModel.hitMarkers[0]?.ariaLabel.includes("lor:"), false);
-  assert.equal(keyedModel.hitMarkers[0]?.title, "Treffer");
-  assert.equal(keyedModel.hitMarkers[0]?.ariaLabel, "Rang 1");
+  assert.equal(keyedModel.hitMarkers[0]?.title, "Planungsraum ohne Namen");
+  assert.match(keyedModel.hitMarkers[0]?.ariaLabel ?? "", /Planungsraum ohne Namen/);
   assert.equal(keyedModel.hitMarkers[0]?.title.includes("lor:"), false);
   assert.equal(keyedModel.hitMarkers[0]?.ariaLabel.includes("lor:plr"), false);
-  assert.equal(keyedModel.hits.features[0]?.properties?.name, "Treffer");
+  assert.equal(keyedModel.hits.features[0]?.properties?.name, "Planungsraum ohne Namen");
+});
+
+test("map hover hint carries rank, name, badge and Lage-Satz; outlines have no extra percents or Bezirk layers", () => {
+  const hit = recommendation("plz5:81541", "81541", null, null);
+  hit.kind = "plz";
+  hit.name = "PLZ 81541";
+  hit.geometry = MUNICH_BOX;
+  hit.overlaps = [
+    { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 0.62 },
+    { geoKey: "stadtbezirk:og", label: "Obergiesing-Fasangarten", kind: "stadtbezirk", share: 0.38 },
+  ];
+  const model = buildTrefferlisteKarte({ region: region({ geometry: MUNICH_BOX, geoKey: "09162000" }), items: [hit] });
+  assert.equal(model.hitMarkers[0]?.lage, "Liegt zu 62 % in Au-Haidhausen und zu 38 % in Obergiesing-Fasangarten.");
+  assert.match(model.hitMarkers[0]?.hint ?? "", /Rang 1/);
+  assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ 81541/);
+  assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ/);
+  assert.match(model.hitMarkers[0]?.hint ?? "", /Liegt zu 62 %/);
+  const numbered = recommendation("plz5:12247", "PLZ 12247", null, null);
+  numbered.kind = "plz";
+  numbered.name = "PLZ 12247";
+  numbered.geometry = MUNICH_BOX;
+  numbered.overlaps = [
+    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor", share: 0.55 },
+    { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.45 },
+  ];
+  const numberedModel = buildTrefferlisteKarte({
+    region: region({ geometry: MUNICH_BOX, geoKey: "09162000" }),
+    items: [numbered],
+  });
+  assert.equal(
+    numberedModel.hitMarkers[0]?.lage,
+    "Liegt zu 55 % in Planungsraum ohne Namen und zu 45 % in Quartier ohne Namen.",
+  );
+  assert.equal(numberedModel.hitMarkers[0]?.lage.includes("07400720"), false);
+  assert.equal(numberedModel.hitMarkers[0]?.lage.includes("101"), false);
+  assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("62"), false);
+  assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("share"), false);
+  assert.equal(model.region.features.length, 1);
+  assert.equal(model.hits.features.length, 1);
+  const mapView = readFileSync(new URL("../../components/map-view.tsx", import.meta.url), "utf8");
+  assert.match(mapView, /hitHintPopup/);
+  assert.match(mapView, /marker\.lage/);
+  assert.equal(mapView.includes("addSource(\"bezirk\")"), false);
 });
 
 function recommendation(id: string, title: string, lon: number | null, lat: number | null): Recommendation {

@@ -1,6 +1,5 @@
 import type {
   AnalysisPattern,
-  AreaKind,
   BaselineMethod,
   PatternDatasetProfile,
   RecommendationEvidence,
@@ -13,10 +12,22 @@ import type {
 } from "@ruehrai/api-contracts";
 import type { Recommendation, RecommendationSet } from "../api/types.ts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogParentName, grainLabel, isCatalogKey } from "../format.ts";
+import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
 import { readRegionGeometry } from "../map/karte.ts";
 import { samePlace, type PlaceRef } from "../locations/regions.ts";
 import { standRegionLabel } from "../verlauf/bind.ts";
+import { hitBadge, hitName, overlapDetailLines, overlapLageSentence } from "./hit-copy.ts";
+
+export {
+  SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT,
+  areaKindBadge,
+  hitBadge,
+  hitMapHint,
+  hitName,
+  mapDisplayName,
+  overlapDetailLines,
+  overlapLageSentence,
+} from "./hit-copy.ts";
 
 /** UX-Gate labels for the Empfehlungen / Trefferliste page (Variante A). */
 export const RECOMMENDATION_COPY = {
@@ -85,11 +96,8 @@ const AREA_RANK: Record<string, number> = {
 
 const SERIES_LEVEL_BADGE: Record<SeriesLevel, string> = {
   address: "Adresse",
-  grid100: "Raster",
-  // Badge = Ebene. Backend evidence text for Berlin LOR PLR names the
-  // Flächenart "Planungsraum"; the badge stays Quartier. See apps/web/docs/ebenen.md.
-  lor: "Quartier",
-  // Köln Stadtquartier (`koeln:sq:` / kind quartier): Ebene Quartier.
+  grid100: "100-m-Raster",
+  lor: "Planungsraum",
   quartier: "Quartier",
   plz: "PLZ",
   bezirk: "Bezirk",
@@ -143,6 +151,10 @@ export interface TrefferCardView {
   badge: string;
   parentLabel: string | null;
   intersection: string | null;
+  /** Lage-Satz from clipped `overlaps`. Last header line; not Begründung. */
+  lage: string | null;
+  /** Full overlap list for Details: `[Name]: [x] %`. */
+  overlapDetails: string[];
   trendSummary: string | null;
   rationale: string;
   criteria: TrefferCriterionRow[];
@@ -222,10 +234,6 @@ export function formatAddress(item: Recommendation): string {
   return title || name;
 }
 
-export function hitName(item: Recommendation): string {
-  return visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
-}
-
 export function formatLocationMeta(item: Recommendation): string {
   const badge = hitBadge(item) || catalogBadge({ ...item.location, grain: item.grain ?? item.location.grain });
   const parent = catalogParentName(item) ?? catalogParentName(item.location);
@@ -297,48 +305,6 @@ export function isSeriesCoverage(coverage: SeriesCoverage | null | undefined): b
 function locationKey(item: Recommendation): string | null {
   const location = item.location;
   return typeof location.geoKey === "string" && location.geoKey.length > 0 ? location.geoKey : null;
-}
-
-export function hitBadge(item: Recommendation): string {
-  const grain = item.grain ?? item.location.grain;
-  const keys = [item.id, locationKey(item), grain].filter((part): part is string => Boolean(part));
-  const blob = keys.join(" ");
-  // Ebene Quartier: Berlin LOR Planungsraum (`lor:plr:` / kind lor) and
-  // Köln Stadtquartier (`koeln:sq:` / kind quartier). The hit *name* may be
-  // Planungsraum; that is the Flächenart, not the badge.
-  if (/lor:plr:/i.test(blob) || item.kind === "lor") return "Quartier";
-  if (/koeln:sq:/i.test(blob) || item.kind === "quartier") return "Quartier";
-  if (item.kind) return areaKindBadge(item.kind);
-  if (/lor:/i.test(blob)) return "Quartier";
-  if (/koeln:sq:/i.test(blob)) return "Quartier";
-  if (grain === "grid100") return "Raster";
-  if (grain === "address") return "Adresse";
-  if (grain === "plz5" || grain === "plz8") return "PLZ";
-  return catalogBadge({ ...item.location, grain }) || (grain ? grainLabel(grain, locationKey(item)) : "");
-}
-
-export function areaKindBadge(kind: AreaKind): string {
-  switch (kind) {
-    case "address":
-      return "Adresse";
-    case "grid100":
-      return "Raster";
-    case "lor":
-    case "quartier":
-      return "Quartier";
-    case "ortsteil":
-    case "stadtteil":
-      return "Ortsteil";
-    case "plz":
-      return "PLZ";
-    case "bezirk":
-    case "stadtbezirk":
-      return "Bezirk";
-    case "gemeinde":
-      return "Gemeinde";
-    default:
-      return "";
-  }
 }
 
 export function areaRankOf(source: {
@@ -427,6 +393,8 @@ export function buildTrefferCard(
     badge: hitBadge(item),
     parentLabel: catalogParentName(item) ?? catalogParentName(item.location),
     intersection: intersectionLine(item),
+    lage: overlapLageSentence(item.overlaps),
+    overlapDetails: overlapDetailLines(item.overlaps),
     trendSummary: trendSummary(item),
     rationale: item.rationale,
     criteria: local,

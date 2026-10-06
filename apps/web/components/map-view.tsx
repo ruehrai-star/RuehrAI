@@ -151,6 +151,34 @@ function germanPopup(primary: string, secondary: string): Popup {
   return popup;
 }
 
+function hitHintLines(marker: Pick<HitOutline, "rank" | "title" | "badge" | "lage">): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "pin-popup";
+  const rank = document.createElement("span");
+  rank.className = "hint";
+  rank.textContent = `Rang ${marker.rank}`;
+  const name = document.createElement("strong");
+  name.textContent = marker.title;
+  const badge = document.createElement("span");
+  badge.textContent = marker.badge;
+  root.append(rank, name, badge);
+  if (marker.lage) {
+    const lage = document.createElement("span");
+    lage.className = "hint";
+    lage.textContent = marker.lage;
+    root.append(lage);
+  }
+  return root;
+}
+
+function hitHintPopup(marker: Pick<HitOutline, "rank" | "title" | "badge" | "lage">): Popup {
+  const popup = new Popup({ offset: 18, closeButton: true, maxWidth: "280px" }).setDOMContent(hitHintLines(marker));
+  popup.on("open", () => {
+    popup.getElement()?.querySelector(".maplibregl-popup-close-button")?.setAttribute("aria-label", "Schließen");
+  });
+  return popup;
+}
+
 function storeButton(pin: StorePin): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -240,6 +268,7 @@ function hitButton(marker: HitOutline, selected: boolean, onSelect?: (id: string
 function addHitMarker(map: Map, marker: HitOutline, selected: boolean, onSelect?: (id: string) => void): Marker {
   return new Marker({ element: hitButton(marker, selected, onSelect), anchor: "center" })
     .setLngLat([marker.lon, marker.lat])
+    .setPopup(hitHintPopup(marker))
     .addTo(map);
 }
 
@@ -476,15 +505,34 @@ export function MapView({
           map.getCanvas().style.cursor = "";
         });
       }
-      const selectHit = (event: { features?: MapGeoJSONFeature[] }) => {
+      let outlineHint: Popup | null = null;
+      const showOutlineHint = (
+        event: { lngLat: { lng: number; lat: number }; features?: MapGeoJSONFeature[] },
+        persistent: boolean,
+      ) => {
+        const feature = event.features?.[0];
+        const id = feature?.properties?.id ?? feature?.id;
+        const marker = hitMarkersRef.current.find((item) => item.id === id);
+        if (!marker) return;
+        outlineHint?.remove();
+        outlineHint = hitHintPopup(marker).setLngLat(event.lngLat).addTo(map);
+        if (!persistent) {
+          outlineHint.once("close", () => {
+            if (outlineHint) outlineHint = null;
+          });
+        }
+      };
+      const selectHit = (event: { lngLat: { lng: number; lat: number }; features?: MapGeoJSONFeature[] }) => {
         const feature = event.features?.[0];
         const id = feature?.properties?.id ?? feature?.id;
         if (typeof id === "string" && id.length > 0) onSelectHitRef.current?.(id);
+        showOutlineHint(event, true);
       };
       for (const layerId of ["treffer-fill", "treffer-line"]) {
         map.on("click", layerId, selectHit);
-        map.on("mouseenter", layerId, () => {
+        map.on("mouseenter", layerId, (event) => {
           map.getCanvas().style.cursor = "pointer";
+          showOutlineHint(event, false);
         });
         map.on("mouseleave", layerId, () => {
           map.getCanvas().style.cursor = "";
