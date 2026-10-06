@@ -73,6 +73,9 @@ test("Berlin AGS 11000001–12 must not override a present level", () => {
 test("municipality hits without level keep Gemeinde", () => {
   assert.equal(catalogBadge({ grain: "ags", geoKey: "09162000" }), "Gemeinde");
   assert.equal(catalogBadge({ grain: "ags", geoKey: "11000000" }), "Gemeinde");
+  assert.equal(catalogBadge({ grain: "other", geoKey: "lor:110010101" }), "LOR");
+  assert.equal(catalogBadge({ grain: "other", geoKey: "lor:plr:01100101" }), "LOR");
+  assert.equal(catalogBadge({ grain: "other", geoKey: "koeln:sq:123" }), "Quartier");
   assert.equal(catalogBadge({ grain: "ags", ags: "14713000" }), "Gemeinde");
 });
 
@@ -99,6 +102,10 @@ test("catalog keys are detected for every Zielregion level", () => {
   assert.equal(isCatalogKey("stadtteil:osm:9"), true);
   assert.equal(isCatalogKey("stadtbezirk:14713000"), true);
   assert.equal(isCatalogKey("bezirk:11000001"), true);
+  assert.equal(isCatalogKey("lor:110010101"), true);
+  assert.equal(isCatalogKey("lor:plr:01100101"), true);
+  assert.equal(isCatalogKey("koeln:sq:123"), true);
+  assert.equal(isCatalogKey("hamburg_stadtteil:117/118"), true);
   assert.equal(isCatalogKey("ags:09162000"), true);
   assert.equal(isCatalogKey("plz8:80331001"), true);
   assert.equal(isCatalogKey("12247"), false);

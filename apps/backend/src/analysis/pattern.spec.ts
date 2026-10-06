@@ -4,14 +4,14 @@ import { AnalysisInput, BrainFact } from "./types";
 function fact(overrides: Partial<BrainFact> = {}): BrainFact {
   return {
     id: "1",
-    geoKey: "09162000",
-    grain: "ags",
+    geoKey: "80331",
+    grain: "plz5",
     title: "Gemeinde München (09162000) — Zensus 2022",
     name: "München",
     refPeriod: "2022-05",
     excerpt: "Bevölkerung und Haushalte der Gemeinde München.",
     distance: null,
-    matchedBy: "region",
+    matchedBy: "store",
     signals: [{ key: "einwohner", value: "1500000" }],
     ...overrides,
   };
@@ -252,67 +252,112 @@ describe("pattern", () => {
     expect(isGroundedKey("Zensus", [fact()])).toBe(true);
   });
 
-  it("uses only the Zielregion Einwohner, never the Köln/Dortmund/Düsseldorf mean 742286.33", () => {
-    const pattern = buildHeuristicPattern(koelnInput(), [
-      cityFact("koeln-zensus", "05315000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "1017355" },
-      ]),
-      cityFact("dortmund", "05913000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "598246" },
-      ]),
-      cityFact("duesseldorf", "05111000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "611258" },
-      ]),
+  it("ignores Zielregion-only facts and keeps store-PLZ facts", () => {
+    const pattern = buildHeuristicPattern(input(), [
+      fact({ id: "region", geoKey: "09162000", grain: "ags", matchedBy: "region", signals: [{ key: "ewz", value: "1500000" }] }),
+      fact({ id: "store", geoKey: "80331", grain: "plz5", matchedBy: "store", signals: [{ key: "unfaelle_gesamt", value: "12" }] }),
     ]);
-    const blob = criterionBlob(pattern);
-    expect(blob).not.toContain("742.286");
-    expect(blob).not.toContain("742286");
-    expect(blob).not.toContain("598.246");
-    expect(blob).not.toContain("611.258");
-    const ewz = pattern.criteria.find((criterion) => criterion.key === "ewz");
-    expect(ewz?.evidence).toContain("1.017.355");
+    expect(pattern.criteria.find((criterion) => criterion.key === "ewz")).toBeUndefined();
+    expect(pattern.criteria[0]?.key).toBe("unfaelle_gesamt");
+    expect(pattern.summary).toContain("Bestandstandorte");
   });
 
-  it("prefers Destatis bev_insgesamt at ags5 05315 over Zensus ewz for Köln", () => {
-    const pattern = buildHeuristicPattern(koelnInput(), [
-      cityFact(
-        "koeln-destatis",
-        "05315",
-        "ags5",
-        [
-          { key: "source_theme", value: "destatis" },
-          { key: "bev_insgesamt", value: "1025523" },
+  it("builds criteria from store-surrounding yearly series, not the Zielregion", () => {
+    const pattern = buildHeuristicPattern(
+      input(),
+      [fact({ geoKey: "09162000", grain: "ags", matchedBy: "region" })],
+      [
+        {
+          metricId: "unfallatlas",
+          requestedLevel: "plz",
+          requestedGeoKey: "80331",
+          sourceLevel: "plz",
+          sourceGeoKey: "80331",
+          granularity: "year",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2024", status: "present", value: 15 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        },
+        {
+          metricId: "bevoelkerung",
+          requestedLevel: "plz",
+          requestedGeoKey: "80331",
+          sourceLevel: "plz",
+          sourceGeoKey: "80331",
+          granularity: "year",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 10_000 },
+            { period: "2024", status: "present", value: 10_000 },
+            { period: "2025", status: "present", value: 10_000 },
+          ],
+        },
+      ],
+    );
+    expect(pattern.criteria[0]).toMatchObject({
+      key: "unfallatlas",
+      kind: "trend",
+      direction: "down",
+      baseline: "per_1000_inhabitants",
+    });
+    expect(pattern.criteria[0]?.evidence).toContain("Dreijahresverlauf");
+    expect(pattern.criteria.find((criterion) => criterion.key === "bevoelkerung")).toBeUndefined();
+    expect(pattern.summary).toContain("Bestandstandorte");
+  });
+
+  it("uses Destatis Einwohner as Bezugsgröße, not as a relative dataset", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [], [
+      {
+        metricId: "destatis",
+        requestedLevel: "kreis",
+        requestedGeoKey: "05315",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 1_000_000 },
+          { period: "2025", status: "present", value: 1_025_523 },
         ],
-        "2025-12",
-      ),
-      cityFact("koeln-zensus", "05315000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "1017355" },
-      ]),
-      cityFact("dortmund", "05913000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "598246" },
-      ]),
-      cityFact("duesseldorf", "05111000", "ags", [
-        { key: "source_theme", value: "zensus2022" },
-        { key: "ewz", value: "611258" },
-      ]),
+      },
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "kreis",
+        requestedGeoKey: "05315",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 2000 },
+          { period: "2025", status: "present", value: 3000 },
+        ],
+      },
+      {
+        metricId: "zensus2022",
+        requestedLevel: "gemeinde",
+        requestedGeoKey: "05315000",
+        sourceLevel: "gemeinde",
+        sourceGeoKey: "05315000",
+        granularity: "year",
+        coverage: "single",
+        points: [{ period: "2022", status: "present", value: 1017355 }],
+      },
     ]);
-    const blob = criterionBlob(pattern);
-    expect(blob).not.toContain("742.286");
-    expect(blob).not.toContain("742286");
-    expect(pattern.criteria.find((criterion) => criterion.key === "ewz")).toBeUndefined();
-    const bev = pattern.criteria.find((criterion) => criterion.key === "bev_insgesamt");
-    expect(bev?.evidence).toContain("1.025.523");
-    expect(bev?.label).not.toContain("Kreis");
+    expect(pattern.criteria[0]?.key).toBe("kba_elektro_pkw");
+    expect(pattern.criteria[0]?.kind).toBe("trend");
+    expect(pattern.criteria[0]?.label).toContain("Kreis");
+    expect(pattern.criteria[0]?.baseline).toBe("per_1000_inhabitants");
+    expect(pattern.criteria.find((criterion) => criterion.key === "destatis")).toBeUndefined();
+    expect(pattern.criteria.find((criterion) => criterion.key === "zensus2022")?.kind).toBe("stichtag");
   });
 
   it("does not average rate metrics across foreign geoKeys either", () => {
     const pattern = buildHeuristicPattern(koelnInput(), [
-      cityFact("koeln-kba", "05315", "ags5", [{ key: "pkw_elektro_anteil", value: "4.1" }]),
+      cityFact("koeln-kba", "80331", "plz5", [{ key: "pkw_elektro_anteil", value: "4.1" }]),
       cityFact("dortmund-kba", "05913", "ags5", [{ key: "pkw_elektro_anteil", value: "9.9" }]),
     ]);
     expect(pattern.criteria[0]?.evidence).toContain("4,1");
@@ -320,36 +365,41 @@ describe("pattern", () => {
     expect(pattern.criteria[0]?.evidence).not.toContain("7,0");
   });
 
-  it("labels a Kreis Einwohner value when the Zielregion is an Ortsteil", () => {
-    const pattern = buildHeuristicPattern(
+  it("labels a Kreis count dataset when the store series comes from Kreis", () => {
+    const pattern = buildHeuristicPattern(koelnInput(), [], [
       {
-        ...koelnInput(),
-        region: {
-          ...koelnInput().region,
-          label: "Deutz",
-          grain: "other",
-          geoKey: "ortsteil:osm:deutz",
-          level: "ortsteil",
-          ags: "05315000",
-        },
+        metricId: "destatis",
+        requestedLevel: "ortsteil",
+        requestedGeoKey: "ortsteil:osm:deutz",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 1_000_000 },
+          { period: "2025", status: "present", value: 1_025_523 },
+        ],
       },
-      [
-        cityFact(
-          "kreis-destatis",
-          "05315",
-          "ags5",
-          [
-            { key: "source_theme", value: "destatis" },
-            { key: "bev_insgesamt", value: "1025523" },
-          ],
-          "2025-12",
-        ),
-      ],
-    );
-    const bev = pattern.criteria.find((criterion) => criterion.key === "bev_insgesamt");
-    expect(bev?.label).toBe("bev insgesamt (Kreis)");
-    expect(bev?.evidence).toContain("Kreis");
-    expect(bev?.evidence).toContain("1.025.523");
+      {
+        metricId: "kba_elektro_pkw",
+        requestedLevel: "ortsteil",
+        requestedGeoKey: "ortsteil:osm:deutz",
+        sourceLevel: "kreis",
+        sourceGeoKey: "05315",
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 2000 },
+          { period: "2025", status: "present", value: 3000 },
+        ],
+      },
+    ]);
+    const kba = pattern.criteria.find((criterion) => criterion.key === "kba_elektro_pkw");
+    expect(kba?.label).toContain("Kreis");
+    expect(kba?.evidence).toContain("Kreis");
+    expect(kba?.evidence).toContain("je 1.000 Einwohner");
+    expect(kba?.baseline).toBe("per_1000_inhabitants");
+    expect(pattern.criteria.find((criterion) => criterion.key === "destatis")).toBeUndefined();
   });
 
   it("omits a metric that only exists on foreign geoKeys instead of inventing a mean", () => {
@@ -359,7 +409,7 @@ describe("pattern", () => {
     ]);
     expect(pattern.criteria.find((criterion) => criterion.key === "ewz")).toBeUndefined();
     expect(criterionBlob(pattern)).not.toContain("742.286");
-    expect(pattern.summary).toContain("keine Brain-Fakten");
+    expect(pattern.summary).toContain("Bestandstandorte");
   });
 });
 
@@ -393,6 +443,7 @@ function cityFact(
     title: `Gebiet ${geoKey}`,
     refPeriod,
     excerpt: `Kennzahlen ${geoKey}.`,
+    matchedBy: geoKey === "80331" || geoKey.startsWith("plz") ? "store" : "region",
     signals,
   });
 }

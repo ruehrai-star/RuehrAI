@@ -1,6 +1,8 @@
 import { LonLatBounds, RegionGeometry } from "../geo/region-geometry";
 import { Grain } from "../target-region/dto";
-import { YearlySeries } from "./yearly-series";
+import { SeriesCoverage, SeriesLevel, YearlySeries } from "./yearly-series";
+import type { BaselineMethod } from "./area-baseline";
+import { SeriesBaseline } from "./series-baseline";
 
 export type { SeriesCoverage, SeriesGranularity, SeriesLevel, SeriesPoint, YearlySeries } from "./yearly-series";
 
@@ -103,11 +105,28 @@ export interface AnalysisBrain {
   facts: BrainFact[];
 }
 
+export type CriterionKind = "trend" | "stichtag";
+
+export type CriterionScope = "local" | "inherited";
+
 export interface PatternCriterion {
   key: string;
   label: string;
   direction: CriterionDirection;
   evidence: string;
+  /** `trend` is a multi-year series; `stichtag` is a single snapshot. */
+  kind?: CriterionKind;
+  coverage?: SeriesCoverage;
+  sourceLevel?: SeriesLevel;
+  sourceGeoKey?: string;
+  /** On `patternByLevel` / `patternByDataset` criteria. */
+  scope?: CriterionScope;
+  metricId?: string;
+  baseline?: SeriesBaseline;
+  rawValue?: number;
+  normalizedValue?: number;
+  /** Method of the Bezugsgröße used (`geo.area_baseline`). Additive. */
+  baselineMethod?: BaselineMethod;
 }
 
 export interface AnalysisPattern {

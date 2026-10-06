@@ -72,6 +72,14 @@ describe("address-pair topic catalog", () => {
         "ba_sgb2",
         "kba_neuzulassungen",
         "kba_bestand",
+        "hamburg_stadtteil_regionalstatistik",
+        "muenchen_indikatorenatlas",
+        "berlin_lor_ewr_bevoelkerung",
+        "koeln_statistischer_datenkatalog",
+        "leipzig_lis_ortsteil",
+        "duesseldorf_bevoelkerung_stadtteile",
+        "essen_bevoelkerung_stadtteile",
+        "frankfurt_demographie_stadtteile",
       ]),
     );
     expect(TOPIC_SOURCE_THEMES.kba).toEqual(["kba_besitz"]);
@@ -83,6 +91,9 @@ describe("address-pair topic catalog", () => {
     expect(grainMatchesTopic("ags5", "ba_sgb2", "kreis")).toBe(true);
     expect(grainMatchesTopic("ags", "ba_sgb2", "gemeinde")).toBe(false);
     expect(grainMatchesTopic("other", "kba_neuzulassungen", "land")).toBe(true);
+    expect(grainMatchesTopic("ags", "hamburg_stadtteil_regionalstatistik", "gemeinde")).toBe(false);
+    expect(grainMatchesTopic("ags", "berlin_lor_ewr_bevoelkerung", "gemeinde")).toBe(false);
+    expect(grainMatchesTopic("ags", "muenchen_indikatorenatlas", "gemeinde")).toBe(true);
   });
 
   it("maps every catalog id to a Brain source_theme that already exists", () => {

@@ -11,10 +11,10 @@ test("openapi yaml and json stay in sync", () => {
   assert.deepStrictEqual(JSON.parse(jsonText), parse(yamlText));
 });
 
-test("v0.10 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
+test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.10.0");
+  assert.equal(doc.info.version, "0.17.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -84,7 +84,28 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   );
   assert.deepEqual(doc.components.schemas.AnalysisPatternRegion.required, ["label", "geoKey"]);
   assert.equal(doc.components.schemas.AnalysisPatternRegion.properties.geoKey.nullable, true);
-  assert.ok(doc.info.description.includes("0.10.0"));
+  assert.ok(doc.info.description.includes("0.12.0"));
+  assert.ok(doc.info.description.includes("0.12.1"));
+  assert.ok(doc.info.description.includes("0.13.0"));
+  assert.ok(doc.info.description.includes("0.14.0"));
+  assert.ok(doc.info.description.includes("0.15.0"));
+  assert.ok(doc.info.description.includes("0.16.0"));
+  assert.ok(doc.info.description.includes("0.17.0"));
+  assert.ok(doc.info.description.includes("official_zensus2022_grid"));
+  assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
+  assert.ok(doc.info.description.includes("geo.area_baseline"));
+  assert.ok(doc.info.description.includes("baselineMethod"));
+  assert.ok(doc.info.description.includes("patternByLevel"));
+  assert.ok(doc.info.description.includes("patternByDataset"));
+  assert.ok(doc.info.description.includes("per_1000_inhabitants"));
+  assert.ok(doc.info.description.includes("lor:plr"));
+  assert.ok(doc.info.description.includes("koeln:sq"));
+  assert.ok(doc.info.description.includes("geo.geo_ref_address"));
+  assert.ok(doc.info.description.includes("koeln_statistischer_datenkatalog"));
+  assert.ok(doc.info.description.includes("hamburg_stadtteil_regionalstatistik"));
+  assert.ok(doc.info.description.includes("muenchen_indikatorenatlas"));
+  assert.ok(doc.info.description.includes("berlin_lor_ewr_bevoelkerung"));
+  assert.ok(doc.info.description.includes("Teilflächen"));
   assert.ok(doc.paths["/analysis/pattern"].get.description.includes("geoKey"));
   assert.equal(doc.paths["/analysis/input"].get.security, undefined);
   assert.equal(doc.paths["/recommendations"].post.operationId, "createRecommendations");
@@ -96,6 +117,7 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
     "id",
     "rank",
     "title",
+    "kind",
     "location",
     "score",
     "rationale",
@@ -104,9 +126,106 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   ]);
   assert.deepEqual(recommendation.properties.source.enum, ["llm", "heuristic"]);
   assert.equal(recommendation.properties.rank.minimum, 1);
-  assert.equal(recommendation.properties.rank.maximum, 3);
+  assert.equal(recommendation.properties.rank.maximum, 200);
   assert.equal(doc.components.schemas.RecommendationSet.properties.reason.nullable, true);
-  assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 3);
+  assert.equal(doc.components.schemas.RecommendationSet.properties.items.maxItems, 200);
+  assert.equal(
+    doc.components.schemas.RecommendationSet.properties.patternByLevel.items.$ref,
+    "#/components/schemas/PatternLevelProfile",
+  );
+  assert.equal(doc.components.schemas.RecommendationSet.required.includes("patternByLevel"), false);
+  assert.equal(
+    doc.components.schemas.RecommendationSet.properties.patternByDataset.items.$ref,
+    "#/components/schemas/PatternDatasetProfile",
+  );
+  assert.equal(doc.components.schemas.RecommendationSet.required.includes("patternByDataset"), false);
+  assert.deepEqual(doc.components.schemas.SeriesBaseline.enum, [
+    "per_1000_inhabitants",
+    "per_km2",
+    "per_household",
+  ]);
+  assert.deepEqual(doc.components.schemas.PatternDatasetProfile.required, [
+    "metricId",
+    "baseline",
+    "sourceLevel",
+    "sourceGeoKey",
+    "yearlySeries",
+    "criterion",
+  ]);
+  assert.equal(doc.components.schemas.PatternCriterion.properties.metricId.type, "string");
+  assert.equal(
+    doc.components.schemas.PatternCriterion.properties.baseline.$ref,
+    "#/components/schemas/SeriesBaseline",
+  );
+  assert.equal(doc.components.schemas.PatternCriterion.properties.rawValue.type, "number");
+  assert.equal(doc.components.schemas.PatternCriterion.properties.normalizedValue.type, "number");
+  assert.equal(doc.components.schemas.SeriesPoint.properties.normalizedValue.type, "number");
+  assert.deepEqual(doc.components.schemas.BaselineMethod.enum, [
+    "official",
+    "official_zensus2022_grid",
+    "estimate_lor_sum",
+    "estimate_zensus2022_grid_sum",
+    "estimate_address",
+    "missing",
+    "geom",
+    "fixed_grid",
+  ]);
+  assert.equal(
+    doc.components.schemas.SeriesPoint.properties.baselineMethod.$ref,
+    "#/components/schemas/BaselineMethod",
+  );
+  assert.equal(
+    doc.components.schemas.PatternCriterion.properties.baselineMethod.$ref,
+    "#/components/schemas/BaselineMethod",
+  );
+  assert.equal(
+    doc.components.schemas.RecommendationEvidence.properties.baselineMethod.$ref,
+    "#/components/schemas/BaselineMethod",
+  );
+  assert.equal(doc.components.schemas.PatternDatasetProfile.required.includes("baselineMethod"), false);
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.metricId.type, "string");
+  assert.equal(
+    doc.components.schemas.RecommendationEvidence.properties.baseline.$ref,
+    "#/components/schemas/SeriesBaseline",
+  );
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.rawValue.type, "number");
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.normalizedValue.type, "number");
+  assert.deepEqual(doc.components.schemas.PatternLevel.enum, [
+    "address",
+    "grid100",
+    "lor",
+    "quartier",
+    "ortsteil",
+    "plz",
+    "bezirk",
+    "gemeinde",
+    "kreis",
+  ]);
+  assert.deepEqual(doc.components.schemas.PatternLevelRole.enum, ["pattern", "frame"]);
+  assert.deepEqual(doc.components.schemas.PatternLevelProfile.required, [
+    "level",
+    "role",
+    "geoKeys",
+    "yearlySeries",
+    "criteria",
+  ]);
+  assert.equal(doc.components.schemas.PatternCriterion.properties.scope.$ref, "#/components/schemas/EvidenceScope");
+  assert.deepEqual(doc.components.schemas.AreaKind.enum, [
+    "address",
+    "grid100",
+    "lor",
+    "quartier",
+    "ortsteil",
+    "stadtteil",
+    "plz",
+    "bezirk",
+    "stadtbezirk",
+    "gemeinde",
+  ]);
+  assert.deepEqual(doc.components.schemas.EvidenceScope.enum, ["local", "inherited"]);
+  assert.deepEqual(doc.components.schemas.CriterionKind.enum, ["trend", "stichtag"]);
+  assert.deepEqual(doc.components.schemas.EvidenceKind.enum, ["trend", "stichtag", "absent"]);
+  assert.ok(doc.components.schemas.RecommendationWindow.properties.from.pattern.includes("4"));
   assert.equal(doc.components.schemas.RecommendationLocation.properties.lon.nullable, true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("heuristic"), true);
   assert.equal(doc.components.schemas.AnalysisPattern.properties.source.enum.includes("llm"), true);
@@ -136,12 +255,18 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("whole numbers"));
   assert.ok(doc.components.schemas.BrainSignal.properties.value.description.includes("age-band"));
   assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("wohnungen.raeume"));
-  assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("Zielregion geoKey"));
+  assert.ok(doc.components.schemas.PatternCriterion.properties.evidence.description.includes("Filialumgebung"));
   assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("05315"));
   assert.ok(doc.components.schemas.AnalysisPattern.properties.criteria.description.includes("bev_insgesamt"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.evidence.description.includes("leaf"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("gemeinde"));
   assert.ok(doc.components.schemas.SeriesLevel.enum.includes("kreis"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("grid100"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("address"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("lor"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("quartier"));
+  assert.ok(doc.components.schemas.SeriesLevel.enum.includes("address"));
+  assert.ok(doc.info.description.includes("inherited"));
   assert.equal(
     doc.components.schemas.YearlySeries.properties.requestedLevel.$ref,
     "#/components/schemas/SeriesLevel",
@@ -150,6 +275,8 @@ test("v0.10 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("yearlySeries"));
   assert.ok(doc.info.description.includes("0.9.0"));
   assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("destatis_wohnungen"));
+  assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("hamburg_stadtteil_regionalstatistik"));
+  assert.ok(doc.components.schemas.YearlySeries.properties.metricId.description.includes("koeln_statistischer_datenkatalog"));
   assert.ok(doc.components.schemas.YearlySeries.description.includes("Ortsteil"));
   assert.ok(doc.info.description.includes("Ortsteil"));
   assert.ok(doc.info.description.includes("ba_sgb2"));

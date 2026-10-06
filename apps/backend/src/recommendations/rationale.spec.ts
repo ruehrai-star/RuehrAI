@@ -8,46 +8,51 @@ import {
 import { RationaleService } from "./rationale.service";
 import { ScoredLocation } from "./types";
 
-const window = { from: "2026-04", to: "2026-09" };
+const window = { from: "2023", to: "2025" };
 
 const pattern: AnalysisPattern = {
   source: "heuristic",
-  summary: "Einwohner und Haushalte steigen mit dem Umsatz.",
+  summary: "Unfälle fallen mit dem Umsatz.",
   revenueDirection: "up",
-  criteria: [{ key: "einwohner", label: "einwohner", direction: "up", evidence: "steigt" }],
+  criteria: [{ key: "unfallatlas", label: "Unfälle", direction: "down", evidence: "fällt", kind: "trend" }],
 };
 
 function item(): ScoredLocation {
   return {
-    id: "plz5:80801",
+    id: "other:ortsteil:osm:1",
     title: "Schwabing",
-    location: { geoKey: "80801", grain: "plz5", lon: 11.5, lat: 48.1, name: "Schwabing" },
+    kind: "ortsteil",
+    location: { geoKey: "ortsteil:osm:1", grain: "other", lon: 11.5, lat: 48.1, name: "Schwabing" },
     score: 1,
     criteriaEvidence: [
       {
-        key: "einwohner",
-        label: "einwohner",
-        direction: "up",
-        patternDirection: "up",
-        evidence: "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20).",
+        key: "unfallatlas",
+        label: "Unfälle",
+        direction: "down",
+        patternDirection: "down",
+        evidence: "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8).",
+        kind: "trend",
+        status: "present",
+        match: true,
       },
     ],
   };
 }
 
 describe("recommendation rationales", () => {
-  it("writes a German heuristic that cites the location and the series", () => {
+  it("writes a German heuristic that cites the Teilfläche and the series", () => {
     const text = buildHeuristicRationale(item());
+    expect(text).toContain("Teilfläche");
     expect(text).toContain("Schwabing");
-    expect(text).toContain("80801");
-    expect(text).toContain("einwohner");
-    expect(text).toContain("2026-04");
+    expect(text).toContain("ortsteil:osm:1");
+    expect(text).toContain("Unfälle");
+    expect(text).toContain("2023");
     expect(text).toContain("Quelle: Heuristik, ohne Sprachmodell.");
   });
 
   it("accepts model text that stays on the evidence and rejects invented numbers", () => {
     const grounded =
-      "In Schwabing steigt einwohner in den letzten sechs Monaten von 10 auf 20 und passt damit zum Muster.";
+      "In Schwabing fallen Unfälle im Dreijahresverlauf von 20 auf 8 und passen damit zum Filialmuster.";
     expect(rationaleIsGrounded(grounded, item(), window)).toBe(true);
     expect(
       rationaleIsGrounded(
@@ -58,13 +63,13 @@ describe("recommendation rationales", () => {
     ).toBe(false);
 
     const accepted = acceptRationales(
-      JSON.stringify({ items: [{ id: "plz5:80801", rationale: grounded }] }),
+      JSON.stringify({ items: [{ id: "other:ortsteil:osm:1", rationale: grounded }] }),
       [item()],
       window,
     );
-    expect(accepted.get("plz5:80801")).toBe(grounded);
+    expect(accepted.get("other:ortsteil:osm:1")).toBe(grounded);
     expect(
-      acceptRationales('{"items":[{"id":"plz5:80801","rationale":"kurz"}]}', [item()], window).size,
+      acceptRationales('{"items":[{"id":"other:ortsteil:osm:1","rationale":"kurz"}]}', [item()], window).size,
     ).toBe(0);
   });
 });
@@ -93,9 +98,9 @@ describe("RationaleService", () => {
       content: JSON.stringify({
         items: [
           {
-            id: "plz5:80801",
+            id: "other:ortsteil:osm:1",
             rationale:
-              "In Schwabing steigt einwohner von 10 auf 20. Das entspricht dem Muster.",
+              "In Schwabing fallen Unfälle von 20 auf 8. Das entspricht dem Muster.",
           },
         ],
       }),
@@ -107,7 +112,7 @@ describe("RationaleService", () => {
     complete.mockResolvedValue({
       ok: true,
       content: JSON.stringify({
-        items: [{ id: "plz5:80801", rationale: "In Schwabing gibt es 99999 Einwohner." }],
+        items: [{ id: "other:ortsteil:osm:1", rationale: "In Schwabing gibt es 99999 Einwohner." }],
       }),
     });
     const fallback = await service.write(pattern, window, [item()]);

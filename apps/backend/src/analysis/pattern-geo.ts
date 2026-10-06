@@ -187,7 +187,7 @@ function expandKeys(values: Array<string | null | undefined>): Set<string> {
 }
 
 function stripPrefixedKey(value: string): string {
-  const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk):(.+)$/i.exec(value.trim());
+  const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk|lor|hamburg_stadtteil):(.+)$/i.exec(value.trim());
   return match?.[1] ?? value.trim();
 }
 

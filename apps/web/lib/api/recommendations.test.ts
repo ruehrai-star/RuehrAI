@@ -97,6 +97,142 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
   assert.deepEqual(JSON.parse(calls[2]?.body ?? "{}"), { runId: "15" });
 });
 
+test("GET /recommendations accepts additive patternByLevel and still parses without it", async () => {
+  const withProfile = {
+    ...set,
+    patternByLevel: [
+      {
+        level: "plz",
+        role: "pattern",
+        geoKeys: ["80801"],
+        yearlySeries: [
+          {
+            metricId: "unfallatlas",
+            requestedLevel: "plz",
+            requestedGeoKey: "80801",
+            sourceLevel: "plz",
+            sourceGeoKey: "80801",
+            granularity: "year",
+            coverage: "multi",
+            points: [
+              { period: "2023", status: "present", value: 10 },
+              { period: "2024", status: "absent" },
+              { period: "2025", status: "present", value: 8 },
+            ],
+          },
+        ],
+        criteria: [
+          {
+            key: "unfallatlas",
+            label: "Unfälle",
+            direction: "down",
+            evidence: "fällt",
+            kind: "trend",
+            scope: "local",
+          },
+        ],
+      },
+      {
+        level: "kreis",
+        role: "frame",
+        geoKeys: ["09162"],
+        yearlySeries: [],
+        criteria: [],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withProfile),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.patternByLevel?.length, 2);
+  assert.equal(latest?.patternByLevel?.[0]?.level, "plz");
+  assert.equal(latest?.patternByLevel?.[0]?.criteria[0]?.scope, "local");
+  assert.equal(latest?.patternByLevel?.[1]?.role, "frame");
+  assert.equal(latest?.patternByLevel?.[0]?.yearlySeries[0]?.points.find((point) => point.period === "2024")?.status, "absent");
+  assert.equal(latest?.patternByLevel?.[0]?.yearlySeries[0]?.points.find((point) => point.period === "2024")?.value, undefined);
+});
+
+test("GET /recommendations accepts additive patternByDataset and still parses without it", async () => {
+  const withDataset = {
+    ...set,
+    patternByDataset: [
+      {
+        metricId: "kba_elektro_pkw",
+        baseline: "per_1000_inhabitants",
+        sourceLevel: "plz",
+        sourceGeoKey: "80801",
+        baselineMethod: "official",
+        yearlySeries: {
+          metricId: "kba_elektro_pkw",
+          requestedLevel: "plz",
+          requestedGeoKey: "80801",
+          sourceLevel: "plz",
+          sourceGeoKey: "80801",
+          granularity: "year",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 10, normalizedValue: 1, baselineMethod: "official" },
+            { period: "2024", status: "absent" },
+            { period: "2025", status: "present", value: 20, normalizedValue: 2, baselineMethod: "official_zensus2022_grid" },
+          ],
+        },
+        criterion: {
+          key: "kba_elektro_pkw",
+          metricId: "kba_elektro_pkw",
+          label: "Elektro-Pkw",
+          direction: "up",
+          evidence: "steigt je 1.000 Einwohner",
+          kind: "trend",
+          baseline: "per_1000_inhabitants",
+          rawValue: 20,
+          normalizedValue: 2,
+          sourceLevel: "plz",
+          baselineMethod: "estimate_zensus2022_grid_sum",
+        },
+      },
+    ],
+    items: [
+      {
+        ...set.items[0],
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            metricId: "kba_elektro_pkw",
+            baseline: "per_1000_inhabitants",
+            rawValue: 20,
+            normalizedValue: 2,
+            sourceLevel: "plz",
+            baselineMethod: "official",
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withDataset),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.patternByDataset?.length, 1);
+  assert.equal(latest?.patternByDataset?.[0]?.metricId, "kba_elektro_pkw");
+  assert.equal(latest?.patternByDataset?.[0]?.baseline, "per_1000_inhabitants");
+  assert.equal(latest?.patternByDataset?.[0]?.criterion.normalizedValue, 2);
+  assert.equal(latest?.patternByDataset?.[0]?.criterion.baselineMethod, "estimate_zensus2022_grid_sum");
+  assert.equal(latest?.patternByDataset?.[0]?.baselineMethod, "official");
+  assert.equal(
+    latest?.patternByDataset?.[0]?.yearlySeries.points.find((point) => point.period === "2025")?.baselineMethod,
+    "official_zensus2022_grid",
+  );
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.rawValue, 20);
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.baselineMethod, "official");
+  assert.equal(
+    latest?.patternByDataset?.[0]?.yearlySeries.points.find((point) => point.period === "2024")?.normalizedValue,
+    undefined,
+  );
+});
+
 test("GET /recommendations maps 404 to no set", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

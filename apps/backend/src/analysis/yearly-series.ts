@@ -19,6 +19,7 @@ import {
   parentMunicipalityAgs,
 } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs, regionalstatistikBerlinBezirkAgs } from "../geo/bezirk-ags";
+import type { BaselineMethod } from "./area-baseline";
 import { roundCountMetricValue } from "./count-metrics";
 
 export interface SeriesRegionInput {
@@ -29,7 +30,7 @@ export interface SeriesRegionInput {
   plz?: string | null;
 }
 
-export type SeriesLevel = CatalogLevel | "kreis" | "land";
+export type SeriesLevel = CatalogLevel | "kreis" | "land" | "grid100" | "address" | "lor" | "quartier";
 export type SeriesGranularity = "month" | "year";
 export type SeriesCoverage = "none" | "single" | "multi";
 export type SeriesPointStatus = "present" | "absent";
@@ -38,6 +39,10 @@ export interface SeriesPoint {
   period: string;
   status: SeriesPointStatus;
   value?: number;
+  /** Rohwert / Bezugsgröße. Omitted when the Bezugsgröße liegt nicht vor. */
+  normalizedValue?: number;
+  /** Method of the divisor from `geo.area_baseline`. Omitted on feature fallback. */
+  baselineMethod?: BaselineMethod;
 }
 
 export interface YearlySeries {
@@ -169,12 +174,35 @@ const METRIC_VALUE_KEYS: Partial<Record<string, readonly string[]>> = {
   unfallatlas: ["unfaelle_gesamt", "count"],
   vgrdl: ["einw"],
   gerda: ["value", "count", "personen"],
+  hamburg_stadtteil_regionalstatistik: ["insgesamt", "personen", "einwohner", "ewz", "bev_insgesamt"],
+  muenchen_indikatorenatlas: ["einwohner", "personen", "insgesamt", "ewz", "indikatorwert"],
+  berlin_lor_ewr_bevoelkerung: ["einwohner", "personen", "ewz", "insgesamt", "e_e"],
+  koeln_statistischer_datenkatalog: ["einwohner", "personen", "insgesamt", "ewz", "katalog"],
+  leipzig_lis_ortsteil: ["einwohner", "personen", "insgesamt", "ewz"],
+  duesseldorf_bevoelkerung_stadtteile: ["einwohner", "personen", "insgesamt", "ewz"],
+  essen_bevoelkerung_stadtteile: ["einwohner", "personen", "insgesamt", "ewz"],
+  frankfurt_demographie_stadtteile: ["einwohner", "personen", "insgesamt", "ewz"],
 };
 
 const GEMEINDE_SET = new Set<string>(GEMEINDE_TOPIC_IDS);
 const KREIS_SET = new Set<string>(KREIS_TOPIC_IDS);
 
 /** Unique topic ids already used by address-pair, then extra Brain series themes. Finest native level first. */
+export const KLEINRAEUMIG_SERIES_METRICS = [
+  "hamburg_stadtteil_regionalstatistik",
+  "muenchen_indikatorenatlas",
+  "berlin_lor_ewr_bevoelkerung",
+  "koeln_statistischer_datenkatalog",
+  "leipzig_lis_ortsteil",
+  "duesseldorf_bevoelkerung_stadtteile",
+  "essen_bevoelkerung_stadtteile",
+  "frankfurt_demographie_stadtteile",
+] as const;
+
+export function isKleinraeumigMetric(metricId: string): boolean {
+  return (KLEINRAEUMIG_SERIES_METRICS as readonly string[]).includes(metricId);
+}
+
 export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: TopicLevel }> = [
   ...GEMEINDE_TOPIC_IDS.map((id) => ({ id, homeLevel: "gemeinde" as const })),
   ...KREIS_TOPIC_IDS.filter((id) => !GEMEINDE_SET.has(id)).map((id) => ({ id, homeLevel: "kreis" as const })),
@@ -186,7 +214,15 @@ export const SERIES_METRICS: ReadonlyArray<{ id: SeriesMetricId; homeLevel: Topi
 ];
 
 export function isSeriesLevel(value: unknown): value is SeriesLevel {
-  return isCatalogLevel(value) || value === "kreis" || value === "land";
+  return (
+    isCatalogLevel(value) ||
+    value === "kreis" ||
+    value === "land" ||
+    value === "grid100" ||
+    value === "address" ||
+    value === "lor" ||
+    value === "quartier"
+  );
 }
 
 /**
@@ -195,14 +231,26 @@ export function isSeriesLevel(value: unknown): value is SeriesLevel {
  */
 export function isKreisPlace(region: SeriesRegionInput): boolean {
   const grain = region.grain ?? null;
-  if (grain === "plz5" || grain === "plz8" || grain === "other") return false;
+  if (grain === "plz5" || grain === "plz8" || grain === "other" || grain === "grid100" || grain === "address") {
+    return false;
+  }
   const rawKey = region.geoKey ?? region.ags ?? "";
-  if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk):/i.test(rawKey.trim())) return false;
+  if (/^(plz5|plz8|stadtteil|ortsteil|bezirk|stadtbezirk|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil):/i.test(rawKey.trim())) {
+    return false;
+  }
   if (grain === "ags5") return true;
   return kreisAgsKey(region.geoKey) != null || kreisAgsKey(region.ags) != null;
 }
 
 export function requestedLevelOf(region: SeriesRegionInput): SeriesLevel | null {
+  if (region.grain === "grid100") return "grid100";
+  if (region.grain === "address") return "address";
+  const geoKey = region.geoKey?.trim() ?? "";
+  if (/^koeln:sq:/i.test(geoKey) || region.level === "quartier" || region.level === "koeln_quartier") {
+    return "quartier";
+  }
+  if (/^lor:/i.test(geoKey) || region.level === "lor") return "lor";
+  if (/^hamburg_stadtteil:/i.test(geoKey)) return "ortsteil";
   if (isSeriesLevel(region.level)) return region.level;
   const catalog = catalogLevelForPlace({
     grain: region.grain,
@@ -252,6 +300,13 @@ export function yearWindow(asOf: Date, availableYears: number[] = []): string[] 
   return [String(end - 2), String(end - 1), String(end)];
 }
 
+/** Last three calendar years of a kleinräumige series, even when older than asOf. */
+export function yearWindowFromAvailable(availableYears: number[], asOf: Date): string[] {
+  if (availableYears.length === 0) return yearWindow(asOf, []);
+  const latest = Math.max(...availableYears);
+  return [String(latest - 2), String(latest - 1), String(latest)];
+}
+
 export function monthWindow(asOf: Date, availableMonths: string[] = []): string[] {
   const asOfStamp = `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}`;
   const latest = [...availableMonths].filter(Boolean).sort().at(-1) ?? asOfStamp;
@@ -298,11 +353,17 @@ export function seriesNumber(metadata: unknown, metricId?: string): { value: num
   const preferred = [...(metricId ? (METRIC_VALUE_KEYS[metricId] ?? []) : []), ...PREFERRED_VALUE_KEYS];
   let hit: { key: string; value: number } | null = null;
   for (const key of preferred) {
-    const found = numeric.find((item) => item.key === key);
+    const found = numeric.find(
+      (item) => item.key === key || item.key.toLowerCase() === key.toLowerCase(),
+    );
     if (found) {
       hit = found;
       break;
     }
+  }
+  if (!hit && isKleinraeumigMetric(metricId ?? "")) {
+    hit =
+      numeric.find((item) => /einwohner|personen|insgesamt|ewz|indikatorwert|^e_e$/i.test(item.key)) ?? null;
   }
   if (!hit && numeric.length === 1) hit = numeric[0]!;
   if (!hit) return null;
@@ -400,6 +461,21 @@ export function keysForResolvedPlace(
 }
 
 export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string[] {
+  if (level === "quartier") {
+    const bare = stripPrefixedKey(geoKey);
+    return unique([geoKey, bare, `koeln:sq:${bare}`, `quartier:${bare}`]);
+  }
+  if (level === "lor") {
+    const bare = stripPrefixedKey(geoKey);
+    if (/^lor:plr:/i.test(geoKey) || /^plr:/i.test(geoKey)) {
+      return unique([geoKey, bare, `lor:plr:${bare}`]);
+    }
+    return unique([geoKey, bare, `lor:${bare}`]);
+  }
+  if (level === "grid100" || level === "address") {
+    const bare = stripPrefixedKey(geoKey);
+    return unique([geoKey, bare]);
+  }
   if (level === "plz") {
     const plz = geoKey.replace(/^(?:plz5|plz8):/i, "");
     return unique([plz, `plz5:${plz}`, geoKey]);
@@ -412,7 +488,7 @@ export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string
   const kreis = level === "kreis" ? kreisAgsKey(geoKey) : null;
   const prefixes =
     level === "stadtteil" || level === "ortsteil"
-      ? [level]
+      ? [level, "hamburg_stadtteil"]
       : level === "bezirk" || level === "stadtbezirk"
         ? ["ags", "stadtbezirk", "bezirk"]
         : level === "kreis"
@@ -441,7 +517,12 @@ export function buildMetricSeries(input: {
   const availableMonths = parsed
     .map((item) => item.period.monthStamp)
     .filter((stamp): stamp is string => Boolean(stamp));
-  const window = granularity === "month" ? monthWindow(input.asOf, availableMonths) : yearWindow(input.asOf, availableYears);
+  const window =
+    granularity === "month"
+      ? monthWindow(input.asOf, availableMonths)
+      : isKleinraeumigMetric(input.metricId)
+        ? yearWindowFromAvailable(availableYears, input.asOf)
+        : yearWindow(input.asOf, availableYears);
   const byPeriod = valuesByPeriod(input.metricId, parsed, granularity);
 
   const points: SeriesPoint[] = window.map((period) => {
@@ -519,12 +600,14 @@ function pickSource(
     if (attempt.keys.length === 0) continue;
     const rows = docs.filter((row) => rowMatches(row, metricId, attempt));
     if (rows.length === 0) continue;
-    const usable = rows.some((row) => parseRefPeriod(row.ref_period) && seriesNumber(row.metadata, metricId));
-    if (!usable && !rows.some((row) => parseRefPeriod(row.ref_period))) continue;
+    const partitioned = partitionLorVersion(metricId, rows);
+    if (partitioned.length === 0) continue;
+    const usable = partitioned.some((row) => parseRefPeriod(row.ref_period) && seriesNumber(row.metadata, metricId));
+    if (!usable && !partitioned.some((row) => parseRefPeriod(row.ref_period))) continue;
     return {
       level: attempt.level,
-      geoKey: storedGeoKey(rows) ?? canonicalSourceKey(attempt.level, region),
-      rows,
+      geoKey: storedGeoKey(partitioned) ?? canonicalSourceKey(attempt.level, region),
+      rows: partitioned,
     };
   }
 
@@ -563,8 +646,11 @@ function rowMatches(
   const theme = row.source_theme?.trim() ?? "";
   if (!theme || !themeMatchesTopic(theme, metricId)) return false;
   if (attempt.match === "requested") {
-    if (isExcludedGrain(row.grain)) return false;
+    if (attempt.level !== "grid100" && attempt.level !== "address" && isExcludedGrain(row.grain)) {
+      return false;
+    }
     if (row.grain === "ags" || row.grain === "ags5") return false;
+    if (isParentFallback(row.metadata)) return false;
     return rowKeyHits(row, attempt.keys);
   }
   if (attempt.level !== "gemeinde" && attempt.level !== "kreis" && attempt.level !== "land") return false;
@@ -632,7 +718,17 @@ function comparePeriod(left: string | null, right: string | null): number {
 }
 
 function isSmallArea(level: SeriesLevel): boolean {
-  return level === "plz" || level === "bezirk" || level === "stadtbezirk" || level === "stadtteil" || level === "ortsteil";
+  return (
+    level === "plz" ||
+    level === "bezirk" ||
+    level === "stadtbezirk" ||
+    level === "stadtteil" ||
+    level === "ortsteil" ||
+    level === "lor" ||
+    level === "quartier" ||
+    level === "grid100" ||
+    level === "address"
+  );
 }
 
 function isExcludedGrain(grain: string | null): boolean {
@@ -659,8 +755,37 @@ function metadataText(metadata: unknown, key: string): string | null {
 }
 
 function stripPrefixedKey(value: string): string {
-  const match = /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk):(.+)$/i.exec(value.trim());
+  const match =
+    /^(?:ags|ags5|land|plz5|plz8|stadtteil|ortsteil|stadtbezirk|bezirk|lor:plr|koeln:sq|quartier|lor|hamburg_stadtteil):(.+)$/i.exec(
+      value.trim(),
+    );
   return match?.[1] ?? value.trim();
+}
+
+function isParentFallback(metadata: unknown): boolean {
+  return metadataText(metadata, "placement") === "parent_fallback";
+}
+
+function isLorPlrRow(row: SeriesFeatureRow): boolean {
+  if (/^lor:plr:/i.test(row.geo_key?.trim() ?? "")) return true;
+  const version = metadataText(row.metadata, "lor_version");
+  return version === "2021" || version === "21";
+}
+
+function isLor2006Row(row: SeriesFeatureRow): boolean {
+  const key = row.geo_key?.trim() ?? "";
+  if (/^lor:plr:/i.test(key)) return false;
+  const version = metadataText(row.metadata, "lor_version");
+  if (version === "2021" || version === "21") return false;
+  return version === "2006" || version === "06" || /^lor:/i.test(key);
+}
+
+/** Prefer 2021 PLR; never concatenate with 2006 into one trend. */
+function partitionLorVersion(metricId: SeriesMetricId, rows: SeriesFeatureRow[]): SeriesFeatureRow[] {
+  if (metricId !== "berlin_lor_ewr_bevoelkerung") return rows;
+  const plr = rows.filter((row) => isLorPlrRow(row));
+  if (plr.length > 0) return plr;
+  return rows.filter((row) => isLor2006Row(row) || !/^lor:/i.test(row.geo_key?.trim() ?? ""));
 }
 
 function berlinOfficialFromRequested(level: SeriesLevel, geoKey: string): string | null {
@@ -671,18 +796,25 @@ function berlinOfficialFromRequested(level: SeriesLevel, geoKey: string): string
   return isOfficialBerlinBezirkAgs(official) ? official : null;
 }
 
-function collectNumericFields(row: Record<string, unknown>): Array<{ key: string; value: number }> {
+function collectNumericFields(row: Record<string, unknown>, depth = 0): Array<{ key: string; value: number }> {
   const numeric: Array<{ key: string; value: number }> = [];
-  const bags: Record<string, unknown>[] = [row];
+  const bags: Array<{ key: string; bag: Record<string, unknown> }> = [{ key: "", bag: row }];
   for (const nested of NESTED_VALUE_BAGS) {
-    if (isRecord(row[nested])) bags.push(row[nested]);
+    if (isRecord(row[nested])) bags.push({ key: nested, bag: row[nested] });
   }
-  for (const bag of bags) {
+  for (const { bag } of bags) {
     for (const [key, value] of Object.entries(bag)) {
       if (isSkippedValueKey(key) || isNestedValueBag(key)) continue;
       const parsed = asFiniteNumber(value);
-      if (parsed === null) continue;
-      numeric.push({ key, value: parsed });
+      if (parsed !== null) {
+        numeric.push({ key, value: parsed });
+        continue;
+      }
+      if (depth < 2 && isRecord(value)) {
+        for (const nested of collectNumericFields(value, depth + 1)) {
+          numeric.push(nested);
+        }
+      }
     }
   }
   return numeric;

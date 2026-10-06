@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RuehrAI API",
-    "version": "0.10.0",
-    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n`0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the\nlast three calendar years (or last 36 months) on the user's Zielregionen.\n`coverage` is `single` when only one period is present — that is not a\ntrend. Missing periods are `absent` (liegt nicht vor).\n`0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,\n`destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,\n`ba_sgb2`, `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto\n`yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses\nBerlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips\n`ref_period` tags after `|`, never filters on embedding, always\nrecomputes the field on `GET /analysis/pattern` and new runs, and\nanchors a yearly window to the latest Brain year when that year is still\nwithin two years of `asOf`. Placeholder KBA Elektro zeros and geo\nidentifiers (`ba_schluessel`, `geo_ags`) are never series values. Count\nmetrics (dwellings, population, age-band and other person counts, SGB2\nBG/PERS) are whole numbers; rates, shares, and percentages stay\nfractional. An Ortsteil\nor Stadtteil Zielregion still returns the `yearlySeries` array; missing\nlocal rows fall back to Gemeinde, Kreis, or Land keys and are labeled\nas such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for\nthat lookup, never `gemeinde`.\n`0.10.0` lets `GET /analysis/pattern` take optional `geoKey` (the same\ncatalog key as `TargetRegion.geoKey`). When set, the newest completed run\nwhose snapshot includes that place is returned; `yearlySeries` is limited\nto that Zielregion; `region` names the matched snapshot place for the\nStand line. No matching run is `404` with a German message, never another\nregion's pattern. Without `geoKey` the newest completed run is unchanged.\nCreate stays `POST /analysis/runs` (full list snapshot). Marking a\nZielregion is UI-only.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.4.0) rank up to three locations in that region where\nthe saved pattern fits over the last six calendar months, and attach a\nGerman rationale per location.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
+    "version": "0.17.0",
+    "description": "Dev-Team slice (v0). The backend issues its own JWTs and reads a local\nPostgres database via `DATABASE_URL`. Clients call this API; they do not\ntalk to the database.\n\nBase URL is environment-driven. Local default is `http://localhost:3000`\n(`PORT`, default 3000). Deployed clients should take the base URL from\ntheir own configuration and use this document as the contract.\n\nLocal migrations seed a development user `dev@ruehrai.local` /\n`dev-password`. That account is a fixture for local runs, not a production\ncredential. `POST /auth/register` creates further users in `app.users`.\n`POST /auth/logout` revokes that access token until it expires.\n\nCustomer inputs (target-region list, store addresses, monthly revenue) are\nstored in schema `app` and are visible only to the user id in the token.\nThe signed-in user has a list of target regions. That list is the set used\nfor the location search, not a single overwrite slot. `0.6.1` adds\n`gemeinde` to `CatalogLevel` for a municipality (grain `ags`).\n`0.7.0` adds `POST /address-pair`: two addresses, looked up by postal code\nonly, returning Gemeinde / Kreis / Land topics from Brain.\n`0.8.0` adds `AnalysisPattern.yearlySeries`: stored Brain values for the\nlast three calendar years (or last 36 months) on the user's Zielregionen.\n`coverage` is `single` when only one period is present — that is not a\ntrend. Missing periods are `absent` (liegt nicht vor).\n`0.9.0` maps the remaining Brain multi-year themes (`destatis_wohnungen`,\n`destatis_kfz_bestand`, `destatis_bevoelkerung_alter`, `kba_elektro_pkw`,\n`ba_sgb2`, `kba_neuzulassungen`, `kba_bestand`, `unfallatlas_gebiet`) onto\n`yearlySeries`, prefers the most local Unfallatlas Gebiet key, uses\nBerlin Regionalstatistik Bezirk AGS8 (`11007007`) when present, strips\n`ref_period` tags after `|`, never filters on embedding, always\nrecomputes the field on `GET /analysis/pattern` and new runs, and\nanchors a yearly window to the latest Brain year when that year is still\nwithin two years of `asOf`. Placeholder KBA Elektro zeros and geo\nidentifiers (`ba_schluessel`, `geo_ags`) are never series values. Count\nmetrics (dwellings, population, age-band and other person counts, SGB2\nBG/PERS) are whole numbers; rates, shares, and percentages stay\nfractional. An Ortsteil\nor Stadtteil Zielregion still returns the `yearlySeries` array; missing\nlocal rows fall back to Gemeinde, Kreis, or Land keys and are labeled\nas such. Grain `ags5` / a 5-digit AGS (Köln `05315`) is `kreis` for\nthat lookup, never `gemeinde`.\n`0.10.0` lets `GET /analysis/pattern` take optional `geoKey` (the same\ncatalog key as `TargetRegion.geoKey`). When set, the newest completed run\nwhose snapshot includes that place is returned; `yearlySeries` is limited\nto that Zielregion; `region` names the matched snapshot place for the\nStand line. No matching run is `404` with a German message, never another\nregion's pattern. Without `geoKey` the newest completed run is unchanged.\nCreate stays `POST /analysis/runs` (full list snapshot). Marking a\nZielregion is UI-only.\n`0.11.0` remodels Musteranalyse criteria and `POST /recommendations`\n(Stufe 1). Candidates are Teilflächen inside the Zielregion (Ortsteil,\nBezirk, PLZ5; Gemeinden when the region is a Kreis), never the\nZielregion geoKey itself. Pattern criteria come from Bestandstandort\nsurroundings (Ortsteil/PLZ plus Gemeinde-/Kreis-Dreijahresreihen), not\nfrom clipping Brain facts to the Zielregion. Ranking uses the\nthree-year trend where a series exists; Stichtag values are labeled\nas Stichtag and are not month-to-month direction. Missing cells stay\nabsent (`liegt nicht vor`), never `0`. Address grain is empty in Brain;\nStage 1 returns areas, not street addresses. `GET /analysis/pattern`\n`yearlySeries` for the marked Zielregion is unchanged (Verlauf).\n`0.12.0` returns only the **finest** hits per Zielregion (Adresse →\n100-m-Raster → Ortsteil → PLZ5 → Bezirk → Gemeinde). Parent/ancestor\nareas are omitted when a finer child exists. Membership prefers\n`geo.geo_ref_zielregion_teil`. Criteria observed only on a coarser\nadmin level are `scope: inherited` and do not differentiate siblings.\n`Recommendation.kind` is the Ebene. Admin map coordinates use\n`geom_4326` / `geom_display` (EPSG:4326); `geo.geo_ref_admin.geom`\nis EPSG:3035.\n`0.12.1` scores kleinräumige Brain yearly series at the hit's own\nEbene. `hamburg_stadtteil_regionalstatistik` feeds Ortsteil / Stadtteil\n(`ortsteil:{id}`, fallback `hamburg_stadtteil:{id}`).\n`muenchen_indikatorenatlas` feeds Stadtbezirk (`bezirk:{id}`) and the\nMünchen Stadt AGS. `berlin_lor_ewr_bevoelkerung` feeds LOR\n(`lor:{RAUMID}`). Local series beat inherited parent series.\nMissing years stay `absent` (no zero-fill). Embedding is not required.\n`0.13.0` corrects the finest→coarse order to Adresse → 100-m-Raster →\nLOR Planungsraum / Köln-Quartier → Ortsteil → PLZ5 → Bezirk → Gemeinde.\n`AreaKind` / `SeriesLevel` add `quartier` and keep `address` and `lor`.\nBerlin 2021 PLR keys are `lor:plr:*` (`lor_version=2021`, ~542,\noutlines in `geo.geo_ref_lor`); 2006 LOR (`lor:{RAUMID}`, 2001–2020)\nis a separate series and is never concatenated with PLR. Prefer PLR\nfor Stage-1 when present. Köln Quartiere use `koeln:sq:*` (~570,\n2012–2025) and beat quartier→bezirk `parent_fallback` rows.\nFurther kleinräumige themes: `koeln_statistischer_datenkatalog`\n(Ortsteil 86 / Bezirk 9 / Quartier), `leipzig_lis_ortsteil`\n(Ortsteil 29), `duesseldorf_bevoelkerung_stadtteile` (OT 49 / BZ 10),\n`essen_bevoelkerung_stadtteile` (OT 50), `frankfurt_demographie_stadtteile`\n(OT 40, 2010–2024). Official addresses are read from\n`geo.geo_ref_address` (Berlin, Hamburg, NRW) when rows exist; an\nempty or missing table is skipped and finest-only continues. Addresses\nare never invented. Membership prefers `geo.geo_ref_zielregion_teil`.\n`0.14.0` builds the store-surroundings Muster spiegelbildlich on every\nEbene (Adresse → 100-m-Raster → LOR/Quartier → Ortsteil → PLZ5 →\nBezirk → Gemeinde; Kreis as `role: frame` only). Zielregion candidates\nare compared to the store pattern of the **same** Ebene. Inherited\ncriteria still do not differentiate siblings; the score uses local\ntrends of that Ebene only. `RecommendationSet.patternByLevel` exposes\nthat Musterprofil (geoKeys, yearlySeries, criteria with\n`scope: local|inherited`) on POST 201 and GET 200. Additive; older\nstored sets may omit the field. `PatternCriterion.scope` is optional.\n`0.15.0` compares **datasets**, not Ebenen. Each store-surrounding\nseries is baselined (`per_1000_inhabitants`, `per_km2`, or\n`per_household`) on its own Fläche; the three-year trend uses\n`normalizedValue`, never raw counts. Missing Bezugsgröße is `absent`\n(liegt nicht vor), never `0`. Pattern and score run per `metricId` at\nthe finest Fläche where that dataset exists (Berlin Bezirk vs Köln PLZ\nstill match relatively). Several datasets yield the smallest common\nhit (intersection of those Flächen). `patternByDataset` is the\ncompare profile; `patternByLevel` stays a geography inventory.\nHierarchy Adresse→…→Gemeinde still chooses Flächen. Additive.\n`0.16.0` takes Bezugsgrößen from Brain `geo.area_baseline` (PK\n`geo_key`, `grain`, `ref_year`) and `geo.baseline_metric_catalog`\n(`source_theme` → `einwohner` / `flaeche_km2` / `haushalte`).\n`baselineMethod` on `SeriesPoint`, `PatternCriterion`,\n`PatternDatasetProfile`, and `RecommendationEvidence` is the method\nof the divisor (`official`, `estimate_lor_sum`, `estimate_address`,\n`missing`, `geom`, `fixed_grid`). `einwohner_method` is never a\nsilent NULL; `missing` omits `normalizedValue` and never divides by\n1. Catalog-first per theme. Additive.\n`0.17.0` adds Zensus-2022 Gitter methods on `BaselineMethod`:\n`official_zensus2022_grid` (100m cell EWZ) and\n`estimate_zensus2022_grid_sum` (PLZ/Ortsteil centroid sum). Address\ncounts stay `estimate_address` only as fallback; `attrs.preferred_ew`\nselects the Zensus row. `dwd1km` is Fläche-only (`missing` EW).\nAdditive.\n\nAnalysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for\nthe target region, and persists a pattern (criteria and direction).\nRecommendations (0.12.0) rank the finest Teilflächen inside that\nregion against the store-surroundings pattern over three calendar\nyears, and attach a German rationale per area.\n\nMap (0.5.0) keeps store pins and the target-region overlay on this API.\nStore `lon`/`lat` are WGS84. Clients are not required to send them.\nKAN-56 Option A: when a write omits both, the API looks up Data-Scout\n`geo_ref_address` (street and house number plus PLZ). The PLZ5 centroid\n(`geo_ref_plz`, then `app.search_places` or a Point in `app.map_features`)\nis used only when that address misses. If the client sends both `lon` and\n`lat`, that pair is stored as sent. No public geocoder is called.\nEach saved target region has `bounds` (west, south, east, north) for map\nfitBounds together with store pins, and `geometry` (GeoJSON Polygon or\nMultiPolygon, EPSG:4326, longitude then latitude) for a semi-transparent\nfill and outline. Labels stay client-side. Clients call only this API.\n"
   },
   "servers": [
     {
@@ -1122,8 +1122,8 @@
           "Recommendations"
         ],
         "operationId": "createRecommendations",
-        "summary": "Rank up to three locations for the signed-in user",
-        "description": "Reads a completed Musteranalyse pattern for this user (the newest run,\nor `runId` when set) and searches Brain locations in the target region.\nA location ranks when at least one pattern criterion with a direction\nmoved the same way inside the six UTC calendar months ending in the\nrequest month. Score is the share of those directional criteria that\nmatch. The response has at most three items, ordered by score.\n\nOne or two matches are success, not an error: `reason` explains the\nthin region in German. Zero matches are also success, with `reason`\nset and `items` empty. `404` when this user has no completed pattern,\nor when `runId` is not one of their runs.\n\nThe region anchor itself is omitted when a finer positive location\nexists. Finer grains match when their `geo_key` is under the region\nkey or their metadata names the region (`geo_ags`, `ags`, `plz`,\n`geo_plz`, `geo_key`). Each item's `rationale` is German and grounded\nin `criteriaEvidence`. `source` is `llm` when that text came from the\nlocal model, otherwise `heuristic`.\n",
+        "summary": "Rank Teilflächen inside the Zielregion",
+        "description": "Reads a completed Musteranalyse for this user (the newest run, or\n`runId` when set) and rebuilds pattern criteria from the\nBestandstandort surroundings (Ortsteil/PLZ near each store plus\nthree-year Gemeinde-/Kreis series). It then lists only the\n**finest** Teilflächen inside the Zielregion (never the region\nitself), evaluating small → large:\n\n- Adresse (`kind=address`) from `geo.geo_ref_address` when rows\n  exist for the Zielregion (Berlin, Hamburg, NRW). Empty or\n  missing table is skipped; addresses are never invented.\n- 100-m Raster (`grid100` / `breitband_gitter`)\n- LOR Planungsraum 2021 (`lor:plr:*` / `geo.geo_ref_lor`) and\n  Köln-Quartier (`koeln:sq:*`, `kind=quartier`). Finer than Ortsteil.\n  2006 LOR (`lor:{RAUMID}`) is a separate series, used only when\n  no PLR exists, never concatenated with 2021.\n- Ortsteil / Stadtteil (`geo.geo_ref_ortsteil`; Hamburg also\n  `hamburg_stadtteil:{id}` yearly series)\n- PLZ5 (`geo.geo_ref_plz`)\n- Stadtbezirk / Bezirk (`geo.geo_ref_bezirk`; München\n  `muenchen_indikatorenatlas` on `bezirk:{id}`)\n- Gemeinde (`geo.geo_ref_admin`) when no finer child exists\n\nParent→child membership prefers `geo.geo_ref_zielregion_teil`\n(`within` / `partial`). Geometry fallback uses\n`app.target_regions.geometry` and `geom_4326` / `geom_display`\non admin rows (`geom` is EPSG:3035, not WGS84).\n\nA parent/ancestor is omitted when a finer child matches.\n`items[].kind` is the Ebene. Criteria available only on a coarser\nadmin level have `criteriaEvidence[].scope: inherited` and do not\ndifferentiate sibling Teilflächen. `scope: local` is native to\nthat hit.\n\nRanking uses the three-year trend where a **local** series exists\nat the hit's own Ebene (`hamburg_stadtteil_regionalstatistik` on\nOrtsteil, `muenchen_indikatorenatlas` on Stadtbezirk,\n`berlin_lor_ewr_bevoelkerung` on LOR PLR, Köln/Leipzig/Düsseldorf/\nEssen/Frankfurt kleinräumige themes, plus `unfallatlas_gebiet`\non Ortsteil/Bezirk/PLZ). Snapshot values are labeled `stichtag`.\nMissing cells are `absent` (`liegt nicht vor`), never `0`.\nKleinräumige yearlySeries rows may have a null embedding.\n\nAn empty `items` array is success only when no sub-area exists\ninside the region (`reason` explains that). `404` when this user\nhas no completed pattern, or when `runId` is not one of their runs.\n\nEach item's `rationale` is German and grounded in\n`criteriaEvidence`. `source` is `llm` when that text came from the\nlocal model, otherwise `heuristic`.\n",
         "requestBody": {
           "required": false,
           "content": {
@@ -1147,45 +1147,69 @@
                   "runId": "15",
                   "createdAt": "2026-09-29T12:00:00.000Z",
                   "window": {
-                    "from": "2026-04",
-                    "to": "2026-09"
+                    "from": "2023",
+                    "to": "2025"
                   },
                   "count": 1,
-                  "reason": "In der Zielregion liegt nur 1 Standort mit positiver Musterentwicklung in den letzten sechs Monaten vor.",
+                  "reason": null,
                   "pattern": {
                     "source": "heuristic",
-                    "summary": "Einwohner steigen mit dem Umsatz.",
+                    "summary": "Unfälle fallen in der Filialumgebung im Dreijahresverlauf.",
                     "revenueDirection": "up",
                     "criteria": [
                       {
-                        "key": "einwohner",
-                        "label": "einwohner",
-                        "direction": "up",
-                        "evidence": "einwohner steigt zwischen den vorliegenden Zeiträumen."
+                        "key": "unfallatlas",
+                        "label": "Unfälle (Ortsteil)",
+                        "direction": "down",
+                        "kind": "trend",
+                        "coverage": "multi",
+                        "evidence": "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8)."
                       }
                     ]
                   },
                   "items": [
                     {
-                      "id": "plz5:80801",
+                      "id": "other:ortsteil:osm:5712247",
                       "rank": 1,
-                      "title": "Schwabing",
+                      "title": "Schwabing-West",
+                      "kind": "ortsteil",
                       "location": {
-                        "geoKey": "80801",
-                        "grain": "plz5",
+                        "geoKey": "ortsteil:osm:5712247",
+                        "grain": "other",
                         "lon": 11.58,
                         "lat": 48.16,
-                        "name": "Schwabing"
+                        "name": "Schwabing-West"
                       },
                       "score": 1,
-                      "rationale": "Am Standort Schwabing (80801) passt das Muster in den letzten sechs Monaten. Quelle: Heuristik, ohne Sprachmodell.",
+                      "rationale": "Die Teilfläche Schwabing-West (ortsteil:osm:5712247) im Vergleich zum Filialmuster. Quelle: Heuristik, ohne Sprachmodell.",
                       "criteriaEvidence": [
                         {
-                          "key": "einwohner",
-                          "label": "einwohner",
-                          "direction": "up",
-                          "patternDirection": "up",
-                          "evidence": "einwohner steigt in den letzten sechs Monaten (2026-04: 10; 2026-09: 20)."
+                          "key": "unfallatlas",
+                          "label": "Unfälle (Ortsteil)",
+                          "direction": "down",
+                          "patternDirection": "down",
+                          "kind": "trend",
+                          "status": "present",
+                          "match": true,
+                          "scope": "local",
+                          "coverage": "multi",
+                          "evidence": "Unfälle fällt im Dreijahresverlauf (2023: 20; 2025: 8).",
+                          "points": [
+                            {
+                              "period": "2023",
+                              "status": "present",
+                              "value": 20
+                            },
+                            {
+                              "period": "2024",
+                              "status": "absent"
+                            },
+                            {
+                              "period": "2025",
+                              "status": "present",
+                              "value": 8
+                            }
+                          ]
                         }
                       ],
                       "source": "heuristic"
@@ -2302,12 +2326,53 @@
       },
       "CriterionDirection": {
         "type": "string",
-        "description": "Direction of one Brain criterion. `unknown` means the facts do not\nshow a change over time (often a single reference period).\n",
+        "description": "Direction of one Brain criterion. `unknown` means the facts do not\nshow a change over time (a Stichtag, or the series is absent).\n",
         "enum": [
           "up",
           "down",
           "flat",
           "unknown"
+        ]
+      },
+      "CriterionKind": {
+        "type": "string",
+        "description": "`trend` is a multi-year / multi-period series. `stichtag` is a single\nsnapshot and must not be treated as month-to-month direction.\n",
+        "enum": [
+          "trend",
+          "stichtag"
+        ]
+      },
+      "AreaKind": {
+        "type": "string",
+        "description": "Ebene of a Teilfläche inside the Zielregion. Never the region itself.\nOnly the finest matching Ebene is returned (Adresse → Raster →\nLOR Planungsraum / Köln-Quartier → Ortsteil → PLZ5 → Bezirk →\nGemeinde). `address` is skipped when `geo.geo_ref_address` is empty\nor unavailable. `lor` is Berlin LOR Planungsraum (`lor:plr:*`\npreferred; 2006 `lor:{RAUMID}` is separate). `quartier` is Köln\n`koeln:sq:*`.\n",
+        "enum": [
+          "address",
+          "grid100",
+          "lor",
+          "quartier",
+          "ortsteil",
+          "stadtteil",
+          "plz",
+          "bezirk",
+          "stadtbezirk",
+          "gemeinde"
+        ]
+      },
+      "EvidenceKind": {
+        "type": "string",
+        "description": "How this criterion was observed on the Teilfläche. `absent` means\nthe value liegt nicht vor (never invented as 0).\n",
+        "enum": [
+          "trend",
+          "stichtag",
+          "absent"
+        ]
+      },
+      "EvidenceScope": {
+        "type": "string",
+        "description": "`local` — the value is native to this Teilfläche's Ebene.\n`inherited` — the value comes from a coarser parent (Gemeinde,\nKreis, …) and is the same for sibling hits; it does not\ndifferentiate them.\n",
+        "enum": [
+          "local",
+          "inherited"
         ]
       },
       "AnalysisRun": {
@@ -2471,8 +2536,12 @@
       },
       "SeriesLevel": {
         "type": "string",
-        "description": "Geographic level of a yearlySeries row. `sourceLevel` is the stored\nBrain row. `requestedLevel` is the Zielregion. Grain `ags5` and a\n5-digit AGS (Köln `05315`) are `kreis`, never `gemeinde`. Gemeinde\nor Kreis numbers are never labeled as Stadtteil, Ortsteil, PLZ, or\nStadtbezirk.\n",
+        "description": "Geographic level of a yearlySeries row. `sourceLevel` is the stored\nBrain row. `requestedLevel` is the Zielregion or Teilfläche.\nGrain `ags5` and a 5-digit AGS (Köln `05315`) are `kreis`, never\n`gemeinde`. `grid100` and `address` are Stage-1 hit Ebenen.\n`lor` is Berlin LOR Planungsraum (`lor:plr:*` preferred over 2006\n`lor:{RAUMID}`). `quartier` is Köln `koeln:sq:*`. Both sit finer\nthan Ortsteil. Gemeinde or Kreis numbers are never labeled as\nStadtteil, Ortsteil, PLZ, or Stadtbezirk.\n",
         "enum": [
+          "address",
+          "grid100",
+          "lor",
+          "quartier",
           "plz",
           "bezirk",
           "stadtbezirk",
@@ -2526,8 +2595,39 @@
           "value": {
             "type": "number",
             "description": "Stored Brain cell for this period. Omitted when absent.\nNot a geo identifier (`ba_schluessel`, `geo_ags`, `geo_ags5`,\n`geo_key`, `source_theme`). Count-like metrics (dwellings,\npopulation, age-band and other person counts, SGB2 BG, PERS,\nELB, NEF, RLB) are whole numbers. Rates, shares, and percentages\nstay fractional.\n"
+          },
+          "normalizedValue": {
+            "type": "number",
+            "description": "Raw `value` divided by the area Bezugsgröße (`per_1000_inhabitants`\nis per 1.000 inhabitants). Omitted when the Bezugsgröße for that\nFläche and year liegt nicht vor. Never invented as `0`.\n`baselineMethod: missing` always omits this field.\n"
+          },
+          "baselineMethod": {
+            "$ref": "#/components/schemas/BaselineMethod",
+            "description": "Method of the divisor actually used from `geo.area_baseline`.\nOmitted on older stored sets and on feature-derived fallback.\n"
           }
         }
+      },
+      "SeriesBaseline": {
+        "type": "string",
+        "description": "Bezugsgröße used to baseline a dataset on its own Fläche.\n`per_1000_inhabitants` — je 1.000 Einwohner.\n`per_km2` — je km² (Einwohner stock, or when area is the baseline).\n`per_household` — je Haushalt.\nMissing divisor → `normalizedValue` omitted, status `absent`.\n",
+        "enum": [
+          "per_1000_inhabitants",
+          "per_km2",
+          "per_household"
+        ]
+      },
+      "BaselineMethod": {
+        "type": "string",
+        "description": "Method of the Bezugsgröße from Brain `geo.area_baseline`.\nEinwohner: `official` | `official_zensus2022_grid` |\n`estimate_lor_sum` | `estimate_zensus2022_grid_sum` |\n`estimate_address` | `missing` (never a silent NULL). Fläche:\n`geom` | `official` | `fixed_grid`. `missing` means\n`normalizedValue` is absent; never divide by 1. Zensus methods\nare not remapped to `estimate_address`.\n",
+        "enum": [
+          "official",
+          "official_zensus2022_grid",
+          "estimate_lor_sum",
+          "estimate_zensus2022_grid_sum",
+          "estimate_address",
+          "missing",
+          "geom",
+          "fixed_grid"
+        ]
       },
       "YearlySeries": {
         "type": "object",
@@ -2546,7 +2646,7 @@
         "properties": {
           "metricId": {
             "type": "string",
-            "description": "Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain\nseries theme id (`destatis_wohnungen`, `kba_elektro_pkw`, …).\nNot store revenue.\n"
+            "description": "Address-pair topic id (`bevoelkerung`, `pendler`, …) or a Brain\nseries theme id (`destatis_wohnungen`, `kba_elektro_pkw`,\n`hamburg_stadtteil_regionalstatistik`,\n`muenchen_indikatorenatlas`, `berlin_lor_ewr_bevoelkerung`,\n`koeln_statistischer_datenkatalog`, `leipzig_lis_ortsteil`,\n`duesseldorf_bevoelkerung_stadtteile`,\n`essen_bevoelkerung_stadtteile`,\n`frankfurt_demographie_stadtteile`, …).\nNot store revenue. Kleinräumige themes score at the hit's own\nEbene (Adresse, Raster, LOR/Quartier, Ortsteil, Stadtbezirk)\nand do not require an embedding. Berlin LOR 2021 PLR and 2006\nare separate series.\n"
           },
           "requestedLevel": {
             "$ref": "#/components/schemas/SeriesLevel"
@@ -2589,7 +2689,7 @@
           "revenueDirection",
           "criteria"
         ],
-        "description": "Persisted pattern for a later Top-3 step. `source` is `llm` when the\ncriteria were taken from the language model and checked against the\nretrieved facts, otherwise `heuristic`. `yearlySeries` is the\nthree-year small-area Brain history for the user's Zielregionen.\nIt is not store revenue. A `coverage` of `single` is not a trend.\n",
+        "description": "Persisted pattern for recommendations. `source` is `llm` when the\ncriteria were taken from the language model and checked against the\nstore-surrounding facts, otherwise `heuristic`. `yearlySeries` is the\nthree-year small-area Brain history for the user's Zielregionen\n(Verlauf). Pattern `criteria` come from Bestandstandort surroundings.\nA `coverage` of `single` is a Stichtag, not a trend.\n",
         "properties": {
           "source": {
             "type": "string",
@@ -2607,7 +2707,7 @@
           "criteria": {
             "type": "array",
             "maxItems": 5,
-            "description": "At most five grounded criteria. Heuristic values (counts and rates)\nare taken only from Brain facts whose geoKey belongs to the target\nregion's AGS hierarchy (Köln ags5 `05315` and ags `05315000` are\nthe same place). Facts from other cities are not averaged into a\nmean. Destatis `bev_insgesamt` at ags5 is preferred for Einwohner\nover Zensus `ewz`. A Kreis or Land fallback is labeled as such.\nMissing values are absent (liegt nicht vor), never invented.\n",
+            "description": "At most five grounded criteria. Heuristic values come from\nBestandstandort surroundings (Adresse → Raster → LOR/Quartier →\nOrtsteil → PLZ5 → Bezirk → Gemeinde; Kreis is Rahmen only, e.g.\nKöln ags5 `05315`), never from clipping Brain facts to the\nZielregion. Destatis `bev_insgesamt` at ags5 is preferred for\nEinwohner over Zensus `ewz`. A Kreis or Land fallback is labeled\nas such. Missing values are absent (liegt nicht vor), never\ninvented.\n",
             "items": {
               "$ref": "#/components/schemas/PatternCriterion"
             }
@@ -2642,7 +2742,145 @@
           },
           "evidence": {
             "type": "string",
-            "description": "Grounded in the retrieved Brain facts or the stored revenue series.\nNested metric keys use the leaf in heuristic period stamps\n(`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent\nBrain `ref_period` suffix (`2020|wohnungen`). Heuristic numbers\nuse only the Zielregion geoKey / AGS hierarchy, never a mean\nacross foreign places.\n"
+            "description": "Grounded in store-surrounding Brain series or the stored revenue\nseries. Nested metric keys use the leaf in heuristic period stamps\n(`wohnungen.raeume` → `2020|Räume` / `raeume`), not the parent\nBrain `ref_period` suffix (`2020|wohnungen`). Heuristic numbers\nuse only the Filialumgebung keys, never a mean across foreign\nplaces. Stichtag snapshots say so; missing cells are\n`liegt nicht vor`, never `0`.\n"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CriterionKind"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/SeriesCoverage"
+          },
+          "sourceLevel": {
+            "$ref": "#/components/schemas/SeriesLevel",
+            "description": "Flächenebene on which this dataset is present."
+          },
+          "sourceGeoKey": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/EvidenceScope",
+            "description": "Present on `patternByLevel` / `patternByDataset` criteria.\n`local` is native to that Fläche. `inherited` was taken from a\ncoarser parent and does not differentiate siblings. Omitted on\nolder `pattern.criteria`.\n"
+          },
+          "metricId": {
+            "type": "string",
+            "description": "Dataset / Brain theme id this criterion compares (`kba_elektro_pkw`,\n`unfallatlas`, …). Same as `key` on new sets. Additive.\n"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/SeriesBaseline",
+            "description": "Bezugsgröße for the relative match. Omitted on older stored sets.\n"
+          },
+          "rawValue": {
+            "type": "number",
+            "description": "Latest present raw Brain cell. Omitted when every period is absent.\n"
+          },
+          "normalizedValue": {
+            "type": "number",
+            "description": "Latest present `rawValue` after baselining. Omitted when the\nBezugsgröße liegt nicht vor. Never `0` as a stand-in.\n"
+          },
+          "baselineMethod": {
+            "$ref": "#/components/schemas/BaselineMethod",
+            "description": "Method of the latest present Bezugsgröße. `missing` when the\ncatalog theme has no usable divisor for that year.\n"
+          }
+        }
+      },
+      "PatternLevel": {
+        "type": "string",
+        "description": "Canonical Ebene of a store-surroundings Musterprofil.\n`stadtteil` folds into `ortsteil`; `stadtbezirk` into `bezirk`.\n`kreis` is Rahmen only (`role: frame`).\n",
+        "enum": [
+          "address",
+          "grid100",
+          "lor",
+          "quartier",
+          "ortsteil",
+          "plz",
+          "bezirk",
+          "gemeinde",
+          "kreis"
+        ]
+      },
+      "PatternLevelRole": {
+        "type": "string",
+        "enum": [
+          "pattern",
+          "frame"
+        ],
+        "description": "Geography inventory on `patternByLevel`. `frame` (Kreis) is context\nonly. Compare/score uses `patternByDataset`, not same-Ebene matching.\n"
+      },
+      "PatternLevelProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "level",
+          "role",
+          "geoKeys",
+          "yearlySeries",
+          "criteria"
+        ],
+        "description": "Store-surroundings pattern at one Ebene. `yearlySeries` are the\nlast three available years for that Ebene. Missing years are\n`absent` (liegt nicht vor), never `0`. `criteria` are derived\nfrom those series (max 5) with `scope` `local` or `inherited`.\n",
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/PatternLevel"
+          },
+          "role": {
+            "$ref": "#/components/schemas/PatternLevelRole"
+          },
+          "geoKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Bestandstandort geo keys aggregated at this Ebene."
+          },
+          "yearlySeries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/YearlySeries"
+            }
+          },
+          "criteria": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/PatternCriterion"
+            }
+          }
+        }
+      },
+      "PatternDatasetProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metricId",
+          "baseline",
+          "sourceLevel",
+          "sourceGeoKey",
+          "yearlySeries",
+          "criterion"
+        ],
+        "description": "Store-surroundings Musterprofil for one dataset. `yearlySeries` is\nthe finest Bestandstandort Fläche where that metric exists.\n`normalizedValue` on points and on `criterion` is the relative\nmatch (je 1.000 Einwohner, je km², or je Haushalt). Missing\nBezugsgröße omits `normalizedValue`. Additive; older stored sets\nmay omit `patternByDataset`.\n",
+        "properties": {
+          "metricId": {
+            "type": "string"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/SeriesBaseline"
+          },
+          "sourceLevel": {
+            "$ref": "#/components/schemas/SeriesLevel",
+            "description": "Flächenebene on which this dataset is present."
+          },
+          "sourceGeoKey": {
+            "type": "string"
+          },
+          "yearlySeries": {
+            "$ref": "#/components/schemas/YearlySeries"
+          },
+          "criterion": {
+            "$ref": "#/components/schemas/PatternCriterion"
+          },
+          "baselineMethod": {
+            "$ref": "#/components/schemas/BaselineMethod",
+            "description": "Method of the Bezugsgröße on this dataset profile. Additive.\n"
           }
         }
       },
@@ -2744,7 +2982,7 @@
           "pattern",
           "items"
         ],
-        "description": "Top-3 payload the web client binds to. `count` is `items.length` and\nis never greater than 3. `reason` is null when three positive locations\nwere available. `pattern` is the snapshot used for this ranking.\n",
+        "description": "Ranked Teilflächen the web client binds to. `count` is\n`items.length`. `reason` is null when at least one sub-area\nexists and the catalog read was not truncated. `pattern` is the\nflattened store-surroundings snapshot (older clients).\n`patternByLevel` is the geography inventory je Ebene.\n`patternByDataset` is the Musterprofil used for dataset compare\n(normalized trend per metricId). Empty `items` only when no\nsub-area exists inside the Zielregion. Hit size is the Fläche\nwhere the dataset lives, not the smallest admin Ebene at all\ncosts; several datasets yield their intersection.\n",
         "properties": {
           "id": {
             "type": "string",
@@ -2764,19 +3002,33 @@
           "count": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 3
+            "maximum": 200
           },
           "reason": {
             "type": "string",
             "nullable": true,
-            "description": "German explanation when fewer than three locations are returned,\nor when the Brain read hit its row limit. Null when three matches\nwere ranked without truncation.\n"
+            "description": "German explanation when no finer Teilfläche exists inside the\nregion, or when the catalog read hit its row limit. Null when\nfinest sub-areas were ranked without truncation.\n"
           },
           "pattern": {
             "$ref": "#/components/schemas/AnalysisPattern"
           },
+          "patternByLevel": {
+            "type": "array",
+            "description": "Store-surroundings Musterprofil je Ebene, finest → coarse.\nNew `POST /recommendations` includes the Ebenen resolved for\nthe Bestandstandorte. Older stored sets may omit this field.\nGeography inventory only; compare/score uses `patternByDataset`.\nKreis is `role: frame` and does not differentiate siblings.\n",
+            "items": {
+              "$ref": "#/components/schemas/PatternLevelProfile"
+            }
+          },
+          "patternByDataset": {
+            "type": "array",
+            "description": "Store-surroundings Musterprofil je Datensatz (normalized\nvalue + three-year trend at the finest Fläche where that\nmetric exists). New `POST /recommendations` always includes\nit. Older stored sets may omit the field. Web uses this to\nshow the relative dataset match, not only Muster je Ebene.\n",
+            "items": {
+              "$ref": "#/components/schemas/PatternDatasetProfile"
+            }
+          },
           "items": {
             "type": "array",
-            "maxItems": 3,
+            "maxItems": 200,
             "items": {
               "$ref": "#/components/schemas/Recommendation"
             }
@@ -2790,19 +3042,19 @@
           "from",
           "to"
         ],
-        "description": "Six calendar months, inclusive, ending in the UTC month of the request.\nBrain `ref_period` values outside this window do not affect the score.\n",
+        "description": "Three calendar years used for trend ranking (`YYYY`), inclusive.\nOlder stored sets may still use `YYYY-MM` (six-month window).\n",
         "properties": {
           "from": {
             "type": "string",
-            "pattern": "^[0-9]{4}-[0-9]{2}$",
-            "description": "Oldest month in the window (`YYYY-MM`).",
-            "example": "2026-04"
+            "pattern": "^[0-9]{4}(-[0-9]{2})?$",
+            "description": "Oldest year (or month) in the window.",
+            "example": "2023"
           },
           "to": {
             "type": "string",
-            "pattern": "^[0-9]{4}-[0-9]{2}$",
-            "description": "Newest month in the window (`YYYY-MM`).",
-            "example": "2026-09"
+            "pattern": "^[0-9]{4}(-[0-9]{2})?$",
+            "description": "Newest year (or month) in the window.",
+            "example": "2025"
           }
         }
       },
@@ -2813,6 +3065,7 @@
           "id",
           "rank",
           "title",
+          "kind",
           "location",
           "score",
           "rationale",
@@ -2822,17 +3075,21 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Stable location id `{grain}:{geoKey}` inside this set.",
-            "example": "plz5:80801"
+            "description": "Stable area id `{grain}:{geoKey}` inside this set.",
+            "example": "other:ortsteil:osm:5712247"
           },
           "rank": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 3
+            "maximum": 200
           },
           "title": {
             "type": "string",
-            "description": "Card title. Place name, address line, or geo key from Brain."
+            "description": "Card title. Place name or geo key from geo_ref."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AreaKind",
+            "description": "Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, LOR, PLZ,\nBezirk, Gemeinde). Required on new sets.\n"
           },
           "location": {
             "$ref": "#/components/schemas/RecommendationLocation"
@@ -2842,7 +3099,7 @@
             "format": "double",
             "minimum": 0,
             "maximum": 1,
-            "description": "Share of pattern criteria that have a direction and moved the same\nway at this location inside the window. 1 is a full fit.\n"
+            "description": "Share of **local** three-year trend criteria whose **normalized**\ndirection matches the store-surroundings pattern of the **same\ndataset** (`metricId`). Different Ebenen may still match when\nboth are baselined (Berlin Bezirk vs Köln PLZ). Inherited\nparent-level trends and Kreis-frame series do not change this\nscore. Stichtag criteria are labeled and do not drive this\nscore. Missing Bezugsgröße is absent and does not match. 1 is\na full local trend fit.\n"
           },
           "rationale": {
             "type": "string",
@@ -2909,7 +3166,7 @@
           "patternDirection",
           "evidence"
         ],
-        "description": "One pattern criterion that moved in the pattern direction at this\nlocation. `direction` is what Brain shows in the window.\n`patternDirection` is the saved Musteranalyse direction.\n",
+        "description": "One pattern criterion observed on this Teilfläche.\n`kind` is `trend`, `stichtag`, or `absent`. `status` is `present`\nor `absent`. Missing values omit `value` / `normalizedValue` and\nare never `0`. `patternDirection` is the stored Musteranalyse\ndirection. `scope` is `local` when the series is native to this\nFläche, or `inherited` when it was taken from a coarser parent.\n`metricId`, `baseline`, `rawValue`, `normalizedValue`, and\n`sourceLevel` (Flächenebene) describe the dataset compare.\n",
         "properties": {
           "key": {
             "type": "string"
@@ -2925,7 +3182,52 @@
           },
           "evidence": {
             "type": "string",
-            "description": "German sentence with the months and figures used for the score.\nNested metric keys use the leaf label (`Räume` / `raeume` for\n`wohnungen.raeume`), not the parent key.\n"
+            "description": "German sentence with the years/Stichtag and figures used for the\nscore, or `liegt nicht vor`. Nested metric keys use the leaf\nlabel (`Räume` / `raeume` for `wohnungen.raeume`), not the parent key.\n"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvidenceKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SeriesPointStatus"
+          },
+          "match": {
+            "type": "boolean",
+            "description": "True when a trend criterion moved in the pattern direction."
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/SeriesCoverage"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/EvidenceScope"
+          },
+          "sourceLevel": {
+            "$ref": "#/components/schemas/SeriesLevel",
+            "description": "Flächenebene on which this dataset is present."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            }
+          },
+          "metricId": {
+            "type": "string",
+            "description": "Dataset / Brain theme id compared on this Fläche."
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/SeriesBaseline"
+          },
+          "rawValue": {
+            "type": "number",
+            "description": "Latest present raw Brain cell. Omitted when absent."
+          },
+          "normalizedValue": {
+            "type": "number",
+            "description": "Latest present baselined value. Omitted when the Bezugsgröße\nliegt nicht vor. Never invented as `0`.\n"
+          },
+          "baselineMethod": {
+            "$ref": "#/components/schemas/BaselineMethod",
+            "description": "Method of the divisor used on this Teilfläche. Additive.\n"
           }
         }
       },

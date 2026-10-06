@@ -12,6 +12,8 @@ import type {
   MonthlyRevenuePoint,
   MonthlyRevenuePointWrite,
   MonthlyRevenueSeries,
+  PatternLevelProfile,
+  PatternDatasetProfile,
   RecommendationCreate,
   RecommendationEvidence,
   RevenueDirection,
@@ -442,6 +444,30 @@ const BRAIN_REASONS = new Set<NonNullable<AnalysisBrain["vectorUnavailableReason
   "features_unavailable",
 ]);
 const PATTERN_SOURCES = new Set<AnalysisPattern["source"]>(["llm", "heuristic"]);
+const PATTERN_LEVELS = new Set([
+  "address",
+  "grid100",
+  "lor",
+  "quartier",
+  "ortsteil",
+  "plz",
+  "bezirk",
+  "gemeinde",
+  "kreis",
+] as const);
+const PATTERN_LEVEL_ROLES = new Set(["pattern", "frame"] as const);
+const EVIDENCE_SCOPES = new Set(["local", "inherited"] as const);
+const SERIES_BASELINES = new Set<string>(["per_1000_inhabitants", "per_km2", "per_household"]);
+const BASELINE_METHODS = new Set<string>([
+  "official",
+  "official_zensus2022_grid",
+  "estimate_lor_sum",
+  "estimate_zensus2022_grid_sum",
+  "estimate_address",
+  "missing",
+  "geom",
+  "fixed_grid",
+]);
 const SERIES_GRANULARITIES = new Set<YearlySeries["granularity"]>(["year", "month"]);
 const SERIES_COVERAGES = new Set<YearlySeries["coverage"]>(["none", "single", "multi"]);
 const SERIES_POINT_STATUSES = new Set<YearlySeries["points"][number]["status"]>(["present", "absent"]);
@@ -532,6 +558,10 @@ function parseAnalysisPattern(body: AnalysisPattern, route: string): AnalysisPat
     ) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
+    if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    parseCriterionDatasetFields(criterion, route);
   }
   if (body.yearlySeries !== undefined) {
     if (!Array.isArray(body.yearlySeries)) {
@@ -563,12 +593,26 @@ function parseYearlySeries(body: YearlySeries, route: string): YearlySeries {
     if (point.status === "present" && typeof point.value !== "number") {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
     }
+    if (point.normalizedValue !== undefined && typeof point.normalizedValue !== "number") {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (point.baselineMethod !== undefined && !BASELINE_METHODS.has(point.baselineMethod)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
   }
   return body;
 }
 
 function isSeriesLevel(value: unknown): value is YearlySeries["sourceLevel"] {
-  return isCatalogLevel(value) || value === "kreis" || value === "land";
+  return (
+    isCatalogLevel(value) ||
+    value === "kreis" ||
+    value === "land" ||
+    value === "grid100" ||
+    value === "address" ||
+    value === "lor" ||
+    value === "quartier"
+  );
 }
 
 function parseAnalysisPatternResponse(body: AnalysisPatternResponse): AnalysisPatternResponse {
@@ -630,8 +674,81 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   parseAnalysisPattern(body.pattern, route);
+  if (body.patternByLevel !== undefined) {
+    if (!Array.isArray(body.patternByLevel)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    body.patternByLevel.forEach((profile) => parsePatternLevelProfile(profile, route));
+  }
+  if (body.patternByDataset !== undefined) {
+    if (!Array.isArray(body.patternByDataset)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    body.patternByDataset.forEach((profile) => parsePatternDatasetProfile(profile, route));
+  }
   body.items.forEach((item) => parseRecommendation(item, route));
   return body;
+}
+
+function parsePatternLevelProfile(body: PatternLevelProfile, route: string): void {
+  if (
+    !body ||
+    !PATTERN_LEVELS.has(body.level) ||
+    !PATTERN_LEVEL_ROLES.has(body.role) ||
+    !Array.isArray(body.geoKeys) ||
+    !Array.isArray(body.yearlySeries) ||
+    !Array.isArray(body.criteria)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.geoKeys.some((key) => typeof key !== "string")) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  body.yearlySeries.forEach((item) => parseYearlySeries(item, route));
+  for (const criterion of body.criteria) {
+    if (
+      !criterion ||
+      typeof criterion.key !== "string" ||
+      typeof criterion.label !== "string" ||
+      typeof criterion.evidence !== "string" ||
+      !CRITERION_DIRECTIONS.has(criterion.direction)
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    if (criterion.scope !== undefined && !EVIDENCE_SCOPES.has(criterion.scope)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    parseCriterionDatasetFields(criterion, route);
+  }
+}
+
+function parsePatternDatasetProfile(body: PatternDatasetProfile, route: string): void {
+  if (
+    !body ||
+    typeof body.metricId !== "string" ||
+    !SERIES_BASELINES.has(body.baseline) ||
+    !isSeriesLevel(body.sourceLevel) ||
+    typeof body.sourceGeoKey !== "string" ||
+    !body.yearlySeries ||
+    !body.criterion
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseYearlySeries(body.yearlySeries, route);
+  const criterion = body.criterion;
+  if (
+    !criterion ||
+    typeof criterion.key !== "string" ||
+    typeof criterion.label !== "string" ||
+    typeof criterion.evidence !== "string" ||
+    !CRITERION_DIRECTIONS.has(criterion.direction)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseCriterionDatasetFields(criterion, route);
+  if (body.baselineMethod !== undefined && !BASELINE_METHODS.has(body.baselineMethod)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
 }
 
 function parseRecommendation(body: Recommendation, route: string): Recommendation {
@@ -676,6 +793,34 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
     !CRITERION_DIRECTIONS.has(body.direction) ||
     !CRITERION_DIRECTIONS.has(body.patternDirection)
   ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  parseCriterionDatasetFields(body, route);
+}
+
+function parseCriterionDatasetFields(
+  body: {
+    metricId?: string;
+    baseline?: string;
+    rawValue?: number;
+    normalizedValue?: number;
+    baselineMethod?: string;
+  },
+  route: string,
+): void {
+  if (body.metricId !== undefined && typeof body.metricId !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.baseline !== undefined && !SERIES_BASELINES.has(body.baseline)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.rawValue !== undefined && typeof body.rawValue !== "number") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.normalizedValue !== undefined && typeof body.normalizedValue !== "number") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.baselineMethod !== undefined && !BASELINE_METHODS.has(body.baselineMethod)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
 }

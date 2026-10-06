@@ -8,6 +8,7 @@ import {
 } from "../database/pg-error";
 import { officialAgsKey } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
+import { AreaBaselineService } from "./area-baseline.service";
 import {
   RegionSourceKeys,
   SERIES_METRICS,
@@ -46,17 +47,21 @@ interface BezirkRow {
 export class YearlySeriesService {
   private readonly logger = new Logger(YearlySeriesService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly areaBaseline: AreaBaselineService,
+  ) {}
 
   /**
    * Stored Brain values for the last three years on each Zielregion.
-   * Never interpolates. Store revenue is not included.
+   * Never interpolates. Store revenue is not included. Catalog-listed
+   * themes are baselined from `geo.area_baseline` (method on each point).
    */
   async build(regions: SeriesRegionInput[], asOf = new Date()): Promise<YearlySeries[]> {
     const resolved = await this.resolveRegions(regions);
     if (resolved.length === 0) return [];
     const docs = await this.readFeatureDocs(allLookupKeys(resolved));
-    return resolved.flatMap((region) =>
+    const series = resolved.flatMap((region) =>
       SERIES_METRICS.map((metric) =>
         buildMetricSeries({
           metricId: metric.id,
@@ -67,6 +72,7 @@ export class YearlySeriesService {
         }),
       ),
     );
+    return this.areaBaseline.normalize(series);
   }
 
   private async resolveRegions(regions: SeriesRegionInput[]): Promise<RegionSourceKeys[]> {
@@ -85,7 +91,12 @@ export class YearlySeriesService {
       .filter((item) => item.requestedLevel === "plz" && !municipalityAgsFrom(item.region))
       .map((item) => item.region.plz ?? item.requestedGeoKey.replace(/^(?:plz5|plz8):/i, ""));
     const needOrtsteil = wanted
-      .filter((item) => item.requestedLevel === "stadtteil" || item.requestedLevel === "ortsteil")
+      .filter(
+        (item) =>
+          item.requestedLevel === "stadtteil" ||
+          item.requestedLevel === "ortsteil" ||
+          /^hamburg_stadtteil:/i.test(item.requestedGeoKey),
+      )
       .flatMap((item) => ortsteilLookupIds(item.requestedGeoKey));
     const needBezirk = wanted
       .filter(
@@ -330,8 +341,10 @@ function gemeindeFromCatalog(
 
 function ortsteilLookupIds(geoKey: string): string[] {
   const ids = [geoKey];
-  const match = /^(stadtteil|ortsteil):(.+)$/i.exec(geoKey.trim());
-  if (match?.[2]) ids.push(match[2]);
+  const match = /^(stadtteil|ortsteil|hamburg_stadtteil):(.+)$/i.exec(geoKey.trim());
+  if (match?.[2]) {
+    ids.push(match[2], `ortsteil:${match[2]}`, `stadtteil:${match[2]}`, `hamburg_stadtteil:${match[2]}`);
+  }
   return unique(ids);
 }
 
