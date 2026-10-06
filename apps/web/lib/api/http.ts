@@ -952,8 +952,8 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     grain: body.grain ?? body.location.grain,
     name: recommendationDisplayName(body),
     parentLabel,
-    targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : undefined,
-    dataAsOf: body.dataAsOf === undefined ? undefined : body.dataAsOf,
+    targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : "",
+    dataAsOf: typeof body.dataAsOf === "string" ? body.dataAsOf : undefined,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),

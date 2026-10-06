@@ -499,10 +499,14 @@ test("GET /recommendations accepts additive 0.19.2 targetRegionGeoKey and dataAs
   assert.equal(parsedRegions?.targetRegions?.[0]?.geoKey, "ortsteil:osm:162894");
   const without = createHttpApi({
     getAccessToken: () => "jwt-1",
-    fetch: async () => json(set),
+    fetch: async () =>
+      json({
+        ...set,
+        items: set.items.map((item) => ({ ...item, targetRegionGeoKey: undefined, dataAsOf: undefined })),
+      }),
   });
   const older = await without.getRecommendations();
-  assert.equal(older?.items[0]?.targetRegionGeoKey, undefined);
+  assert.equal(older?.items[0]?.targetRegionGeoKey, "");
   assert.equal(older?.items[0]?.dataAsOf, undefined);
 });
 

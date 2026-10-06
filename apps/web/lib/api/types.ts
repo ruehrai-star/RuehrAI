@@ -80,21 +80,19 @@ export type RecommendationLocation = ContractRecommendationLocation & {
 };
 
 /**
- * Additive OpenAPI 0.19.2 fields. Optional until `@ruehrai/api-contracts`
- * ships that version; older payloads omit them.
+ * OpenAPI 0.19.2 item fields. `targetRegionGeoKey` is required on new sets;
+ * older stored rows hydrate to `""`. `dataAsOf` is year/month or null.
  */
 export type RecommendationV192Fields = {
-  /** Zielregion this item belongs to. Rank is per this key, from 1. */
-  targetRegionGeoKey?: string;
-  /** As-of stamp for the card line `Stichtag [Jahr]`. */
-  dataAsOf?: string;
+  targetRegionGeoKey: string;
+  dataAsOf?: string | null;
 };
 
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
-} & RecommendationV192Fields;
+};
 
-/** Additive 0.19.2 snapshot of keys actually used as `items[].targetRegionGeoKey`. */
+/** Snapshot of keys actually used as `items[].targetRegionGeoKey`. */
 export type RecommendationTargetRegionRef = {
   geoKey: string;
   label?: string;
@@ -102,7 +100,6 @@ export type RecommendationTargetRegionRef = {
 
 export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
   items: Recommendation[];
-  targetRegions?: RecommendationTargetRegionRef[];
 };
 
 /**
