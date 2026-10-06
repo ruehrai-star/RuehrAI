@@ -32,12 +32,14 @@ export interface RecommendationIntersectionPart {
   datasetKey?: string;
 }
 
-/** Spatial parent (Stadtbezirk/Bezirk) that a hit overlaps, with area share 0–1. */
+/** Spatial parent or Zielregion that a hit overlaps, with area share 0–1. */
 export interface RecommendationOverlap {
   geoKey: string;
   label: string;
   kind: AreaKind;
   share: number;
+  /** True when this entry is the item's Zielregion (always first). Additive 0.19.5. */
+  isTargetRegion?: boolean;
 }
 
 export type EvidenceKind = "trend" | "stichtag" | "absent";
@@ -64,6 +66,19 @@ export interface RecommendationEvidence {
   baselineMethod?: BaselineMethod;
   /** Same Bezugsgröße as Muster patternByDataset for this metric. */
   baselineMatch?: boolean;
+  /**
+   * Closeness of this dataset to the store pattern on the baseline (0..1).
+   * Omitted when the dataset is absent, inherited, or statistically neutral.
+   * Additive; missing data is never stored as `0`.
+   */
+  proximity?: number;
+  /**
+   * Distinct calendar years used for this dataset's trend.
+   * 2 means a two-year trend. Omitted when there is no trend.
+   */
+  trendYears?: number;
+  /** True when `trendYears === 2`. Additive; omitted otherwise. */
+  trendFromTwoYears?: boolean;
 }
 
 export interface ScoredLocation {
@@ -81,6 +96,11 @@ export interface ScoredLocation {
   dataAsOf: string | null;
   location: RecommendationLocation;
   score: number;
+  /**
+   * Share of the (unclipped) candidate inside the Zielregion, 0–1.
+   * Used for tie-break. Additive.
+   */
+  targetOverlapShare?: number;
   criteriaEvidence: RecommendationEvidence[];
   geometry?: RegionGeometry | null;
   geometryUnavailableReason?: string | null;

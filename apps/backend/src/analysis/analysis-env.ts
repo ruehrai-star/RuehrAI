@@ -10,6 +10,11 @@ export const ANALYSIS_ENV_DEFAULTS = {
   analysisPoolMax: 2,
   seriesCandidateCap: 400,
   yieldMs: 20,
+  scoreTrendWeight: 0.6,
+  scoreNiveauWeight: 0.4,
+  scoreMinActiveDatasets: 2,
+  scoreMinDispersionN: 3,
+  minOverlapShare: 0.1,
 } as const;
 
 export function readAnalysisRunDeadlineMs(
@@ -62,6 +67,22 @@ export function readAnalysisUseWorkerThreads(
   const value = raw.trim().toLowerCase();
   if (value === "0" || value === "false" || value === "no") return false;
   return true;
+}
+
+/**
+ * Minimum share of a polygon candidate that must lie inside the Zielregion
+ * (`ST_Area(intersection) / ST_Area(candidate)` in EPSG:3035). Points,
+ * addresses, raster cells, and `geo_ref_zielregion_teil` children are not
+ * filtered. Default 0.10.
+ */
+export function readAnalysisMinOverlapShare(
+  read: (name: string) => string | undefined = (name) => process.env[name],
+): number {
+  const raw = read("ANALYSIS_MIN_OVERLAP_SHARE");
+  if (raw === undefined || raw.trim() === "") return ANALYSIS_ENV_DEFAULTS.minOverlapShare;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) return ANALYSIS_ENV_DEFAULTS.minOverlapShare;
+  return value;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {

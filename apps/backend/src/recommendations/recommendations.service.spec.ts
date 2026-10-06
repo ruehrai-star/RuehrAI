@@ -267,7 +267,11 @@ describe("RecommendationsService", () => {
         rows: [{ id: "5", created_at: new Date("2026-09-29T12:00:00.000Z") }],
       });
     load.mockResolvedValue({
-      items: [area("ortsteil:osm:1", "Schwabing"), area("ortsteil:osm:2", "Sendling")],
+      items: [
+        area("ortsteil:osm:1", "Schwabing"),
+        area("ortsteil:osm:2", "Sendling"),
+        area("ortsteil:osm:3", "Giesing"),
+      ],
       truncated: false,
     });
     build
@@ -277,14 +281,18 @@ describe("RecommendationsService", () => {
         inhabitants("ortsteil:osm:1"),
         trend("ortsteil:osm:2", 10, 30),
         inhabitants("ortsteil:osm:2"),
+        trend("ortsteil:osm:3", 14, 16),
+        inhabitants("ortsteil:osm:3"),
       ]);
 
     const set = await service.create("4", undefined, asOf);
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["plz"]);
     expect(set.patternByDataset?.[0]?.sourceLevel).toBe("plz");
-    expect(set.items.map((item) => item.title)).toEqual(["Schwabing", "Sendling"]);
-    expect(set.items[0]?.score).toBe(1);
-    expect(set.items[1]?.score).toBe(0);
+    expect(set.items.map((item) => item.title)[0]).toBe("Schwabing");
+    expect(set.items[0]?.score).toBeGreaterThan(set.items[1]?.score ?? 0);
+    expect(set.items[0]?.score).toBeLessThanOrEqual(1);
+    expect(set.items[0]?.score).toBeGreaterThan(0);
+    expect(set.items[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
     expect(set.items[0]?.criteriaEvidence[0]?.baseline).toBe("per_1000_inhabitants");
     expect(set.items[0]?.criteriaEvidence[0]?.match).toBe(true);
     expect(set.items.every((item) => item.criteriaEvidence.length === 1)).toBe(true);

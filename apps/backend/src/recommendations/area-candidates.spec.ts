@@ -33,12 +33,17 @@ import {
   selectCatalogHits,
   selectFinestHits,
   skipAddressAndGridForRegion,
+  compareSpatialGeoKey,
   spatialEvenHitsLimitSql,
+  spatialMd5,
   SPATIAL_SAMPLE_CELL_DEG,
   clipToRegionSql,
   clippedHitGeoJsonSql,
+  DEFAULT_MIN_OVERLAP_SHARE,
   overlapJoinSql,
   overlapShareSql,
+  meetsMinOverlapShare,
+  polygonMinOverlapPredicate,
   teilCatalogQuery,
   resolveTargetRegionKey,
   targetRegionKeyOf,
@@ -117,7 +122,9 @@ describe("area candidate SQL", () => {
     const wrap = spatialEvenHitsLimitSql();
     expect(wrap).toContain("spatial_rank");
     expect(wrap).toContain(`floor(hits.lon / ${SPATIAL_SAMPLE_CELL_DEG})`);
-    expect(wrap).toContain("ORDER BY spatial_rank ASC, geo_key ASC");
+    expect(wrap).toContain("ORDER BY spatial_rank ASC, md5(geo_key), geo_key");
+    expect(wrap).toContain("ORDER BY md5(hits.geo_key), hits.geo_key");
+    expect(wrap).not.toMatch(/ORDER BY spatial_rank ASC, geo_key ASC/);
     expect(wrap).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
     for (const sql of [
       buildAddressCandidateSql(),
@@ -126,10 +133,32 @@ describe("area candidate SQL", () => {
       buildTeilCatalogSql(),
       buildAreaCandidateSql(),
     ]) {
+      expect(sql).toContain("md5(");
       expect(sql).toContain("spatial_rank");
       expect(sql).toContain("row_number() OVER");
       expect(sql).toMatch(/ORDER BY[\s\S]*spatial_rank ASC/);
       expect(sql).not.toMatch(/ORDER BY[\s\S]*name ASC NULLS LAST[\s\S]*geo_key ASC\s+LIMIT/);
+      expect(sql).not.toMatch(/ORDER BY \$\{from\}\.geo_key ASC/);
+    }
+  });
+
+  it("orders spatial ties by md5(geo_key), not alphabetically", () => {
+    const keys = ["address:zulu", "lor:plr:01100310", "plz:10115", "plz:14195", "zzz:last", "aaa:first"];
+    const alpha = [...keys].sort((left, right) => left.localeCompare(right));
+    const hashed = [...keys].sort(compareSpatialGeoKey);
+    expect(hashed).not.toEqual(alpha);
+    expect(spatialMd5("plz:10115")).toMatch(/^[0-9a-f]{32}$/);
+    expect(spatialMd5("aaa:first") < spatialMd5("zzz:last") || "aaa:first" < "zzz:last").toBe(true);
+    for (const sql of [
+      spatialEvenHitsLimitSql(),
+      buildAddressCandidateSql(),
+      buildGrid100CandidateSql(),
+      buildGeoAddressCandidateSql(),
+      buildTeilCatalogSql(),
+      buildAreaCandidateSql(),
+    ]) {
+      expect(sql).toMatch(/ORDER BY md5\(/);
+      expect(sql).not.toMatch(/PARTITION BY[\s\S]*ORDER BY [^\n]*geo_key ASC/);
     }
   });
 
@@ -194,6 +223,42 @@ describe("area candidate SQL", () => {
     expect(sql).toContain("ST_Intersection");
     expect(sql).toMatch(/SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson/);
     expect(sql).toContain("FROM geo.geo_ref_admin a, region_geom g");
+  });
+
+  it("filters polygon candidates by min overlap share before the spatial LIMIT", () => {
+    expect(DEFAULT_MIN_OVERLAP_SHARE).toBe(0.1);
+    expect(meetsMinOverlapShare(500, 5_000)).toBe(true);
+    expect(meetsMinOverlapShare(499, 5_000)).toBe(false);
+    expect(meetsMinOverlapShare(1, 10_000)).toBe(false);
+    expect(meetsMinOverlapShare(1_100, 10_000, 0.1)).toBe(true);
+    expect(meetsMinOverlapShare(900, 10_000, 0.1)).toBe(false);
+    expect(meetsMinOverlapShare(1, 1, 0.25)).toBe(true);
+    expect(meetsMinOverlapShare(0.24, 1, 0.25)).toBe(false);
+    expect(meetsMinOverlapShare(1, 0)).toBe(false);
+
+    const area = buildAreaCandidateSql("prefer", 0.1);
+    const lor = buildLorPlrCatalogSql(0.1);
+    const custom = buildAreaCandidateSql("prefer", 0.25);
+    const predicate = polygonMinOverlapPredicate("hit.geom", "g.geom", 0.1);
+    expect(predicate).toContain("ST_Area");
+    expect(predicate).toContain("3035");
+    expect(predicate).toContain(">= 0.1");
+    expect(area).toContain("ST_Area(ST_Transform(ST_MakeValid(ST_Intersection");
+    expect(area).toContain(">= 0.1");
+    expect(area).toContain("sampled_hits");
+    expect(lor).toContain("ST_Area(ST_Transform(ST_MakeValid(ST_Intersection");
+    expect(lor).toContain(">= 0.1");
+    expect(custom).toContain(">= 0.25");
+    expect(custom).not.toContain(">= 0.1");
+
+    const teil = buildTeilCatalogSql();
+    const address = buildAddressCandidateSql();
+    const grid = buildGrid100CandidateSql();
+    const geoAddress = buildGeoAddressCandidateSql();
+    expect(teil).not.toContain(">= 0.1");
+    expect(address).not.toContain(">= 0.1");
+    expect(grid).not.toContain(">= 0.1");
+    expect(geoAddress).not.toContain(">= 0.1");
   });
 
   it("sends geometry and Kreis parent memberships for Gemeinden", () => {
@@ -603,9 +668,11 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
       JSON.stringify({ type: "Polygon", coordinates: [[[11.4, 48.0], [11.7, 48.0], [11.7, 48.3], [11.4, 48.3], [11.4, 48.0]]] }),
     );
     expect(overlaps.params).toHaveLength(highestSqlPlaceholder(overlaps.sql));
-    expect(highestSqlPlaceholder(overlaps.sql)).toBe(3);
+    expect(highestSqlPlaceholder(overlaps.sql)).toBe(6);
     expect(overlaps.sql).toContain("region_geom");
     expect(overlaps.sql).toContain("geo.geo_ref_address");
+    expect(overlaps.sql).toContain("geo.geo_ref_ortsteil");
+    expect(overlaps.sql).toContain("is_target_region");
     expect(overlaps.sql).toContain("grid100");
     expect(overlaps.sql).toContain("ST_Covers");
     expect(overlaps.sql).toContain("ST_Dimension");

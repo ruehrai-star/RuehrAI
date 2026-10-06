@@ -1,8 +1,10 @@
 import { AnalysisRegion, PatternCriterion } from "../analysis/types";
+import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
-import { assignRanksByTargetRegion, capRankedByTargetRegion, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
+import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
+import { SCORE_FORMULA_DEFAULTS } from "./score-formula";
 import { ScoredLocation } from "./types";
 
 function candidate(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
@@ -66,12 +68,32 @@ const trendUp: PatternCriterion = {
   baseline: "per_1000_inhabitants",
 };
 
+function unfallPattern(geoKey: string, first: number, last: number, level: SeriesLevel = "ortsteil") {
+  return buildPatternByDataset([
+    series({
+      metricId: "unfallatlas",
+      requestedGeoKey: geoKey,
+      requestedLevel: level,
+      sourceLevel: level,
+      sourceGeoKey: geoKey,
+      points: [
+        { period: "2023", status: "present", value: first },
+        { period: "2025", status: "present", value: last },
+      ],
+    }),
+    inhabitants(geoKey, level),
+  ]);
+}
+
+const fallingPattern = unfallPattern("ortsteil:osm:store", 20, 8);
+
 describe("rankTeilflaechen", () => {
-  it("ranks on the normalized three-year trend and keeps Teilflächen that do not match", () => {
+  it("ranks on closeness to the normalized three-year pattern and keeps Teilflächen that do not match", () => {
     const ranked = rankTeilflaechen(
       [
         candidate({ geoKey: "ortsteil:osm:up", kind: "ortsteil", title: "Rising", ags: "09162000" }),
         candidate({ geoKey: "ortsteil:osm:down", kind: "ortsteil", title: "Falling", ags: "09162000" }),
+        candidate({ geoKey: "ortsteil:osm:mid", kind: "ortsteil", title: "Mid", ags: "09162000" }),
         candidate({ geoKey: "80801", kind: "plz", grain: "plz5", title: "PLZ 80801", ags: "09162000" }),
       ],
       [
@@ -95,6 +117,15 @@ describe("rankTeilflaechen", () => {
         inhabitants("ortsteil:osm:up"),
         series({
           metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:mid",
+          points: [
+            { period: "2023", status: "present", value: 14 },
+            { period: "2025", status: "present", value: 12 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:mid"),
+        series({
+          metricId: "unfallatlas",
           requestedGeoKey: "80801",
           requestedLevel: "plz",
           sourceLevel: "plz",
@@ -107,10 +138,15 @@ describe("rankTeilflaechen", () => {
         }),
       ],
       [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
     );
 
-    expect(ranked.map((item) => item.title)).toEqual(["Falling", "Rising"]);
-    expect(ranked[0]?.score).toBe(1);
+    expect(ranked[0]?.title).toBe("Falling");
+    expect(ranked.map((item) => item.title)).toEqual(["Falling", "Mid", "Rising"]);
+    expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
+    expect(ranked[0]?.score).toBeGreaterThan(ranked[2]?.score ?? 0);
+    expect(ranked[0]?.score).toBeLessThanOrEqual(0.5);
     expect(ranked[0]?.criteriaEvidence[0]?.kind).toBe("trend");
     expect(ranked[0]?.criteriaEvidence[0]?.match).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.scope).toBe("local");
@@ -118,12 +154,61 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.baselineMatch).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.rawValue).toBe(8);
     expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBe(0.8);
+    expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
+    expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
+    expect(ranked[0]?.criteriaEvidence[0]?.trendFromTwoYears).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Dreijahresverlauf");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("je 1.000 Einwohner");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain("sechs Monaten");
-    expect(ranked[1]?.score).toBe(0);
     expect(ranked.map((item) => item.kind)).not.toContain("plz");
     expect(ranked.map((item) => item.location.geoKey)).not.toContain("09162000");
+  });
+
+  it("ranks yearly trend rates so a two-year jump is not compared as a three-year span", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:gap", kind: "ortsteil", title: "Mit Lücke" }),
+        candidate({ geoKey: "ortsteil:osm:steep", kind: "ortsteil", title: "Zwei Jahre" }),
+        candidate({ geoKey: "ortsteil:osm:far", kind: "ortsteil", title: "Gegenrichtung" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:gap",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2024", status: "absent" },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:gap"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:steep",
+          points: [
+            { period: "2024", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:steep"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:far",
+          points: [
+            { period: "2023", status: "present", value: 5 },
+            { period: "2025", status: "present", value: 30 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:far"),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    expect(ranked[0]?.title).toBe("Mit Lücke");
+    expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
+    expect(ranked.find((item) => item.title === "Zwei Jahre")?.score).toBeLessThan(ranked[0]?.score ?? 0);
+    expect(ranked[ranked.length - 1]?.title).toBe("Gegenrichtung");
   });
 
   it("labels a single period as Stichtag and never invents 0 for absent cells", () => {
@@ -285,7 +370,6 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.scope).toBe("local");
     expect(ranked[0]?.criteriaEvidence[0]?.sourceLevel).toBe("ortsteil");
     expect(ranked[0]?.criteriaEvidence[0]?.label).toMatch(/Ortsteil/);
-    expect(ranked[0]?.score).toBe(1);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toMatch(/übernommen/i);
   });
 
@@ -303,8 +387,12 @@ describe("rankTeilflaechen", () => {
     const ranked = rankTeilflaechen(
       [
         candidate({ geoKey: "11000001", kind: "bezirk", title: "Mitte", ags: "11000000" }),
+        candidate({ geoKey: "11000002", kind: "bezirk", title: "Friedrichshain", ags: "11000000" }),
+        candidate({ geoKey: "11000003", kind: "bezirk", title: "Pankow", ags: "11000000" }),
         candidate({ geoKey: "ortsteil:berlin", kind: "ortsteil", title: "Moabit", ags: "11000000" }),
         candidate({ geoKey: "50667", kind: "plz", grain: "plz5", title: "Köln-Altstadt", ags: "05315000", plz: "50667" }),
+        candidate({ geoKey: "50668", kind: "plz", grain: "plz5", title: "Köln-Nord", ags: "05315000", plz: "50668" }),
+        candidate({ geoKey: "50670", kind: "plz", grain: "plz5", title: "Köln-West", ags: "05315000", plz: "50670" }),
         candidate({ geoKey: "ortsteil:koeln", kind: "ortsteil", title: "Deutz", ags: "05315000" }),
       ],
       [
@@ -322,6 +410,30 @@ describe("rankTeilflaechen", () => {
         inhabitants("11000001", "bezirk", 10_000),
         series({
           metricId: "kba_elektro_pkw",
+          requestedGeoKey: "11000002",
+          requestedLevel: "bezirk",
+          sourceLevel: "bezirk",
+          sourceGeoKey: "11000002",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 12 },
+          ],
+        }),
+        inhabitants("11000002", "bezirk", 10_000),
+        series({
+          metricId: "kba_elektro_pkw",
+          requestedGeoKey: "11000003",
+          requestedLevel: "bezirk",
+          sourceLevel: "bezirk",
+          sourceGeoKey: "11000003",
+          points: [
+            { period: "2023", status: "present", value: 2 },
+            { period: "2025", status: "present", value: 3 },
+          ],
+        }),
+        inhabitants("11000003", "bezirk", 10_000),
+        series({
+          metricId: "kba_elektro_pkw",
           requestedGeoKey: "50667",
           requestedLevel: "plz",
           sourceLevel: "plz",
@@ -332,15 +444,57 @@ describe("rankTeilflaechen", () => {
           ],
         }),
         inhabitants("50667", "plz", 2_000),
+        series({
+          metricId: "kba_elektro_pkw",
+          requestedGeoKey: "50668",
+          requestedLevel: "plz",
+          sourceLevel: "plz",
+          sourceGeoKey: "50668",
+          points: [
+            { period: "2023", status: "present", value: 2 },
+            { period: "2025", status: "present", value: 3 },
+          ],
+        }),
+        inhabitants("50668", "plz", 2_000),
+        series({
+          metricId: "kba_elektro_pkw",
+          requestedGeoKey: "50670",
+          requestedLevel: "plz",
+          sourceLevel: "plz",
+          sourceGeoKey: "50670",
+          points: [
+            { period: "2023", status: "present", value: 1 },
+            { period: "2025", status: "present", value: 1 },
+          ],
+        }),
+        inhabitants("50670", "plz", 2_000),
       ],
       [kba],
+      [],
+      {
+        patternByDataset: buildPatternByDataset([
+          series({
+            metricId: "kba_elektro_pkw",
+            requestedGeoKey: "store",
+            requestedLevel: "plz",
+            sourceLevel: "plz",
+            sourceGeoKey: "store",
+            points: [
+              { period: "2023", status: "present", value: 4 },
+              { period: "2025", status: "present", value: 8 },
+            ],
+          }),
+          inhabitants("store", "plz", 2_000),
+        ]),
+      },
     );
 
-    expect(ranked.map((item) => item.kind).sort()).toEqual(["bezirk", "plz"]);
-    expect(ranked.every((item) => item.score === 1)).toBe(true);
-    expect(ranked.find((item) => item.kind === "bezirk")?.criteriaEvidence[0]?.normalizedValue).toBe(4);
-    expect(ranked.find((item) => item.kind === "plz")?.criteriaEvidence[0]?.normalizedValue).toBe(4);
-    expect(ranked.find((item) => item.kind === "bezirk")?.criteriaEvidence[0]?.sourceLevel).toBe("bezirk");
+    expect(ranked.map((item) => item.kind).sort()).toEqual(["bezirk", "bezirk", "bezirk", "plz", "plz", "plz"]);
+    expect(new Set(ranked.map((item) => item.score)).size).toBeGreaterThan(1);
+    expect(ranked.find((item) => item.title === "Mitte")?.score).toBeGreaterThan(
+      ranked.find((item) => item.title === "Pankow")?.score ?? 0,
+    );
+    expect(ranked.find((item) => item.kind === "bezirk")?.criteriaEvidence[0]?.normalizedValue).toBeDefined();
     expect(ranked.find((item) => item.kind === "plz")?.criteriaEvidence[0]?.sourceLevel).toBe("plz");
     expect(ranked.map((item) => item.kind)).not.toContain("ortsteil");
   });
@@ -786,7 +940,7 @@ describe("rank je Zielregion", () => {
       }
     });
 
-    const scored = rankTeilflaechen(pool, yearly, [trendUp], regions);
+    const scored = rankTeilflaechen(pool, yearly, [trendUp], regions, { patternByDataset: fallingPattern });
     const ranked = assignRanksByTargetRegion(
       scored.map((item) => ({ ...item, rationale: "", source: "heuristic" as const })),
       regions.map((item) => item.geoKey ?? ""),
@@ -806,7 +960,7 @@ describe("rank je Zielregion", () => {
     expect(koelnGroup.some((item) => item.kind === "quartier")).toBe(true);
     expect(koelnGroup.some((item) => item.kind === "stadtteil")).toBe(true);
     const firstStadtteil = koelnGroup.find((item) => item.kind === "stadtteil");
-    const lastMatchingQuartier = [...koelnGroup].reverse().find((item) => item.kind === "quartier" && item.score === 1);
+    const lastMatchingQuartier = [...koelnGroup].reverse().find((item) => item.kind === "quartier" && item.score > 0);
     expect(firstStadtteil && lastMatchingQuartier && firstStadtteil.rank > lastMatchingQuartier.rank).toBe(true);
   });
 
@@ -983,6 +1137,362 @@ function poolForRegions(regionCount: number, perRegion: number): ScoredLocation[
   }
   return items;
 }
+
+describe("score formula on rankTeilflaechen", () => {
+  it("treats absent, inherited, single coverage, and n<3 as neutral (no proximity)", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:a", kind: "ortsteil", title: "Alpha" }),
+        candidate({ geoKey: "ortsteil:osm:b", kind: "ortsteil", title: "Beta" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:a",
+          requestedLevel: "ortsteil",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "09162000",
+          coverage: "single",
+          points: [{ period: "2024", status: "present", value: 10 }],
+        }),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:b",
+          coverage: "none",
+          points: [{ period: "2024", status: "absent" }],
+        }),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    expect(ranked.every((item) => item.score === 0)).toBe(true);
+    expect(ranked.every((item) => item.criteriaEvidence[0]?.proximity === undefined)).toBe(true);
+  });
+
+  it("does not list inherited-only candidates when siblings have local data", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:a", kind: "ortsteil", title: "Alpha" }),
+        candidate({ geoKey: "ortsteil:osm:b", kind: "ortsteil", title: "Beta" }),
+        candidate({ geoKey: "ortsteil:osm:c", kind: "ortsteil", title: "Gamma" }),
+        candidate({ geoKey: "ortsteil:osm:d", kind: "ortsteil", title: "Inherited only" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:a",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:a"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:b",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 18 },
+            { period: "2025", status: "present", value: 12 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:b"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:c",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 16 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:c"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:d",
+          requestedLevel: "ortsteil",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "09162000",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    expect(ranked).toHaveLength(3);
+    expect(ranked.map((item) => item.title)).not.toContain("Inherited only");
+    expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
+  });
+
+  it("does not let one dataset reach score 1.0 even when proximity is 1", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:down", kind: "ortsteil", title: "Falling" }),
+        candidate({ geoKey: "ortsteil:osm:mid", kind: "ortsteil", title: "Mid" }),
+        candidate({ geoKey: "ortsteil:osm:up", kind: "ortsteil", title: "Rising" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:down",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:down"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:mid",
+          points: [
+            { period: "2023", status: "present", value: 14 },
+            { period: "2025", status: "present", value: 12 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:mid"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:up",
+          points: [
+            { period: "2023", status: "present", value: 8 },
+            { period: "2025", status: "present", value: 20 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:up"),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern, config: SCORE_FORMULA_DEFAULTS },
+    );
+    expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0.9);
+    expect(ranked[0]?.score).toBeLessThanOrEqual(0.5);
+    expect(ranked[0]?.score).toBe(0.5);
+  });
+
+  it("weights a local LOR dataset above an inherited parent and a coarser local Ebene", () => {
+    const wander: PatternCriterion = {
+      key: "wanderungen",
+      metricId: "wanderungen",
+      label: "Wanderungen",
+      direction: "down",
+      evidence: "fällt",
+      kind: "trend",
+      coverage: "multi",
+      baseline: "per_1000_inhabitants",
+    };
+    const patternByDataset = buildPatternByDataset([
+      series({
+        metricId: "unfallatlas",
+        requestedGeoKey: "store-lor",
+        requestedLevel: "lor",
+        sourceLevel: "lor",
+        sourceGeoKey: "store-lor",
+        points: [
+          { period: "2023", status: "present", value: 20 },
+          { period: "2025", status: "present", value: 8 },
+        ],
+      }),
+      inhabitants("store-lor", "lor"),
+      series({
+        metricId: "wanderungen",
+        requestedGeoKey: "store-bezirk",
+        requestedLevel: "bezirk",
+        sourceLevel: "bezirk",
+        sourceGeoKey: "store-bezirk",
+        points: [
+          { period: "2023", status: "present", value: 30 },
+          { period: "2025", status: "present", value: 10 },
+        ],
+      }),
+      inhabitants("store-bezirk", "bezirk"),
+    ]);
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "lor:plr:a", kind: "lor", title: "LOR A" }),
+        candidate({ geoKey: "lor:plr:b", kind: "lor", title: "LOR B" }),
+        candidate({ geoKey: "lor:plr:c", kind: "lor", title: "LOR C" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "lor:plr:a",
+          requestedLevel: "lor",
+          sourceLevel: "lor",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("lor:plr:a", "lor"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "lor:plr:b",
+          requestedLevel: "lor",
+          sourceLevel: "lor",
+          points: [
+            { period: "2023", status: "present", value: 12 },
+            { period: "2025", status: "present", value: 11 },
+          ],
+        }),
+        inhabitants("lor:plr:b", "lor"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "lor:plr:c",
+          requestedLevel: "lor",
+          sourceLevel: "lor",
+          points: [
+            { period: "2023", status: "present", value: 8 },
+            { period: "2025", status: "present", value: 20 },
+          ],
+        }),
+        inhabitants("lor:plr:c", "lor"),
+        series({
+          metricId: "wanderungen",
+          requestedGeoKey: "lor:plr:a",
+          requestedLevel: "lor",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "11000000",
+          points: [
+            { period: "2023", status: "present", value: 30 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+        series({
+          metricId: "wanderungen",
+          requestedGeoKey: "lor:plr:b",
+          requestedLevel: "lor",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "11000000",
+          points: [
+            { period: "2023", status: "present", value: 30 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+        series({
+          metricId: "wanderungen",
+          requestedGeoKey: "lor:plr:c",
+          requestedLevel: "lor",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "11000000",
+          points: [
+            { period: "2023", status: "present", value: 30 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+      ],
+      [trendUp, wander],
+      [],
+      { patternByDataset },
+    );
+    expect(ranked[0]?.title).toBe("LOR A");
+    expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "unfallatlas")?.proximity).toBeGreaterThan(0);
+    expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.proximity).toBeUndefined();
+    expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.scope).toBe("inherited");
+  });
+
+  it("breaks ties by coverage, then overlaps-share, then stable id, never the visible name", () => {
+    const left: ScoredLocation = {
+      id: "other:z-last",
+      title: "AAA zuerst",
+      kind: "ortsteil",
+      grain: "other",
+      name: "AAA zuerst",
+      parentLabel: null,
+      targetRegionGeoKey: "r",
+      dataAsOf: "2025",
+      location: { geoKey: "z-last", grain: "other", lon: null, lat: null, name: "AAA zuerst" },
+      score: 0.4,
+      criteriaEvidence: [{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 }],
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.02, isTargetRegion: true }],
+    };
+    const right: ScoredLocation = {
+      id: "other:a-first",
+      title: "ZZZ später",
+      kind: "ortsteil",
+      grain: "other",
+      name: "ZZZ später",
+      parentLabel: null,
+      targetRegionGeoKey: "r",
+      dataAsOf: "2025",
+      location: { geoKey: "a-first", grain: "other", lon: null, lat: null, name: "ZZZ später" },
+      score: 0.4,
+      criteriaEvidence: [
+        { key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 },
+        { key: "wanderungen", label: "Wanderungen", direction: "up", patternDirection: "up", evidence: "y", proximity: 0.5 },
+      ],
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.999, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(left, right)).toBeGreaterThan(0);
+    const sameCoverage: ScoredLocation = {
+      ...left,
+      id: "other:name-wins-not",
+      title: "AAA",
+      criteriaEvidence: right.criteriaEvidence,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.12, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(sameCoverage, right)).toBeGreaterThan(0);
+    const edgeBeforeInnerById: ScoredLocation = {
+      ...sameCoverage,
+      id: "other:aaa-edge",
+      title: "Alt-Lankwitz",
+      targetOverlapShare: 0.000008,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.000008, isTargetRegion: true }],
+    };
+    const innerAfterEdgeById: ScoredLocation = {
+      ...right,
+      id: "other:zzz-inner",
+      title: "Wittekindstraße",
+      targetOverlapShare: 1,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 1, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(edgeBeforeInnerById, innerAfterEdgeById)).toBeGreaterThan(0);
+    const sameShare: ScoredLocation = {
+      ...sameCoverage,
+      overlaps: right.overlaps,
+      id: "other:b-second",
+      title: "AAA",
+    };
+    expect(compareScoredLocations(sameShare, { ...right, id: "other:a-first" })).toBeGreaterThan(0);
+  });
+
+  it("keeps score-0 inherited/Stichtag items and orders them by Zielregion share, then id", () => {
+    const lowShare: ScoredLocation = {
+      id: "other:zzz-edge",
+      title: "Randfläche zuerst nach id",
+      kind: "ortsteil",
+      grain: "other",
+      name: "Randfläche",
+      parentLabel: null,
+      targetRegionGeoKey: "r",
+      dataAsOf: "2025",
+      location: { geoKey: "zzz-edge", grain: "other", lon: null, lat: null, name: "Randfläche" },
+      score: 0,
+      criteriaEvidence: [{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "Stichtag", kind: "stichtag" }],
+      targetOverlapShare: 0.02,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.02, isTargetRegion: true }],
+    };
+    const highShare: ScoredLocation = {
+      ...lowShare,
+      id: "other:aaa-inner",
+      title: "Innere Fläche später nach id",
+      name: "Innen",
+      location: { ...lowShare.location, geoKey: "aaa-inner", name: "Innen" },
+      targetOverlapShare: 0.99,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.99, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(lowShare, highShare)).toBeGreaterThan(0);
+    const laterId: ScoredLocation = { ...lowShare, id: "other:b-second", targetOverlapShare: 0.5, overlaps: [{ ...lowShare.overlaps![0], share: 0.5 }] };
+    const earlierId: ScoredLocation = { ...highShare, id: "other:a-first", targetOverlapShare: 0.5, overlaps: [{ ...highShare.overlaps![0], share: 0.5 }] };
+    expect(compareScoredLocations(laterId, earlierId)).toBeGreaterThan(0);
+  });
+});
 
 describe("recommendationReason", () => {
   it("is empty only when no Teilfläche exists", () => {

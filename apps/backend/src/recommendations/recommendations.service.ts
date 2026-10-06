@@ -114,6 +114,7 @@ export class RecommendationsService {
         series: candidateSeries,
         criteria: pattern.criteria,
         regions,
+        patternByDataset,
       },
       signal,
     );

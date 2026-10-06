@@ -7,6 +7,7 @@ import {
   buildAllMetricSeries,
   indexSeriesDocs,
 } from "./yearly-series";
+import { PatternDatasetProfile } from "./pattern-profile";
 import { AreaCandidate } from "../recommendations/area-candidates";
 import { rankTeilflaechen } from "../recommendations/score";
 import { capCandidatesForSeries } from "../recommendations/candidate-cap";
@@ -27,6 +28,7 @@ export interface RankComputeJob {
   series: YearlySeries[];
   criteria: PatternCriterion[];
   regions: AnalysisRegion[];
+  patternByDataset?: PatternDatasetProfile[];
 }
 
 export interface CapComputeJob {
@@ -86,7 +88,9 @@ export function handleComputeJobSync(job: ComputeJob): ComputeResult {
   if (job.type === "rank") {
     return {
       type: "rank",
-      ranked: rankTeilflaechen(job.candidates, job.series, job.criteria, job.regions),
+      ranked: rankTeilflaechen(job.candidates, job.series, job.criteria, job.regions, {
+        patternByDataset: job.patternByDataset,
+      }),
     };
   }
   const capped = capCandidatesForSeries(job.candidates, job.regions, job.cap);

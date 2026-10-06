@@ -258,6 +258,7 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
   if (!geoKey || !grain || !kind) return null;
   const name = row.name?.trim() || null;
   const geometry = parseOptionalGeometry(row.geometry_geojson);
+  const targetOverlapShare = parseShare(row.target_overlap_share);
   const draft: AreaCandidate = {
     id: `${grain}:${geoKey}`,
     geoKey,
@@ -271,6 +272,7 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
     lat: toCoord(row.lat),
     geometry: geometry,
     geometryUnavailableReason: geometry ? null : "Die Fläche kann noch nicht gezeichnet werden.",
+    ...(targetOverlapShare != null ? { targetOverlapShare } : {}),
   };
   const display = displayAreaName(draft);
   return { ...draft, title: display, name: display };
@@ -283,6 +285,13 @@ function parseOptionalGeometry(raw: string | null | undefined): RegionGeometry |
   } catch {
     return null;
   }
+}
+
+function parseShare(raw: number | string | null | undefined): number | undefined {
+  if (raw == null || raw === "") return undefined;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return Math.round(Math.min(1, value) * 10_000) / 10_000;
 }
 
 function asGrain(value: string | null): Grain | null {

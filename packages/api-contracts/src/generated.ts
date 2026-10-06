@@ -592,14 +592,24 @@ export interface paths {
          *     differentiate sibling Teilflächen. `scope: local` is native to
          *     that hit.
          *
-         *     Ranking uses the three-year trend where a **local** series exists
-         *     at the hit's own Ebene (`hamburg_stadtteil_regionalstatistik` on
-         *     Ortsteil, `muenchen_indikatorenatlas` on Stadtbezirk,
-         *     `berlin_lor_ewr_bevoelkerung` on LOR PLR, Köln/Leipzig/Düsseldorf/
-         *     Essen/Frankfurt kleinräumige themes, plus `unfallatlas_gebiet`
-         *     on Ortsteil/Bezirk/PLZ). Snapshot values are labeled `stichtag`.
-         *     Missing cells are `absent` (`liegt nicht vor`), never `0`.
-         *     Kleinräumige yearlySeries rows may have a null embedding.
+         *     Ranking uses closeness to the store-surroundings Musterwert on
+         *     the baseline (`0.19.4`): trend before niveau, robust spread
+         *     (MAD/IQR) per dataset and Ebene, inherited and under-dispersed
+         *     series neutral, coverage factor so one dataset never yields
+         *     1.0. Trend is a yearly rate (delta / year span). Snapshot values
+         *     are labeled `stichtag`. Missing cells are
+         *     `absent` (`liegt nicht vor`), never `0`. Kleinräumige
+         *     yearlySeries rows may have a null embedding. Candidates without
+         *     local dataset hits drop when siblings have local data; areas
+         *     with only inherited or Stichtag values stay with score 0 and
+         *     are ordered by share in the Zielregion, then `id`. Additive
+         *     `criteriaEvidence[].proximity` is the per-dataset closeness;
+         *     `trendYears` is the calendar-year count of a trend;
+         *     `trendFromTwoYears` is true when that count is 2.
+         *     Polygon candidates require `ANALYSIS_MIN_OVERLAP_SHARE`
+         *     (default 0.10) of their area inside the Zielregion.
+         *     `items[].overlaps[0]` is the Zielregion (`isTargetRegion: true`)
+         *     with the unclipped candidate share; further entries are Ortsteile.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1687,31 +1697,41 @@ export interface components {
              */
             intersectionOf?: components["schemas"]["RecommendationIntersectionPart"][];
             /**
-             * @description Stadtbezirke / Bezirke this hit spatially intersects, with
-             *     `share` = intersection area / **clipped** hit area (0–1).
-             *     The hit outline is the same Zielregion clip as
-             *     `items[].geometry` (the item's own
-             *     `targetRegionGeoKey`, not the union of all regions).
-             *     Bezirke outside that Zielregion are
-             *     omitted. Sorted descending. Fragments below 1 % are
-             *     omitted. Omit the field when nothing remains (or when the
-             *     Brain read failed — the run still completes). Computed for
-             *     PLZ, LOR, Ortsteil, Quartier, Raster (`grid100`) and
-             *     Adresse (typically one parent at share 1). Additive;
-             *     clients that ignore unknown fields keep working.
+             * @description Zielregion and Ortsteile this **unclipped** candidate
+             *     spatially intersects. The first entry is always the item's
+             *     Zielregion (`isTargetRegion: true`) with
+             *     `share` = candidate ∩ Zielregion / candidate area (0–1,
+             *     EPSG:3035). Further entries are Ortsteile of the unclipped
+             *     candidate, share descending, fragments below 1 % omitted.
+             *     `label` is a display name, never a catalog key.
+             *     Omit the field when nothing remains (or when the Brain
+             *     read failed — the run still completes). Computed for PLZ,
+             *     LOR, Ortsteil, Quartier, Raster (`grid100`) and Adresse
+             *     (points typically share 1). Additive 0.19.5; clients that
+             *     ignore unknown fields keep working.
              */
             overlaps?: components["schemas"]["RecommendationOverlap"][];
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
-             * @description Share of **local** three-year trend criteria whose **normalized**
-             *     direction matches the store-surroundings pattern of the **same
-             *     dataset** (`metricId`). Different Ebenen may still match when
-             *     both are baselined (Berlin Bezirk vs Köln PLZ). Inherited
-             *     parent-level trends and Kreis-frame series do not change this
-             *     score. Stichtag criteria are labeled and do not drive this
-             *     score. Missing Bezugsgröße is absent and does not match. 1 is
-             *     a full local trend fit.
+             * @description Closeness of this Teilfläche to the store-surroundings pattern
+             *     on the shared baseline (0..1). Per local dataset: proximity =
+             *     1 − min(1, |Kandidat − Muster| / robuste Streuung) with MAD
+             *     (IQR fallback) over candidates of that dataset and Ebene.
+             *     Trend (weight 0.6) before niveau (0.4); coverage `single` is
+             *     not a trend. The trend delta is divided by the year span.
+             *     Inherited or under-dispersed datasets are
+             *     neutral (omitted). Grain weights prefer the finer Ebene the
+             *     dataset is present on. Coverage factor
+             *     min(1, nAktiv / kMin) with kMin default 2 so a single
+             *     dataset never yields 1.0. Missing cells stay absent, never
+             *     `0`. Candidates without local dataset hits drop when
+             *     siblings have local data; inherited/Stichtag-only areas
+             *     stay with score 0 and are ordered by Zielregion share,
+             *     then `id`. Additive `criteriaEvidence[].proximity` is the
+             *     per-dataset closeness before the item coverage factor.
+             *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
+             *     (default 0.10) of their area inside the Zielregion.
              */
             score: number;
             /**
@@ -1780,23 +1800,37 @@ export interface components {
             datasetKey?: string;
         };
         /**
-         * @description One Stadtbezirk or Bezirk that spatially overlaps this hit.
-         *     `share` is the fraction of the **hit** area (0–1). Never a
-         *     catalog key as `label`.
+         * @description One Zielregion or Ortsteil that spatially overlaps this hit.
+         *     `share` is the fraction of the **unclipped** candidate area
+         *     (0–1). Never a catalog key as `label`. Additive 0.19.5:
+         *     the Zielregion is first with `isTargetRegion: true`.
          */
         RecommendationOverlap: {
-            /** @description Catalog / Brain id of the overlapping Bezirk. */
+            /** @description Catalog / Brain id of the overlapping area. Not for display. */
             geoKey: string;
-            /** @description Display name of the overlapping Bezirk. */
+            /**
+             * @description Display name of the overlapping area. Never a catalog key
+             *     (`ortsteil:…`, `lor:plr:…`, `ags:…`).
+             */
             label: string;
-            /** @description `bezirk` (Berlin) or `stadtbezirk` (other cities). */
+            /**
+             * @description Zielregion kind (often `ortsteil`) or `ortsteil` /
+             *     `stadtteil` for parent parts.
+             */
             kind: components["schemas"]["AreaKind"];
             /**
              * Format: double
-             * @description Intersection area divided by the hit area, after transforming
-             *     geometries to EPSG:3035. Values below 0.01 are omitted.
+             * @description Intersection area divided by the unclipped candidate area,
+             *     after transforming geometries to EPSG:3035. Zielregion
+             *     entries are kept even below 0.01; Ortsteil fragments below
+             *     0.01 are omitted.
              */
             share: number;
+            /**
+             * @description Additive 0.19.5. True on the item's Zielregion entry
+             *     (always first). Omitted on Ortsteile.
+             */
+            isTargetRegion?: boolean;
         };
         RecommendationLocation: {
             geoKey: string;
@@ -1826,6 +1860,12 @@ export interface components {
          *     Fläche, or `inherited` when it was taken from a coarser parent.
          *     `metricId`, `baseline`, `rawValue`, `normalizedValue`, and
          *     `sourceLevel` (Flächenebene) describe the dataset compare.
+         *     Additive `proximity` (0.19.4) is closeness to the Musterwert on
+         *     the baseline; omitted when the dataset is absent, inherited, or
+         *     statistically neutral. Additive `trendYears` is the number of
+         *     distinct calendar years of a local trend (2 = two-year trend).
+         *     Additive `trendFromTwoYears` (0.19.5) is true when `trendYears`
+         *     is 2.
          */
         RecommendationEvidence: {
             key: string;
@@ -1866,6 +1906,30 @@ export interface components {
              *     („liegt nicht vor“) and does not drive compare. Additive.
              */
             baselineMatch?: boolean;
+            /**
+             * Format: double
+             * @description Additive 0.19.4. Closeness of this dataset to the store
+             *     pattern on the shared baseline (trend and/or niveau, 0..1).
+             *     Omitted when the dataset is absent, inherited, or has too
+             *     few distinct local values to score (neutral). Missing data
+             *     is never stored as `0`. Does not include the item-level
+             *     coverage factor.
+             */
+            proximity?: number;
+            /**
+             * @description Additive 0.19.4. Distinct calendar years used for this
+             *     dataset's yearly trend rate (last−first normalizedValue /
+             *     year span). `2` means a two-year trend (clients may label
+             *     „Trend aus 2 Jahren“). Omitted when coverage is `single` /
+             *     `none` or fewer than two years. Never `0`.
+             */
+            trendYears?: number;
+            /**
+             * @description Additive 0.19.5. True when `trendYears` is 2. Omitted
+             *     otherwise. Web path:
+             *     `items[].criteriaEvidence[].trendFromTwoYears`.
+             */
+            trendFromTwoYears?: boolean;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

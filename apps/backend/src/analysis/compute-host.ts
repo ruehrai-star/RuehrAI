@@ -114,7 +114,9 @@ async function runInProcess(job: ComputeJob, signal?: AbortSignal): Promise<Comp
   if (job.type === "rank") {
     throwIfAborted(signal);
     await yieldEventLoop();
-    const ranked = rankTeilflaechen(job.candidates, job.series, job.criteria, job.regions);
+    const ranked = rankTeilflaechen(job.candidates, job.series, job.criteria, job.regions, {
+      patternByDataset: job.patternByDataset,
+    });
     await yieldEventLoop();
     throwIfAborted(signal);
     return { type: "rank", ranked };
