@@ -1545,11 +1545,15 @@ export interface components {
              *     `lor:plr:…`), never `osm:`, `id:`, `address:`, `geo_addr`,
              *     an INSPIRE / cell id, or the word unbekannt. Prefer the
              *     catalog / feature name. Fallbacks: PLZ → `PLZ 80331` or
-             *     `PLZ ohne Namen`; LOR → catalog name or `Planungsraum`
-             *     plus the eight-digit PLR code; Köln-Quartier → feature
-             *     title or `Quartier ohne Namen`; Raster → `100-m-Rasterzelle`
+             *     `PLZ ohne Namen`; LOR → catalog name or
+             *     `Planungsraum ohne Namen` (never the LOR/PLR number);
+             *     Köln-Quartier → feature title or `Quartier ohne Namen`
+             *     (never the Quartier id, never `Quartier <id>`);
+             *     Raster → `100-m-Rasterzelle`
              *     (no cell id); Adresse → Straße + Hausnummer or
              *     `Adresse ohne Hausnummer`; otherwise `{Art} ohne Namen`.
+             *     Fallbacks never contain a digit sequence, number, or id
+             *     except PLZ (`PLZ 80331`) and street + house number.
              *     Never `0` and never the raw geoKey.
              */
             name: string;

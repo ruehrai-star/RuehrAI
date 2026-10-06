@@ -24,6 +24,22 @@ jobs:
   check:
     name: "backend: lint, typecheck, test"
     runs-on: ubuntu-latest
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: overlap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d overlap_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      POSTGIS_URL: postgresql://postgres:postgres@localhost:5432/overlap_test
     steps:
       - uses: actions/checkout@v4
 

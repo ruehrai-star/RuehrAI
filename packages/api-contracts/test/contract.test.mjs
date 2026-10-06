@@ -276,6 +276,10 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(recommendation.properties.name.description.includes("100-m-Rasterzelle"));
   assert.ok(recommendation.properties.name.description.includes("ohne Namen"));
   assert.ok(recommendation.properties.name.description.includes("Adresse ohne Hausnummer"));
+  assert.ok(recommendation.properties.name.description.includes("Planungsraum ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("never the LOR/PLR number"));
+  assert.ok(recommendation.properties.name.description.includes("Quartier ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("never the Quartier id"));
   assert.ok(recommendation.properties.parentLabel.description.includes("Gemeinde"));
   assert.equal(recommendation.properties.parentLabel.nullable, true);
   assert.equal(recommendation.required.includes("grain"), false);

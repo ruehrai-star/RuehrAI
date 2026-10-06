@@ -34,6 +34,8 @@ import {
   skipAddressAndGridForRegion,
   clipToRegionSql,
   clippedHitGeoJsonSql,
+  overlapJoinSql,
+  overlapShareSql,
   teilCatalogQuery,
 } from "./area-candidates";
 
@@ -563,9 +565,14 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
     expect(overlaps.sql).toContain("region_geom");
     expect(overlaps.sql).toContain("geo.geo_ref_address");
     expect(overlaps.sql).toContain("grid100");
+    expect(overlaps.sql).toContain("ST_Covers");
+    expect(overlaps.sql).toContain("ST_Dimension");
     expect(overlapEligibleKind("grid100")).toBe(true);
     expect(overlapEligibleKind("address")).toBe(true);
     expect(clipToRegionSql("hit.geom")).toContain("ST_Intersection");
     expect(clipToRegionSql("hit.geom")).toContain("g.geom");
+    expect(overlapShareSql("h.geom", "b.geom")).toContain("ST_Covers");
+    expect(overlapShareSql("h.geom", "b.geom")).toContain("ST_Dimension");
+    expect(overlapJoinSql("h.geom", "b.geom")).toContain("ST_Covers");
   });
 });

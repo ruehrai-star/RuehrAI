@@ -1,5 +1,5 @@
 import { AnalysisRegion } from "../analysis/types";
-import { AreaCandidate } from "./area-candidates";
+import { AREA_KINDS, AreaCandidate, AreaKind } from "./area-candidates";
 import { displayAreaName, hitParentLabel, isHiddenCatalogKey, nameContainsForbiddenToken, visibleAreaName } from "./hit-display";
 
 function area(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
@@ -15,6 +15,31 @@ function area(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" |
     grain,
     ...overrides,
   };
+}
+
+function fallbackWithoutCatalogName(kind: AreaKind): AreaCandidate {
+  switch (kind) {
+    case "lor":
+      return area({ geoKey: "lor:plr:07400823", kind, name: "lor:plr:07400823", title: "Planungsraum 07400823" });
+    case "quartier":
+      return area({ geoKey: "koeln:sq:101010001", kind, name: null, title: "Quartier 123", ags: "05315000" });
+    case "ortsteil":
+      return area({ geoKey: "ortsteil:osm:5712247", kind, name: null, title: "ortsteil:osm:5712247" });
+    case "stadtteil":
+      return area({ geoKey: "stadtteil:osm:1", kind, name: "stadtteil:osm:1" });
+    case "bezirk":
+      return area({ geoKey: "bezirk:11000006", kind, name: "11000006", title: "Bezirk 11000006" });
+    case "stadtbezirk":
+      return area({ geoKey: "stadtbezirk:12", kind, name: "12", title: "Stadtbezirk 12" });
+    case "gemeinde":
+      return area({ geoKey: "09162000", kind, grain: "ags", name: "09162000" });
+    case "plz":
+      return area({ geoKey: "80331", kind, grain: "plz5", name: "80331", plz: "80331" });
+    case "grid100":
+      return area({ geoKey: "grid100:cell-9", kind, grain: "grid100", name: "cell-9" });
+    case "address":
+      return area({ geoKey: "address:geo_addr_99", kind, grain: "address", name: null, title: "address:geo_addr_99" });
+  }
 }
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
@@ -74,7 +99,7 @@ describe("hit display names", () => {
     ).toBe("Wittekindstraße");
     expect(
       displayAreaName(area({ geoKey: "lor:plr:07400823", kind: "lor", name: "lor:plr:07400823", title: "lor:plr:07400823", ags: "11000000" })),
-    ).toBe("Planungsraum 07400823");
+    ).toBe("Planungsraum ohne Namen");
     expect(
       displayAreaName(area({ geoKey: "80331", kind: "plz", grain: "plz5", name: "80331", title: "80331", plz: "80331", ags: "09162000" })),
     ).toBe("PLZ 80331");
@@ -95,6 +120,14 @@ describe("hit display names", () => {
     expect(
       displayAreaName(area({ geoKey: "plz5:x", kind: "plz", grain: "plz5", name: null, title: "plz5:x", plz: null })),
     ).toBe("PLZ ohne Namen");
+    expect(
+      displayAreaName(area({ geoKey: "koeln:sq:123", kind: "quartier", name: null, title: "Quartier 123", ags: "05315000" })),
+    ).toBe("Quartier ohne Namen");
+    expect(
+      displayAreaName(
+        area({ geoKey: "koeln:sq:101010001", kind: "quartier", name: "Quartier 101010001", title: "Quartier 101010001" }),
+      ),
+    ).toBe("Quartier ohne Namen");
   });
 
   it("never puts osm:, id:, address:, geo_addr, INSPIRE/cell ids, or unbekannt in name", () => {
@@ -108,6 +141,7 @@ describe("hit display names", () => {
       area({ geoKey: "koeln:sq:101010001", kind: "quartier", name: "koeln:sq:101010001" }),
       area({ geoKey: "bezirk:osm:1", kind: "bezirk", name: "bezirk:osm:1" }),
       area({ geoKey: "lor:plr:07400823", kind: "lor", name: "Wittekindstraße" }),
+      area({ geoKey: "lor:plr:07400823", kind: "lor", name: "lor:plr:07400823", title: "Planungsraum 07400823" }),
       area({ geoKey: "80331", kind: "plz", grain: "plz5", name: "80331", plz: "80331" }),
       area({ geoKey: "address:1", kind: "address", grain: "address", name: "Sendlinger Str. 1" }),
     ];
@@ -116,7 +150,40 @@ describe("hit display names", () => {
       expect(name.length).toBeGreaterThan(0);
       expect(nameContainsForbiddenToken(name)).toBe(false);
       expect(name).not.toMatch(/osm:|\bid:|address:|geo_addr|unbekannt|inspire/i);
+      expect(name).not.toMatch(/\b\d{8}\b/);
+      expect(name).not.toMatch(/Quartier\s+\d/i);
+      expect(name).not.toMatch(/Planungsraum\s+\d/i);
     }
+  });
+
+  it.each(AREA_KINDS)("fallback name for %s never contains a number or id except PLZ and street+hnr", (kind) => {
+    const sample = fallbackWithoutCatalogName(kind);
+    const name = displayAreaName(sample);
+    expect(name.length).toBeGreaterThan(0);
+    expect(nameContainsForbiddenToken(name)).toBe(false);
+    expect(name).not.toMatch(/osm:|\bid:|address:|geo_addr|unbekannt|inspire|koeln:sq:|lor:plr:/i);
+    expect(name).not.toMatch(/Quartier\s+\d/i);
+    expect(name).not.toMatch(/Planungsraum\s+\d/i);
+    expect(name).not.toMatch(/\b(?:Ortsteil|Stadtteil|Bezirk|Stadtbezirk|Gemeinde)\s+\S*\d/);
+    if (kind === "plz") {
+      expect(name).toMatch(/^PLZ \d{4,5}$/);
+      return;
+    }
+    if (kind === "grid100") {
+      expect(name).toBe("100-m-Rasterzelle");
+      return;
+    }
+    if (kind === "address") {
+      expect(name).toBe("Adresse ohne Hausnummer");
+      expect(name).not.toMatch(/\d/);
+      const withStreet = displayAreaName(
+        area({ geoKey: "address:1", kind: "address", grain: "address", name: "Sendlinger Str. 1" }),
+      );
+      expect(withStreet).toBe("Sendlinger Str. 1");
+      return;
+    }
+    expect(name).not.toMatch(/\d/);
+    expect(name).toMatch(/ohne Namen$/);
   });
 
   it("uses the Gemeinde as parentLabel, never Allach or a PLZ", () => {

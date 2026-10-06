@@ -170,7 +170,7 @@ info:
     `completed`. Additive; no DB migration.
     `0.19.1` keeps `Recommendation.name` always filled (never null, never a
     catalog key or internal id) with documented fallbacks (`PLZ 80331`,
-    `Planungsraum <8-digit code>`, `{Art} ohne Namen`,
+    `Planungsraum ohne Namen`, `Quartier ohne Namen`, `{Art} ohne Namen`,
     `100-m-Rasterzelle`, Straße + Hausnummer or `Adresse ohne Hausnummer`).
     `parentLabel` is the **Gemeinde** for every Ebene below municipality
     (including PLZ, LOR, Quartier, Raster, Adresse); null on `gemeinde`.
@@ -2697,11 +2697,15 @@ components:
             `lor:plr:…`), never `osm:`, `id:`, `address:`, `geo_addr`,
             an INSPIRE / cell id, or the word unbekannt. Prefer the
             catalog / feature name. Fallbacks: PLZ → `PLZ 80331` or
-            `PLZ ohne Namen`; LOR → catalog name or `Planungsraum`
-            plus the eight-digit PLR code; Köln-Quartier → feature
-            title or `Quartier ohne Namen`; Raster → `100-m-Rasterzelle`
+            `PLZ ohne Namen`; LOR → catalog name or
+            `Planungsraum ohne Namen` (never the LOR/PLR number);
+            Köln-Quartier → feature title or `Quartier ohne Namen`
+            (never the Quartier id, never `Quartier <id>`);
+            Raster → `100-m-Rasterzelle`
             (no cell id); Adresse → Straße + Hausnummer or
             `Adresse ohne Hausnummer`; otherwise `{Art} ohne Namen`.
+            Fallbacks never contain a digit sequence, number, or id
+            except PLZ (`PLZ 80331`) and street + house number.
             Never `0` and never the raw geoKey.
         parentLabel:
           type: string

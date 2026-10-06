@@ -1266,17 +1266,13 @@ export function buildHitOverlapSql(): string {
         WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN 'bezirk'
         ELSE 'stadtbezirk'
       END AS kind,
-      (
-        ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(h.geom, ${bezirkGeom})), 3035))
-        / NULLIF(ST_Area(ST_Transform(h.geom, 3035)), 0)
-      )::float8 AS share
+      ${overlapShareSql("h.geom", bezirkGeom)} AS share
     FROM hit_geom h
     CROSS JOIN region_geom g
     JOIN geo.geo_ref_bezirk b
       ON ${hasArea("b")}
      AND NULLIF(btrim(b.name), '') IS NOT NULL
-     AND ST_Intersects(h.geom, ${bezirkGeom})
-     AND NOT ST_IsEmpty(ST_Intersection(h.geom, ${bezirkGeom}))
+     AND ${overlapJoinSql("h.geom", bezirkGeom)}
      AND (g.geom IS NULL OR ST_Intersects(${bezirkGeom}, g.geom))
     WHERE h.geom IS NOT NULL
       AND NOT ST_IsEmpty(h.geom)
@@ -1297,6 +1293,33 @@ export function hitOverlapQuery(
     sql: buildHitOverlapSql(),
     params: [eligible.map((hit) => hit.geoKey), eligible.map((hit) => hit.kind), regionGeometry],
   };
+}
+
+/** Area share for polygons; points (address / grid) use ST_Covers and share 1. */
+export function overlapShareSql(hitGeom: string, bezirkGeom: string): string {
+  return `CASE
+      WHEN ST_Dimension(${hitGeom}) = 0
+        OR GeometryType(${hitGeom}) IN ('POINT', 'MULTIPOINT')
+      THEN CASE WHEN ST_Covers(${bezirkGeom}, ${hitGeom}) THEN 1::float8 ELSE NULL END
+      ELSE (
+        ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${bezirkGeom})), 3035))
+        / NULLIF(ST_Area(ST_Transform(${hitGeom}, 3035)), 0)
+      )::float8
+    END`;
+}
+
+export function overlapJoinSql(hitGeom: string, bezirkGeom: string): string {
+  return `(
+      (
+        (ST_Dimension(${hitGeom}) = 0 OR GeometryType(${hitGeom}) IN ('POINT', 'MULTIPOINT'))
+        AND ST_Covers(${bezirkGeom}, ${hitGeom})
+      )
+      OR (
+        ST_Dimension(${hitGeom}) > 0
+        AND ST_Intersects(${hitGeom}, ${bezirkGeom})
+        AND NOT ST_IsEmpty(ST_Intersection(${hitGeom}, ${bezirkGeom}))
+      )
+    )`;
 }
 
 /** Clip hit geom to region_geom CTE `g` — same rule as `items[].geometry`. */

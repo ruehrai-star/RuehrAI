@@ -176,6 +176,8 @@ describe("hit overlaps", () => {
     expect(query.sql).toContain("geo.geo_ref_address");
     expect(query.sql).toContain("grid100");
     expect(query.sql).toContain("region_geom");
+    expect(query.sql).toContain("ST_Covers");
+    expect(query.sql).toContain("ST_Dimension");
     expect(query.sql).not.toContain("<=>");
   });
 });

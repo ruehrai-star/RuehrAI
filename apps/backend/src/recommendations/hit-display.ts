@@ -28,7 +28,7 @@ export type AreaNameSource = Pick<AreaCandidate, "kind" | "grain" | "geoKey" | "
  * Always-filled UI name. Prefers a real catalog / feature name, never a raw
  * catalog key or internal id (`osm:…`, `id:…`, `address:…`, geo_addr,
  * INSPIRE / cell ids, "unbekannt"). Fallbacks: `PLZ 80331`,
- * `Planungsraum <8-digit code>`, `Quartier ohne Namen`, `100-m-Rasterzelle`,
+ * `Planungsraum ohne Namen`, `Quartier ohne Namen`, `100-m-Rasterzelle`,
  * Straße + Hausnummer or `Adresse ohne Hausnummer`, otherwise
  * `{Art} ohne Namen`.
  */
@@ -39,8 +39,7 @@ export function displayAreaName(candidate: AreaNameSource): string {
   const preferred = preferredVisibleName(candidate);
   if (preferred) {
     if (candidate.kind === "plz" && BARE_PLZ.test(preferred)) return `PLZ ${preferred}`;
-    const tail = bareCatalogTail(candidate.geoKey);
-    if (preferred !== candidate.geoKey.trim() && preferred !== tail) return preferred;
+    if (isPlausibleDisplayName(preferred)) return preferred;
   }
   return fallbackAreaName(candidate);
 }
@@ -102,8 +101,7 @@ function fallbackAreaName(candidate: AreaNameSource): string {
     return digits ? `PLZ ${digits}` : unnamedKind("plz");
   }
   if (candidate.kind === "lor" || isLorPlrKey(candidate.geoKey)) {
-    const code = lorCode(candidate.geoKey);
-    return code ? `Planungsraum ${code}` : unnamedKind("lor");
+    return unnamedKind("lor");
   }
   if (candidate.kind === "quartier" || isKoelnQuartierKey(candidate.geoKey)) {
     return unnamedKind("quartier");
@@ -114,7 +112,7 @@ function fallbackAreaName(candidate: AreaNameSource): string {
   if (candidate.kind === "address" || candidate.grain === "address") {
     return addressFallback(candidate);
   }
-  return humanizedKey(candidate.geoKey, candidate.kind);
+  return unnamedKind(candidate.kind);
 }
 
 function parseQuartierTitle(title: string | null | undefined): string | null {
@@ -122,9 +120,11 @@ function parseQuartierTitle(title: string | null | undefined): string | null {
   if (!visible) return null;
   const tagged = /Quartier\s+(.+?)(?:\s*\([^)]*\)\s*)?$/i.exec(visible);
   const fromTagged = emptyToNull(tagged?.[1]);
-  if (fromTagged && !isHiddenCatalogKey(fromTagged) && !BARE_PLZ.test(fromTagged)) return fromTagged;
+  if (fromTagged && isPlausibleDisplayName(fromTagged)) return fromTagged;
   const stripped = visible.replace(/\s*\([^)]*\)\s*$/, "").trim();
-  return visibleAreaName(stripped);
+  const cleaned = visibleAreaName(stripped);
+  if (cleaned && isPlausibleDisplayName(cleaned) && !/^quartier$/i.test(cleaned)) return cleaned;
+  return null;
 }
 
 function plzDigits(candidate: AreaNameSource): string | null {
@@ -137,30 +137,10 @@ function plzDigits(candidate: AreaNameSource): string | null {
   return null;
 }
 
-function lorCode(geoKey: string): string | null {
-  const tail = bareCatalogTail(geoKey).replace(/^plr:/i, "");
-  return /^\d{8}$/.test(tail) ? tail : null;
-}
-
 function addressFallback(candidate: AreaNameSource): string {
   const fromVisible = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
   if (fromVisible && isPlausibleDisplayName(fromVisible)) return fromVisible;
   return unnamedKind("address");
-}
-
-function humanizedKey(geoKey: string, kind: AreaKind): string {
-  const tail = bareCatalogTail(geoKey);
-  if (isPlausibleDisplayName(tail)) return kindLabel(kind, tail);
-  return unnamedKind(kind);
-}
-
-function kindLabel(kind: AreaKind, id: string): string {
-  if (kind === "ortsteil") return `Ortsteil ${id}`;
-  if (kind === "stadtteil") return `Stadtteil ${id}`;
-  if (kind === "bezirk") return `Bezirk ${id}`;
-  if (kind === "stadtbezirk") return `Stadtbezirk ${id}`;
-  if (kind === "gemeinde") return `Gemeinde ${id}`;
-  return unnamedKind(kind);
 }
 
 function unnamedKind(kind: AreaKind): string {
@@ -183,7 +163,12 @@ function looksLikeInternalId(value: string): boolean {
   if (/osm:|\bid:|address:|geo_addr|unbekannt|inspire/i.test(text)) return true;
   if (/^(?:cell[-_]?|grid)\S*$/i.test(text)) return true;
   if (/\b\d+m[NS]\d+[EW]\d+/i.test(text)) return true;
-  if (/^\d{6,}$/.test(text)) return true;
+  if (/^\d+$/.test(text)) return true;
+  if (/\d{6,}/.test(text)) return true;
+  if (/\b\d{8}\b/.test(text)) return true;
+  if (/\b(?:planungsraum|quartier|ortsteil|stadtteil|bezirk|stadtbezirk|gemeinde)\s+\S*\d/i.test(text)) {
+    return true;
+  }
   return false;
 }
 
