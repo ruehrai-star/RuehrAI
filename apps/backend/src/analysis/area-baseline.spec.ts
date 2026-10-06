@@ -8,6 +8,7 @@ import {
   parseAreaBaselineRow,
   parseMetricCatalogRow,
   parsePreferredEw,
+  quartierGeomLookupKeys,
 } from "./area-baseline";
 
 describe("area-baseline", () => {
@@ -53,6 +54,10 @@ describe("area-baseline", () => {
     expect(areaKeyAliases("ags:11000000")).toEqual(expect.arrayContaining(["ags:11000000", "11000000"]));
     expect(areaKeyAliases("lor:plr:01100101")).toEqual(["lor:plr:01100101"]);
     expect(areaKeyAliases("dwd1km:181:0")).toEqual(["dwd1km:181:0"]);
+    expect(quartierGeomLookupKeys(["koeln:sq:104030005", "ags:05315000", "quartier:1"])).toEqual([
+      "koeln:sq:104030005",
+      "koeln:sq:1",
+    ]);
   });
 
   it("keeps Hanau attrs.ags_alias_of and follows preferred_ew to the Zensus row", () => {

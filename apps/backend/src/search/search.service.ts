@@ -15,8 +15,10 @@ import { SearchQueryDto } from "./search.dto";
 import {
   allowPlzHits,
   hasVisibleLabel,
+  isArealessAdminHit,
   isInternalCatalogKeyQuery,
   isPlzHit,
+  matchCatalogAdminHit,
   searchFilterParams,
   searchQueryTokens,
 } from "./search.util";
@@ -61,7 +63,7 @@ export class SearchService {
       this.searchExisting(query),
     ]);
     const resolved = await this.resolveAgsDisplay(fallback, catalog);
-    return { hits: mergeHits(catalog, resolved, query.q) };
+    return { hits: mergeHits(catalog, mapArealessHits(resolved, catalog), query.q) };
   }
 
   /**
@@ -156,6 +158,23 @@ function toHit(row: HitRow): SearchHit | null {
     lon: toCoord(row.lon),
     lat: toCoord(row.lat),
   };
+}
+
+/**
+ * AGS/feature-view districts without a polygon (Köln `05315001`) map onto the
+ * catalog hit of the same municipality and normalized name, or are dropped.
+ */
+function mapArealessHits(fallback: SearchHit[], catalog: SearchHit[]): SearchHit[] {
+  const out: SearchHit[] = [];
+  for (const hit of fallback) {
+    if (!isArealessAdminHit(hit)) {
+      out.push(hit);
+      continue;
+    }
+    const mapped = matchCatalogAdminHit(hit, catalog);
+    if (mapped) out.push(mapped);
+  }
+  return out;
 }
 
 function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): SearchHit[] {

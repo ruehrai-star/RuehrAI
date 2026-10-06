@@ -69,6 +69,9 @@ const SELECT_REGION = `
 export const TARGET_REGION_NO_MAP_AREA =
   "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.";
 
+/** Additive 0.19.6. Stable code on POST /target-region when the catalog has no polygon. */
+export const TARGET_REGION_WITHOUT_GEOMETRY = "TARGET_REGION_WITHOUT_GEOMETRY";
+
 export const TARGET_REGION_PLACE_REQUIRED =
   "Name the catalog place with geoKey, ags, or plz. A free-text label is not enough to add or remove an item.";
 
@@ -120,7 +123,12 @@ export class TargetRegionService {
       geometry,
     });
     if (!resolved.geometry || !resolved.bounds) {
-      throw new BadRequestException(TARGET_REGION_NO_MAP_AREA);
+      throw new BadRequestException({
+        statusCode: 400,
+        message: TARGET_REGION_NO_MAP_AREA,
+        error: "Bad Request",
+        code: TARGET_REGION_WITHOUT_GEOMETRY,
+      });
     }
     const display = await this.catalogDisplay({
       grain,

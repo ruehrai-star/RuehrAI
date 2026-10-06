@@ -10,8 +10,9 @@ import {
   spatialEvenHitsLimitSql,
   teilCatalogQuery,
   lorPlrCatalogQuery,
+  koelnQuartierCandidateQuery,
 } from "./area-candidates";
-import { rankTeilflaechen } from "./score";
+import { rankTeilflaechen, spatialCellOfScored } from "./score";
 
 const POSTGIS_URL = process.env.POSTGIS_URL?.trim();
 const describePg = POSTGIS_URL ? describe : describe.skip;
@@ -111,6 +112,7 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
       DROP TABLE IF EXISTS geo.geo_ref_plz;
       DROP TABLE IF EXISTS geo.geo_ref_admin;
       DROP TABLE IF EXISTS features.location_feature_docs;
+      DROP TABLE IF EXISTS geo.geo_ref_quartier;
       CREATE TABLE geo.geo_ref_lor (
         geo_lor_id text PRIMARY KEY,
         name text,
@@ -160,6 +162,12 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
         lat float8,
         ref_period date
       );
+      CREATE TABLE geo.geo_ref_quartier (
+        geo_quartier_id text PRIMARY KEY,
+        name text,
+        geo_ags text,
+        geom geometry(Geometry, 4326)
+      );
     `);
     await client.query(
       `INSERT INTO geo.geo_ref_lor (geo_lor_id, name, geo_ags, geo_bezirk_id, lor_level, valid_to, geom) VALUES
@@ -205,6 +213,19 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200422'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200423')
     `);
+    await client.query(
+      `INSERT INTO geo.geo_ref_quartier (geo_quartier_id, name, geo_ags, geom) VALUES
+        ('koeln:sq:104030005', 'Agnes-Viertel - Alte Feuerwache', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+        ('koeln:sq:104030001', 'Agnes-Viertel - Aquinostr.', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+        ('koeln:sq:101010001', 'Kapitolviertel', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('koeln:sq:103010002', 'Deutz-Messe', '05315000', ST_SetSRID(ST_GeomFromGeoJSON($4), 4326))`,
+      [
+        box(6.95, 50.95, 6.958, 50.958),
+        box(6.952, 50.952, 6.96, 50.96),
+        box(6.95, 50.93, 6.958, 50.938),
+        box(6.97, 50.94, 6.978, 50.948),
+      ],
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -397,6 +418,89 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
     const shares = ranked.map((item) => item.targetOverlapShare ?? 0);
     expect(shares).toEqual([...shares].sort((left, right) => right - left));
     expect(ranked.map((item) => item.name)).not.toEqual(expect.arrayContaining(edge));
+  });
+
+  it("spreads equal-score Köln Quartiere across 1-km cells instead of clustering Agnes", async () => {
+    const koeln: AnalysisRegion = {
+      label: "Innenstadt",
+      grain: "other",
+      geoKey: "stadtbezirk:osm:2613798",
+      level: "stadtbezirk",
+      parentLabel: "Köln",
+      ags: "05315000",
+      plz: null,
+      lon: 6.96,
+      lat: 50.94,
+      bounds: null,
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [6.94, 50.928],
+            [6.985, 50.928],
+            [6.985, 50.965],
+            [6.94, 50.965],
+            [6.94, 50.928],
+          ],
+        ],
+      },
+      updatedAt: "2026-10-06T00:00:00.000Z",
+    };
+    const query = koelnQuartierCandidateQuery(koeln);
+    const rows = await client.query<{
+      geo_key: string;
+      name: string | null;
+      grain: string;
+      lon: number | string | null;
+      lat: number | string | null;
+      target_overlap_share: number | string | null;
+    }>(query.sql, query.params);
+    expect(rows.rows).toHaveLength(4);
+    const sameSeries = (geoKey: string): YearlySeries[] => [
+      {
+        metricId: "unfallatlas",
+        requestedLevel: "quartier",
+        requestedGeoKey: geoKey,
+        sourceLevel: "quartier",
+        sourceGeoKey: geoKey,
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 20 },
+          { period: "2025", status: "present", value: 8 },
+        ],
+      },
+    ];
+    const candidates: AreaCandidate[] = rows.rows.map((row) => ({
+      id: `other:${row.geo_key}@${koeln.geoKey}`,
+      geoKey: row.geo_key,
+      grain: "other",
+      kind: "quartier",
+      title: row.name ?? row.geo_key,
+      name: row.name,
+      ags: "05315000",
+      plz: null,
+      lon: row.lon == null ? null : Number(row.lon),
+      lat: row.lat == null ? null : Number(row.lat),
+      targetRegionGeoKey: koeln.geoKey!,
+      targetOverlapShare: Number(row.target_overlap_share),
+    }));
+    const ranked = rankTeilflaechen(
+      candidates,
+      candidates.flatMap((item) => sameSeries(item.geoKey)),
+      [criterion],
+      [koeln],
+      { patternByDataset: buildPatternByDataset(sameSeries("koeln:sq:104030005")) },
+    );
+    expect(ranked.every((item) => item.score === ranked[0]?.score)).toBe(true);
+    const top3 = ranked.slice(0, 3);
+    const cells = new Set(top3.map((item) => spatialCellOfScored(item)));
+    expect(cells.size).toBe(3);
+    expect(top3.map((item) => item.name)).not.toEqual([
+      "Agnes-Viertel - Alte Feuerwache",
+      "Agnes-Viertel - Aquinostr.",
+      "Kapitolviertel",
+    ]);
   });
 });
 

@@ -6,6 +6,7 @@ import { PlaceCatalogService } from "../geo/place-catalog.service";
 import {
   TARGET_REGION_NO_MAP_AREA,
   TARGET_REGION_PLACE_REQUIRED,
+  TARGET_REGION_WITHOUT_GEOMETRY,
   TargetRegionService,
 } from "./target-region.service";
 
@@ -77,6 +78,18 @@ describe("TargetRegionService", () => {
       plz: null,
     });
     expect(query).not.toHaveBeenCalled();
+  });
+
+  it("returns HTTP 400 body with code TARGET_REGION_WITHOUT_GEOMETRY", async () => {
+    lookupRegion.mockResolvedValue({ geometry: null, point: null });
+    await expect(service.add("4", { label: "Bezirk Köln Innenstadt", geoKey: "05315001" })).rejects.toMatchObject({
+      response: {
+        statusCode: 400,
+        message: TARGET_REGION_NO_MAP_AREA,
+        error: "Bad Request",
+        code: TARGET_REGION_WITHOUT_GEOMETRY,
+      },
+    });
   });
 
   it("stores the official Bezirk AGS when the client sends the doubled alias", async () => {

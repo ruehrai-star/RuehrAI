@@ -1,8 +1,11 @@
 import {
   allowPlzHits,
   hasVisibleLabel,
+  isArealessAdminHit,
   isInternalCatalogKeyQuery,
   isPlzHit,
+  matchCatalogAdminHit,
+  normalizeAdminSearchName,
   searchFilterParams,
   toContainsPattern,
 } from "./search.util";
@@ -72,5 +75,54 @@ describe("visible labels", () => {
     expect(hasVisibleLabel("")).toBe(false);
     expect(isPlzHit({ level: "plz", grain: "plz5" })).toBe(true);
     expect(isPlzHit({ level: "ortsteil", grain: "other" })).toBe(false);
+  });
+});
+
+describe("arealess admin search hits", () => {
+  it("treats Köln 05315001 as a district without catalog area", () => {
+    expect(
+      isArealessAdminHit({ grain: "ags", geoKey: "05315001", level: "stadtbezirk" }),
+    ).toBe(true);
+    expect(
+      isArealessAdminHit({
+        grain: "other",
+        geoKey: "stadtbezirk:osm:2613798",
+        level: "stadtbezirk",
+      }),
+    ).toBe(false);
+    expect(isArealessAdminHit({ grain: "ags", geoKey: "05315000", level: "gemeinde" })).toBe(false);
+    expect(
+      isArealessAdminHit({ grain: "ags", geoKey: "07233004", level: "stadtbezirk" }),
+    ).toBe(false);
+    expect(
+      isArealessAdminHit({ grain: "ags", geoKey: "16061003", level: "stadtbezirk" }),
+    ).toBe(false);
+    expect(isArealessAdminHit({ grain: "ags", geoKey: "09162004", level: "stadtbezirk" })).toBe(true);
+  });
+
+  it("normalizes Bezirk Köln Innenstadt onto Innenstadt", () => {
+    expect(normalizeAdminSearchName("Bezirk Köln Innenstadt", "Köln")).toBe("innenstadt");
+    expect(normalizeAdminSearchName("Innenstadt", "Köln")).toBe("innenstadt");
+    const catalog = [
+      {
+        label: "Innenstadt",
+        level: "stadtbezirk",
+        parentLabel: "Köln",
+        geoKey: "stadtbezirk:osm:2613798",
+        geoAgs: "05315000",
+      },
+    ];
+    expect(
+      matchCatalogAdminHit(
+        {
+          label: "Bezirk Köln Innenstadt",
+          level: "stadtbezirk",
+          parentLabel: "Köln",
+          geoKey: "05315001",
+          geoAgs: "05315001",
+        },
+        catalog,
+      )?.geoKey,
+    ).toBe("stadtbezirk:osm:2613798");
   });
 });

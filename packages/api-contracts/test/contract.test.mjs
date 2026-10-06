@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.19.5");
+  assert.equal(doc.info.version, "0.19.6");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -98,6 +98,9 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.19.3"));
   assert.ok(doc.info.description.includes("0.19.4"));
   assert.ok(doc.info.description.includes("0.19.5"));
+  assert.ok(doc.info.description.includes("0.19.6"));
+  assert.ok(doc.info.description.includes("TARGET_REGION_WITHOUT_GEOMETRY"));
+  assert.ok(doc.info.description.includes("geo.geo_ref_quartier"));
   assert.equal(doc.info.description.includes("nAktiv = 0 are omitted"), false);
   assert.ok(doc.info.description.includes("inherited or Stichtag"));
   assert.ok(doc.info.description.includes("score 0"));
@@ -149,6 +152,12 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("marked_target_region_not_found"));
   assert.ok(doc.paths["/analysis/pattern"].get.description.includes("rebuilt"));
   assert.equal(doc.components.schemas.ErrorResponse.properties.code.type, "string");
+  assert.ok(doc.components.schemas.ErrorResponse.properties.code.description.includes("TARGET_REGION_WITHOUT_GEOMETRY"));
+  assert.equal(
+    doc.paths["/target-region"].post.responses["400"].content["application/json"].example.code,
+    "TARGET_REGION_WITHOUT_GEOMETRY",
+  );
+  assert.ok(doc.paths["/search"].get.description.includes("05315001"));
   assert.ok(doc.info.description.includes("official_zensus2022_grid"));
   assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
   assert.ok(doc.info.description.includes("geo.area_baseline"));

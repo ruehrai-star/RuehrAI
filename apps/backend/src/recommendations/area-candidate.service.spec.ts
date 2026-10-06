@@ -408,6 +408,52 @@ describe("AreaCandidateService", () => {
     expect(ortsteil?.geometryUnavailableReason).toMatch(/gezeichnet/);
   });
 
+  it("retries teil catalog without quartier polygons when geo_ref_quartier is missing", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("geo.geo_ref_quartier") && text.includes("geo.geo_ref_zielregion_teil")) {
+        throw Object.assign(new Error('relation "geo.geo_ref_quartier" does not exist'), { code: "42P01" });
+      }
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      if (text.includes("geo.geo_ref_zielregion_teil")) {
+        return {
+          rows: [
+            {
+              geo_key: "koeln:sq:104030005",
+              grain: "other",
+              kind: "quartier",
+              name: "Agnes-Viertel - Alte Feuerwache",
+              ags: "05315000",
+              plz: null,
+              lon: 6.96,
+              lat: 50.95,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const loaded = await service.load([
+      region({
+        label: "Innenstadt",
+        grain: "other",
+        geoKey: "stadtbezirk:osm:2613798",
+        level: "stadtbezirk",
+        parentLabel: "Köln",
+        ags: "05315000",
+      }),
+    ]);
+    expect(loaded.items.map((item) => item.geoKey)).toEqual(["koeln:sq:104030005"]);
+    expect(loaded.items[0]?.geometry).toBeNull();
+    expect(loaded.items[0]?.geometryUnavailableReason).toMatch(/gezeichnet/);
+    expect(
+      queryReadingFeatures.mock.calls.some(
+        (call) =>
+          String(call[0]).includes("geo.geo_ref_zielregion_teil") && !String(call[0]).includes("geo.geo_ref_quartier"),
+      ),
+    ).toBe(true);
+  });
+
   it("swallows a missing geo catalog", async () => {
     queryReadingFeatures.mockRejectedValue(
       Object.assign(new Error('relation "geo.geo_ref_ortsteil" does not exist'), { code: "42P01" }),

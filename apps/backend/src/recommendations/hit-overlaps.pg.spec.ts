@@ -37,6 +37,7 @@ describePg("hit overlaps on PostGIS", () => {
       DROP TABLE IF EXISTS geo.geo_ref_ortsteil;
       DROP TABLE IF EXISTS geo.geo_ref_address;
       DROP TABLE IF EXISTS geo.geo_ref_bezirk;
+      DROP TABLE IF EXISTS geo.geo_ref_quartier;
       DROP TABLE IF EXISTS features.location_feature_docs;
       CREATE TABLE geo.geo_ref_plz (geo_plz5 text, geom geometry);
       CREATE TABLE geo.geo_ref_lor (
@@ -47,6 +48,12 @@ describePg("hit overlaps on PostGIS", () => {
       );
       CREATE TABLE geo.geo_ref_address (geo_key text, geo_addr_id text, geom_3035 geometry);
       CREATE TABLE geo.geo_ref_bezirk (geo_bezirk_id text, name text, geom geometry);
+      CREATE TABLE geo.geo_ref_quartier (
+        geo_quartier_id text PRIMARY KEY,
+        name text,
+        geo_ags text,
+        geom geometry
+      );
       CREATE TABLE features.location_feature_docs (
         geo_key text, grain text, lon float8, lat float8, ref_period date
       );
@@ -59,6 +66,8 @@ describePg("hit overlaps on PostGIS", () => {
         ('address:1', '1', ST_Transform(ST_SetSRID(ST_MakePoint(0.5, 0.5), 4326), 3035));
       INSERT INTO geo.geo_ref_lor (geo_lor_id, name, geo_ags, lor_level, valid_to, geom) VALUES
         ('07400721', 'Paradestraße', '11000000', 'planungsraum', NULL, ${box(0.1, 0.1, 0.9, 0.9)});
+      INSERT INTO geo.geo_ref_quartier (geo_quartier_id, name, geo_ags, geom) VALUES
+        ('koeln:sq:101010001', 'Kapitolviertel', '05315000', ${box(0.2, 0.2, 0.8, 0.8)});
     `);
   }, 60_000);
 
@@ -110,6 +119,25 @@ describePg("hit overlaps on PostGIS", () => {
     const lor = byHit.get("lor:plr:07400721") ?? [];
     expect(lor[0]).toMatchObject({ label: "Innenstadt", isTargetRegion: true });
     expect(lor[0]?.share).toBeGreaterThan(0.9);
+  });
+
+  it("resolves quartier hit outlines and lists the Zielregion first", async () => {
+    const query = hitOverlapQuery(
+      [{ geoKey: "koeln:sq:101010001", kind: "quartier" }],
+      JSON.stringify(REGION),
+      overlapRegionMeta({
+        geoKey: "ortsteil:innenstadt",
+        label: "Innenstadt",
+        level: "ortsteil",
+        grain: "other",
+      }),
+    );
+    const result = await client.query<HitOverlapRow>(query.sql, query.params);
+    const overlaps = selectOverlaps(result.rows);
+    expect(overlaps[0]).toMatchObject({ label: "Innenstadt", isTargetRegion: true });
+    expect(overlaps[0]?.share).toBeGreaterThan(0.3);
+    expect(overlaps.some((part) => part.label === "koeln:sq:101010001")).toBe(false);
+    expect(overlaps.some((part) => /ortsteil:|koeln:sq:/.test(part.label))).toBe(false);
   });
 });
 

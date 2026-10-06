@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { AnalysisRegion } from "../analysis/types";
 import { DatabaseService, featuresReadQuery } from "../database/database.service";
+import { isGeoRefQuartierUnavailable } from "../database/pg-error";
 import { AreaKind, isAreaKind } from "./area-candidates";
 import {
   OVERLAP_MIN_SHARE,
@@ -95,7 +96,20 @@ export async function attachHitOverlaps<T extends OverlapHost>(
       );
       if ((query.params[0] as string[]).length === 0) continue;
       assertCandidateQueryArity(query);
-      const result = await featuresReadQuery(db)<HitOverlapRow>(query.sql, query.params);
+      let result: { rows: HitOverlapRow[] };
+      try {
+        result = await featuresReadQuery(db)<HitOverlapRow>(query.sql, query.params);
+      } catch (error) {
+        if (!isGeoRefQuartierUnavailable(error)) throw error;
+        const fallback = hitOverlapQuery(
+          regionHits.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })),
+          geometry,
+          overlapRegionMeta(region),
+          { includeQuartierGeom: false },
+        );
+        assertCandidateQueryArity(fallback);
+        result = await featuresReadQuery(db)<HitOverlapRow>(fallback.sql, fallback.params);
+      }
       const byHit = groupOverlapsByHit(result.rows);
       for (const hit of regionHits) {
         const overlaps = byHit.get(hit.location.geoKey);
@@ -122,13 +136,15 @@ function toOverlap(row: HitOverlapRow): RecommendationOverlap | null {
   const isTarget = isTargetRegionFlag(row.is_target_region);
   if (!geoKey || !label || !isAreaKind(kind) || !Number.isFinite(share)) return null;
   if (looksLikeCatalogKey(label)) return null;
-  if (share < 0 || share > 1) return null;
-  if (!isTarget && share < OVERLAP_MIN_SHARE) return null;
+  // PostGIS area ratios can be 1 + 1 ulp when the hit sits fully inside.
+  if (share < 0 || share > 1.001) return null;
+  const clamped = Math.min(1, Math.max(0, share));
+  if (!isTarget && clamped < OVERLAP_MIN_SHARE) return null;
   return {
     geoKey,
     label,
     kind,
-    share: roundShare(share),
+    share: roundShare(clamped),
     ...(isTarget ? { isTargetRegion: true } : {}),
   };
 }

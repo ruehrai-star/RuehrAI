@@ -7,7 +7,9 @@ import { DatabaseService, featuresReadQuery } from "../database/database.service
 import {
   isFeaturesAccessDenied,
   isGeoCatalogUnavailable,
+  isGeoRefQuartierUnavailable,
   isMissingFeaturesRelation,
+  isUndefinedColumn,
 } from "../database/pg-error";
 import { Grain } from "../target-region/dto";
 import { pushAll, yieldEventLoop } from "../common/safe-array";
@@ -158,20 +160,29 @@ export class AreaCandidateService {
   }
 
   private async readTeil(region: AnalysisRegion): Promise<AreaCandidateLoad | null> {
-    try {
-      return await this.readQuery(teilCatalogQuery(region, "prefer"));
-    } catch (error) {
-      if (isUndefinedColumn(error)) {
-        try {
-          return await this.readQuery(teilCatalogQuery(region, "legacy"));
-        } catch (legacyError) {
-          if (isMissingTeilCatalog(legacyError) || isOptionalTeilJoinMissing(legacyError)) return null;
-          throw legacyError;
-        }
+    const attempts: Array<{ mode: "prefer" | "legacy"; includeQuartierGeom: boolean }> = [
+      { mode: "prefer", includeQuartierGeom: true },
+      { mode: "legacy", includeQuartierGeom: true },
+      { mode: "prefer", includeQuartierGeom: false },
+      { mode: "legacy", includeQuartierGeom: false },
+    ];
+    let lastError: unknown;
+    for (const attempt of attempts) {
+      try {
+        return await this.readQuery(teilCatalogQuery(region, attempt.mode, { includeQuartierGeom: attempt.includeQuartierGeom }));
+      } catch (error) {
+        lastError = error;
+        if (isMissingTeilCatalog(error)) return null;
+        if (attempt.includeQuartierGeom && isGeoRefQuartierUnavailable(error)) continue;
+        if (attempt.mode === "prefer" && isUndefinedColumn(error) && !isGeoRefQuartierUnavailable(error)) continue;
+        if (isOptionalTeilJoinMissing(error)) return null;
+        throw error;
       }
-      if (isMissingTeilCatalog(error) || isOptionalTeilJoinMissing(error)) return null;
-      throw error;
     }
+    if (isMissingTeilCatalog(lastError) || isOptionalTeilJoinMissing(lastError) || isGeoRefQuartierUnavailable(lastError)) {
+      return null;
+    }
+    throw lastError;
   }
 
   private async readIntersectFallback(region: AnalysisRegion): Promise<AreaCandidateLoad> {
@@ -313,11 +324,6 @@ function isOptionalTeilJoinMissing(error: unknown): boolean {
     return false;
   }
   return /geo_ref_lor|location_feature_docs|lor_level|valid_to/i.test(messageOf(error));
-}
-
-function isUndefinedColumn(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  return (error as { code?: unknown }).code === "42703";
 }
 
 function messageOf(error: unknown): string {

@@ -148,6 +148,28 @@ describe("hit overlaps", () => {
     ).toEqual([]);
   });
 
+  it("clamps a PostGIS share of 1 + ulp to 1 instead of dropping the row", () => {
+    expect(
+      selectOverlaps([
+        row({
+          hit_geo_key: "koeln:sq:101010001",
+          label: "Innenstadt",
+          share: 1.0000000000000002,
+          geo_key: "ortsteil:innenstadt",
+          is_target_region: true,
+        }),
+      ]),
+    ).toEqual([
+      {
+        geoKey: "ortsteil:innenstadt",
+        label: "Innenstadt",
+        kind: "ortsteil",
+        share: 1,
+        isTargetRegion: true,
+      },
+    ]);
+  });
+
   it("includes grid100 and address, typically one Stadtbezirk at share 1", async () => {
     expect(overlapEligibleKind("grid100")).toBe(true);
     expect(overlapEligibleKind("address")).toBe(true);
@@ -203,6 +225,8 @@ describe("hit overlaps", () => {
     expect(query.sql).toContain("geo.geo_ref_ortsteil");
     expect(query.sql).toContain("geo.geo_ref_plz");
     expect(query.sql).toContain("geo.geo_ref_address");
+    expect(query.sql).toContain("geo.geo_ref_quartier");
+    expect(query.sql).toContain("kind = 'quartier'");
     expect(query.sql).toContain("grid100");
     expect(query.sql).toContain("region_geom");
     expect(query.sql).toContain("is_target_region");

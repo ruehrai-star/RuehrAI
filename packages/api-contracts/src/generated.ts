@@ -154,9 +154,11 @@ export interface paths {
          *     `app.map_features` row, then Data-Scout). A GeoJSON Polygon or
          *     MultiPolygon on the request is stored instead. `bounds` without a
          *     polygon are ignored and do not become a rectangle. Never persist
-         *     null geometry. If the catalog has no outline, the add is `400` and
-         *     the list is unchanged. A municipality that simply has no sub-area
-         *     is not an error; it can be added when it has an outline.
+         *     null geometry. If the catalog has no outline, the add is `400`
+         *     with `ErrorResponse.code` `TARGET_REGION_WITHOUT_GEOMETRY`
+         *     (additive 0.19.6) and the list is unchanged. A municipality that
+         *     simply has no sub-area is not an error; it can be added when it
+         *     has an outline.
          *
          *     The same catalog key appears at most once. A second add of that key
          *     returns the stored item and does not insert another row.
@@ -383,7 +385,11 @@ export interface paths {
          *     are not outlines. A Berlin Bezirk alias (`11006006`, `11007007`, and
          *     the same `11` + nnn + nnn pattern) is stored as official `1100000N`.
          *     A hit with no catalog polygon is rejected. Bounds or a point are not
-         *     turned into a rectangle. One hit per geo key. The same display name
+         *     turned into a rectangle. Feature-view AGS districts without a
+         *     polygon (example Köln `05315001` „Bezirk Köln Innenstadt“) map onto
+         *     a catalog hit of the same municipality and normalized name, or are
+         *     omitted — never kept as a second key next to `stadtbezirk:osm:…`.
+         *     One hit per geo key. The same display name
          *     may appear twice only when `parentLabel` differs.
          */
         get: operations["searchPlaces"];
@@ -602,7 +608,8 @@ export interface paths {
          *     yearlySeries rows may have a null embedding. Candidates without
          *     local dataset hits drop when siblings have local data; areas
          *     with only inherited or Stichtag values stay with score 0 and
-         *     are ordered by share in the Zielregion, then `id`. Additive
+         *     are ordered by share in the Zielregion, then 1-km cell
+         *     round-robin and `md5(geo_key)`. Additive
          *     `criteriaEvidence[].proximity` is the per-dataset closeness;
          *     `trendYears` is the calendar-year count of a trend;
          *     `trendFromTwoYears` is true when that count is 2.
@@ -1728,7 +1735,8 @@ export interface components {
              *     `0`. Candidates without local dataset hits drop when
              *     siblings have local data; inherited/Stichtag-only areas
              *     stay with score 0 and are ordered by Zielregion share,
-             *     then `id`. Additive `criteriaEvidence[].proximity` is the
+             *     then 1-km cell round-robin and `md5(geo_key)`. Additive
+             *     `criteriaEvidence[].proximity` is the
              *     per-dataset closeness before the item coverage factor.
              *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
              *     (default 0.10) of their area inside the Zielregion.
@@ -1986,7 +1994,9 @@ export interface components {
              * @description Stable machine-readable error code. Additive; omitted on
              *     older errors. `marked_target_region_not_found` on
              *     `POST /analysis/runs` when `markedTargetRegionGeoKey` is
-             *     unknown or foreign.
+             *     unknown or foreign. `TARGET_REGION_WITHOUT_GEOMETRY` on
+             *     `POST /target-region` when the catalog place has no
+             *     polygon (additive 0.19.6).
              */
             code?: string;
         };
@@ -2297,7 +2307,28 @@ export interface operations {
                     "application/json": components["schemas"]["TargetRegion"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description The write is invalid, or the catalog place has no polygon.
+             *     When there is no map area, the body is `ErrorResponse` with
+             *     additive `code` `TARGET_REGION_WITHOUT_GEOMETRY` (0.19.6).
+             *     HTTP status stays 400.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "statusCode": 400,
+                     *       "message": "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.\n",
+                     *       "error": "Bad Request",
+                     *       "code": "TARGET_REGION_WITHOUT_GEOMETRY"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
         };
     };
