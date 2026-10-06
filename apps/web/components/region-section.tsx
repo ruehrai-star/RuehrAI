@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
-import { getApi, ApiError, type SearchHit, type TargetRegion } from "@/lib/api";
+import { getApi, type SearchHit, type TargetRegion } from "@/lib/api";
 import { catalogPlaceName, visiblePlaceText, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
 import { regionHasDrawableArea } from "@/lib/map/karte";
 import {
@@ -11,7 +11,11 @@ import {
   markedRegion,
   regionListKey,
 } from "@/lib/locations/regions";
-import { errorText } from "@/lib/user-message";
+import {
+  addTargetRegionUserMessage,
+  missingMapAreaClientError,
+  sourceLacksMapArea,
+} from "@/lib/locations/add-error";
 import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { VERLAUF_COPY } from "@/lib/verlauf/model";
 
@@ -25,6 +29,7 @@ interface RegionSectionProps {
   onMark: (key: string) => void;
   onAdd: (hit: SearchHit) => Promise<void>;
   onRemove: (key: string) => Promise<void>;
+  onDismissError?: () => void;
 }
 
 export function RegionSection({
@@ -37,12 +42,14 @@ export function RegionSection({
   onMark,
   onAdd,
   onRemove,
+  onDismissError,
 }: RegionSectionProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [resultQuery, setResultQuery] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
   const [pattern, setPattern] = useState<string | null>(null);
   const [patternKey, setPatternKey] = useState<string | null>(null);
 
@@ -60,11 +67,11 @@ export function RegionSection({
           setResultQuery(trimmed);
           setSearchError(null);
         })
-        .catch((caught: unknown) => {
+        .catch(() => {
           if (cancelled) return;
           setHits([]);
           setResultQuery(trimmed);
-          setSearchError(caught instanceof ApiError ? errorText(caught, "Suche fehlgeschlagen.") : "Suche fehlgeschlagen.");
+          setSearchError("Suche fehlgeschlagen.");
         });
     }, 180);
 
@@ -99,14 +106,29 @@ export function RegionSection({
   const searching = trimmed.length >= 2 && resultQuery !== trimmed;
   const visibleHits = trimmed.length >= 2 && resultQuery === trimmed ? visibleSearchHits(hits) : [];
   const visibleItems = visibleSavedRegions(items);
+  const pickerError = addError ?? error;
+
+  function dismissPickerError() {
+    setAddError(null);
+    onDismissError?.();
+  }
 
   async function addHit(hit: SearchHit) {
     if (isHitInList(hit, visibleItems) || !catalogPlaceName(hit)) return;
-    await onAdd(hit);
-    setQuery("");
-    setHits([]);
-    setResultQuery("");
-    searchRef.current?.focus();
+    dismissPickerError();
+    if (sourceLacksMapArea(hit)) {
+      setAddError(addTargetRegionUserMessage(missingMapAreaClientError()));
+      return;
+    }
+    try {
+      await onAdd(hit);
+      setQuery("");
+      setHits([]);
+      setResultQuery("");
+      searchRef.current?.focus();
+    } catch (caught) {
+      setAddError(addTargetRegionUserMessage(caught));
+    }
   }
 
   return (
@@ -128,7 +150,10 @@ export function RegionSection({
                     type="button"
                     className={marked ? "hit is-active" : "hit"}
                     aria-pressed={marked}
-                    onClick={() => onMark(key)}
+                    onClick={() => {
+                      dismissPickerError();
+                      onMark(key);
+                    }}
                   >
                     <CatalogHitLabel source={item} />
                   </button>
@@ -163,7 +188,10 @@ export function RegionSection({
           value={query}
           placeholder={REGION_LIST_COPY.searchPlaceholder}
           autoComplete="off"
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            dismissPickerError();
+          }}
           aria-controls="region-hits"
         />
         {searchError ? (
@@ -207,9 +235,9 @@ export function RegionSection({
         {trimmed.length >= 2 && !searching && visibleHits.length === 0 && !searchError ? (
           <p className="message">{REGION_LIST_COPY.noHits}</p>
         ) : null}
-        {error ? (
-          <p className="message message-error" role="alert">
-            {error}
+        {pickerError ? (
+          <p className="message message-error" role="alert" aria-live="assertive">
+            {pickerError}
           </p>
         ) : null}
         {notice ? (

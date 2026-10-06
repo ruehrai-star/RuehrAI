@@ -46,6 +46,10 @@ test("empty list copy stays exact", () => {
   assert.equal(REGION_LIST_COPY.noHits, "Keine passende Zielregion.");
   assert.equal(REGION_LIST_COPY.added, "Hinzugefügt");
   assert.equal(REGION_LIST_COPY.missingArea, MISSING_AREA_LABEL);
+  assert.equal(
+    REGION_LIST_COPY.noMapArea,
+    "Für diese Region liegt noch keine Fläche vor. Bitte wählen Sie eine andere.",
+  );
 });
 
 test("a hit already in the list is Hinzugefügt and cannot be added again", () => {

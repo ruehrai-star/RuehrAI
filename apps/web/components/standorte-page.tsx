@@ -114,8 +114,6 @@ export function StandortePage() {
         setMarkedKey(nextMarkedKeyAfterAdd(current, added, markedKey));
         return next;
       });
-    } catch (caught) {
-      setRegionError(errorText(caught, "Zielregion konnte nicht gespeichert werden."));
     } finally {
       setRegionAdding(false);
     }
@@ -254,6 +252,7 @@ export function StandortePage() {
         onMark={setMarkedKey}
         onAdd={addRegion}
         onRemove={deleteRegion}
+        onDismissError={() => setRegionError(null)}
       />
       <StoreSection
         stores={visibleStores}
