@@ -86,6 +86,24 @@ test("HTTP 404 is a generic failure; gateway status codes are not timeout copy",
   assert.equal(analysisFailureFromHttp(504).includes("zu lange gedauert"), false);
 });
 
+test("POST /analysis/runs 400 for more than 200 Zielregionen is a German limit, not a generic failure", () => {
+  assert.equal(
+    analysisFailureFromHttp(400, "Bitte wählen Sie höchstens 200 Zielregionen."),
+    ANALYSIS_FAILURE_COPY.tooManyTargetRegions,
+  );
+  assert.equal(
+    analysisFailureFromHttp(400, "Too many target regions: maximum is 200"),
+    ANALYSIS_FAILURE_COPY.tooManyTargetRegions,
+  );
+  assert.equal(
+    analysisFailureFromHttp(400, "targetRegions must contain no more than 200 elements"),
+    ANALYSIS_FAILURE_COPY.tooManyTargetRegions,
+  );
+  assert.equal(ANALYSIS_FAILURE_COPY.tooManyTargetRegions, "Bitte wählen Sie höchstens 200 Zielregionen.");
+  assert.equal(analysisFailureFromHttp(400, "internal_error"), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(400, "Die Angaben sind ungültig."), line(ANALYSIS_FAILURE_COPY.unexpected));
+});
+
 test("the client safety deadline uses the timeout sentence", () => {
   assert.equal(clientDeadlineMessage(), line(ANALYSIS_FAILURE_COPY.timeout));
   assert.equal(clientDeadlineMessage().includes("timeout"), false);

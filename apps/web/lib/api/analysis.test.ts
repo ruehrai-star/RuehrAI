@@ -162,6 +162,28 @@ test("GET /analysis/pattern maps 404 to no pattern", async () => {
   assert.equal(await api.getAnalysisPattern(), null);
 });
 
+test("POST /analysis/runs 400 for more than 200 Zielregionen keeps a German limit message", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json(
+        {
+          statusCode: 400,
+          message: "Too many target regions: maximum is 200",
+          error: "Bad Request",
+        },
+        400,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 400);
+    assert.match(error.message, /200/);
+    assert.match(error.message, /target region/i);
+    return true;
+  });
+});
+
 test("POST /analysis/runs keeps the German Backend error", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

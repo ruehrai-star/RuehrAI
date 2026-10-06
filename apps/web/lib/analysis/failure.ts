@@ -25,6 +25,7 @@ export const ANALYSIS_FAILURE_COPY = {
   interrupted: "Die Analyse wurde unterbrochen.",
   unexpected: "Es ist ein unerwarteter Fehler aufgetreten.",
   restart: "Erneut starten",
+  tooManyTargetRegions: "Bitte wählen Sie höchstens 200 Zielregionen.",
 } as const;
 
 const REASON_DETAIL: Record<AnalysisRunFailureReason, string> = {
@@ -59,12 +60,32 @@ export function analysisFailureMessage(reason: string | null | undefined): strin
  * HTTP mapping for a *final* failure. Gateway 502/504 on GET are not final
  * (see `isTransientPollError`). Timeout copy is never derived from a status
  * code — only from `failureReason=timeout` or the 180 s client deadline.
+ *
+ * POST `/analysis/runs` 400 for more than 200 Zielregionen is a user-facing
+ * limit, not a run `failureReason` — show the German sentence, not the
+ * generic unexpected line.
  */
 export function analysisFailureFromHttp(status: number, body?: string | null): string {
   if (status === 404) {
     return analysisFailureMessage("internal_error");
   }
+  if (status === 400 && isTooManyTargetRegionsMessage(body)) {
+    return ANALYSIS_FAILURE_COPY.tooManyTargetRegions;
+  }
   return analysisFailureMessage(body);
+}
+
+function isTooManyTargetRegionsMessage(body: string | null | undefined): boolean {
+  if (typeof body !== "string" || body.trim().length === 0) return false;
+  const text = body.toLowerCase();
+  const mentionsRegions = /zielregion/.test(text) || /target[\s_-]?region/.test(text);
+  const mentionsLimit =
+    /\b200\b/.test(text) ||
+    /too many/.test(text) ||
+    /höchstens/.test(text) ||
+    /max(imum)?/.test(text) ||
+    /limit/.test(text);
+  return mentionsRegions && mentionsLimit;
 }
 
 /** Client 180 s safety net: same copy as a server `timeout`. */

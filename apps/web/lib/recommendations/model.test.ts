@@ -1107,6 +1107,30 @@ test("overlap labels use the same name mapping as hits", () => {
   assert.equal(/\d{8}/.test(visible), false);
 });
 
+test("a PLZ overlap whose label is only digits is PLZ 12207, not PLZ ohne Namen", () => {
+  const digits = [{ geoKey: "plz5:12207", label: "12207", kind: "plz" as const, share: 1 }];
+  const empty = [{ geoKey: "plz5:12207", label: "", kind: "plz" as const, share: 1 }];
+  const already = [{ geoKey: "plz5:12207", label: "PLZ 12207", kind: "plz" as const, share: 1 }];
+  assert.equal(overlapLageSentence(digits), "Liegt in PLZ 12207.");
+  assert.equal(overlapDetailLines(digits)[0], "PLZ 12207: 100 %");
+  assert.equal(overlapLageSentence(empty), "Liegt in PLZ ohne Namen.");
+  assert.equal(overlapLageSentence(already), "Liegt in PLZ 12207.");
+  assert.equal(overlapLageSentence(digits)?.includes("ohne Namen"), false);
+  assert.equal(mapDisplayName({ name: "12207", kind: "plz", geoKey: "plz5:12207" }), "PLZ 12207");
+  assert.equal(
+    hitName(
+      item({
+        id: "plz5:12207",
+        rank: 1,
+        kind: "plz",
+        name: "12207",
+        location: { geoKey: "plz5:12207", grain: "plz5", lon: null, lat: null, name: "12207" },
+      }),
+    ),
+    "PLZ 12207",
+  );
+});
+
 test("Lage-Satz sits in the card header and Details, not in the Begründung", () => {
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   const head = page.slice(page.indexOf("function TrefferCard"), page.indexOf("card.trendSummary"));
@@ -1222,21 +1246,64 @@ test("visibleHits matches ags and label fallbacks when the marked region has no 
   );
 });
 
-test("backend rank is shown unchanged; no re-numbering", () => {
+test("backend rank is shown unchanged; 0.19.2 ranks start at 1 per region", () => {
   const ranked = item({
     id: "lor:plr:tempelhof-1",
-    rank: 122,
+    rank: 1,
     kind: "lor",
     title: "Lichtenrade",
     targetRegionGeoKey: "ortsteil:osm:162894",
     location: { geoKey: "lor:plr:tempelhof-1", grain: "other", lon: null, lat: null, name: "Lichtenrade" },
   });
   const cards = buildTrefferlisteCards(setWith([ranked]), markedTempelhof);
-  assert.equal(cards[0]?.rank, 122);
-  assert.equal(rankLabel(cards[0]!.rank), "Rang 122");
+  assert.equal(cards[0]?.rank, 1);
+  assert.equal(rankLabel(cards[0]!.rank), "Rang 1");
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   assert.match(page, /rankLabel\(card\.rank\)/);
   assert.equal(page.includes("Rang ${index"), false);
+});
+
+test("a 0.19.2 set runs through v6 name mapping: Planungsraum, no keys, rank 1", () => {
+  const hit = item({
+    id: "lor:plr:07400720",
+    rank: 1,
+    kind: "lor",
+    name: "Planungsraum 07400720",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    dataAsOf: "2022-12-31",
+    trend: { direction: "up", summary: "Einwohner steigt je 1.000 Einwohner." },
+    location: { geoKey: "lor:plr:07400720", grain: "other", lon: null, lat: null, name: "Planungsraum 07400720" },
+    overlaps: [
+      { geoKey: "plz5:12207", label: "12207", kind: "plz", share: 0.7 },
+      { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.3 },
+    ],
+  });
+  const otherRegion = item({
+    id: "ortsteil:osm:2613711",
+    rank: 1,
+    kind: "ortsteil",
+    name: "Altstadt-Nord",
+    targetRegionGeoKey: "bezirk:osm:2613798",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  const cards = buildTrefferlisteCards(setWith([otherRegion, hit]), markedTempelhof);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0]?.rank, 1);
+  assert.equal(cards[0]?.name, "Planungsraum ohne Namen");
+  assert.equal(cards[0]?.badge, "Planungsraum");
+  assert.equal(cards[0]?.stichtagLabel, "Stichtag 2022");
+  assert.equal(cards[0]?.trendSummary, "Einwohner steigt je 1.000 Einwohner.");
+  assert.equal(cards[0]?.lage, "Liegt zu 70 % in PLZ 12207 und zu 30 % in Quartier ohne Namen.");
+  assert.equal(
+    hitName(hit),
+    mapDisplayName({ name: "Planungsraum 07400720", kind: "lor", geoKey: "lor:plr:07400720" }),
+  );
+  const visible = `${cards[0]?.name} ${cards[0]?.badge} ${cards[0]?.lage ?? ""} ${cards[0]?.stichtagLabel ?? ""}`;
+  assert.equal(visible.includes("lor:plr"), false);
+  assert.equal(visible.includes("koeln:sq"), false);
+  assert.equal(visible.includes("stadtteil:osm"), false);
+  assert.equal(visible.includes("07400720"), false);
+  assert.equal(visible.includes("101"), false);
 });
 
 test("Stichtag comes from dataAsOf; Entwicklungssatz from trend.summary when direction is known", () => {

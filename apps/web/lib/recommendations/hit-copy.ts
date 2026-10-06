@@ -96,6 +96,8 @@ export function mapDisplayName(source: DisplayNameSource): string {
   if (isRasterFallbackName(raw)) return RASTER_NAME;
   if (NUMBERED_PLANUNGSRAUM.test(raw)) return PLANUNGSRAUM_OHNE_NAMEN;
   if (NUMBERED_QUARTIER.test(raw)) return QUARTIER_OHNE_NAMEN;
+  const plzCode = plzCodeFromLabel(raw);
+  if (plzCode && isPlzContext(kind, grain, blob)) return `PLZ ${plzCode}`;
   if (raw && !nameHasForbiddenId(raw) && !isBareNumber(raw)) return raw;
   return unnamedFromContext(kind, grain, blob);
 }
@@ -229,6 +231,17 @@ function displayBlob(source: Pick<DisplayNameSource, "id" | "geoKey" | "grain">)
 
 function isBareNumber(value: string): boolean {
   return /^\d+$/.test(value);
+}
+
+function isPlzContext(kind: string | null | undefined, grain: string | null | undefined, blob: string): boolean {
+  return kind === "plz" || grain === "plz5" || grain === "plz8" || /plz5:|plz8:/i.test(blob);
+}
+
+/** Digits-only PLZ label (or already-prefixed „PLZ 12207“) — never „PLZ ohne Namen“. */
+function plzCodeFromLabel(value: string): string | null {
+  if (/^\d+$/.test(value)) return value;
+  const prefixed = value.match(/^PLZ\s+(\d+)$/i);
+  return prefixed?.[1] ?? null;
 }
 
 function visiblePlaceText(value: string | null | undefined): string {

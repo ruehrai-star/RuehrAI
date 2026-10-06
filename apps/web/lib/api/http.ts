@@ -908,7 +908,7 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
   if (body.targetRegionGeoKey !== undefined && typeof body.targetRegionGeoKey !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
-  if (body.dataAsOf !== undefined && typeof body.dataAsOf !== "string") {
+  if (body.dataAsOf !== undefined && body.dataAsOf != null && typeof body.dataAsOf !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.intersectionOf !== undefined) {
@@ -945,12 +945,6 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       }
     }
   }
-  if (body.targetRegionGeoKey != null && typeof body.targetRegionGeoKey !== "string") {
-    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
-  }
-  if (body.dataAsOf != null && (typeof body.dataAsOf !== "string" || !WINDOW_STAMP.test(body.dataAsOf))) {
-    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
-  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
@@ -958,7 +952,7 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     grain: body.grain ?? body.location.grain,
     name: recommendationDisplayName(body),
     parentLabel,
-    targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : "",
+    targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : undefined,
     dataAsOf: body.dataAsOf === undefined ? undefined : body.dataAsOf,
     location: {
       ...body.location,
