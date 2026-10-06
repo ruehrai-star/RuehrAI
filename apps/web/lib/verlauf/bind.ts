@@ -96,18 +96,10 @@ export function runMatchesMarkedRegion(run: Pick<AnalysisRun, "input">, marked: 
 /**
  * This run belongs to the marked Zielregion when that place is on the
  * snapshot (`input.region` or `input.regions`), regardless of which entry
- * is primary. `startedRunId === run.id` remains accepted when the mark is
- * already on the snapshot; it is not required after reload or a region switch.
+ * is primary.
  */
-export function runIsForMarkedRegion(
-  run: Pick<AnalysisRun, "id" | "input">,
-  marked: PlaceRef,
-  startedRunId?: string | null,
-): boolean {
-  if (!runMatchesMarkedRegion(run, marked)) return false;
-  const started = typeof startedRunId === "string" ? startedRunId.trim() : "";
-  if (started && started === run.id.trim()) return true;
-  return true;
+export function runIsForMarkedRegion(run: Pick<AnalysisRun, "input">, marked: PlaceRef): boolean {
+  return runMatchesMarkedRegion(run, marked);
 }
 
 /** Stand line for the marked region only — never another region's name. */
@@ -165,7 +157,6 @@ export function bindPatternToMarkedRegion(input: {
 export async function loadPatternForMarkedRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun">,
   marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null }) | null,
-  options?: { startedRunId?: string | null },
 ): Promise<BoundVerlauf | null> {
   const geoKey = patternQueryGeoKey(marked);
   if (!marked || !geoKey) return null;
@@ -181,7 +172,7 @@ export async function loadPatternForMarkedRegion(
     throw error;
   }
 
-  if (!run || !runIsForMarkedRegion(run, marked, options?.startedRunId)) return null;
+  if (!run || !runIsForMarkedRegion(run, marked)) return null;
   const bound = bindPatternToMarkedRegion({ latest, run, marked });
   if (!bound) return null;
   return withRunSnapshot(bound, run);

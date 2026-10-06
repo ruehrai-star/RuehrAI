@@ -11,7 +11,6 @@ import { buildKarte } from "@/lib/map/karte";
 import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
 import {
   formatStandPrefix,
   loadVerlaufPatternForMarkedRegion,
@@ -149,7 +148,6 @@ export function VerlaufPage() {
 
     void (async () => {
       try {
-        const startedRunId = current?.geoKey ? startedRunIdForRegion(current.geoKey) : null;
         const next = await loadVerlaufPatternForMarkedRegion(analysisApi, current, {
           timeoutMs: VERLAUF_BIND_TIMEOUT_MS,
         });
@@ -165,7 +163,7 @@ export function VerlaufPage() {
         try {
           const run = await analysisApi.getAnalysisRun(next.runId);
           if (bindRequest.current !== token) return;
-          if (current && runIsForMarkedRegion(run, current, startedRunId)) {
+          if (current && runIsForMarkedRegion(run, current)) {
             snapshot = withRunSnapshot(next, run);
             setBound(snapshot);
           }

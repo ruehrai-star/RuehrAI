@@ -56,7 +56,6 @@ export async function bindTrefferlisteForRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   marked: MarkedRegion,
   inflightRunId?: string | null,
-  options?: { startedRunId?: string | null },
 ): Promise<TrefferlisteBind> {
   const inflight = typeof inflightRunId === "string" ? inflightRunId.trim() : "";
   if (inflight) {
@@ -64,7 +63,7 @@ export async function bindTrefferlisteForRegion(
     if (live.kind === "in_flight" || live.kind === "failed") return live;
   }
 
-  const bound = await bindCompletedSetForMarkedRegion(api, marked, options?.startedRunId);
+  const bound = await bindCompletedSetForMarkedRegion(api, marked);
   if (!bound) return { kind: "empty" };
   return { kind: "ready", bound: bound.bound, set: bound.set };
 }
@@ -96,12 +95,11 @@ async function readKnownRun(
 
 /**
  * Bind a stored set when the marked region is on the run snapshot or on
- * `set.targetRegions`. `startedRunId` is still accepted; it is not required.
+ * `set.targetRegions`.
  */
 async function bindCompletedSetForMarkedRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   marked: MarkedRegion,
-  startedRunId?: string | null,
 ): Promise<{ bound: BoundVerlauf; set: RecommendationSet | null } | null> {
   const geoKey = patternQueryGeoKey(marked);
   if (!marked || !geoKey) return null;
@@ -118,7 +116,7 @@ async function bindCompletedSetForMarkedRegion(
   }
 
   const set = await loadRecommendationsForRun(api, latest.runId);
-  const runOk = Boolean(run && runIsForMarkedRegion(run, marked, startedRunId));
+  const runOk = Boolean(run && runIsForMarkedRegion(run, marked));
   const setOk = recommendationSetCoversMarkedRegion(set, marked);
   if (!runOk && !setOk) return null;
 
@@ -138,7 +136,7 @@ export async function loadTrefferlisteAfterCompletedRun(
   runId: string,
   marked: MarkedRegion,
 ): Promise<Extract<TrefferlisteBind, { kind: "ready" | "empty" }>> {
-  const next = await bindCompletedSetForMarkedRegion(api, marked, runId);
+  const next = await bindCompletedSetForMarkedRegion(api, marked);
   if (!next) return { kind: "empty" };
   const set =
     next.set && next.set.runId === next.bound.runId

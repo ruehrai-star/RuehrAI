@@ -101,10 +101,14 @@ function tokenCoversMarkedRegion(token: string, marked: TargetRegionKeyInput): b
   const leftTail = catalogIdTail(token);
   const rightTail = catalogIdTail(markedKey);
   if (!leftTail || leftTail !== rightTail) return false;
-  // `ags:11000000` is not Tempelhof even if some other key shares a numeric tail.
-  const leftAgs = /^ags:/i.test(token);
-  const rightAgs = /^ags:/i.test(markedKey);
-  return leftAgs === rightAgs;
+  // Last-segment match is only for a bare OSM/AGS id vs a prefixed catalog key
+  // (`162894` ↔ `ortsteil:osm:162894`). Two prefixed keys with different
+  // prefixes must not match (`plz5:12207` ≠ `ortsteil:osm:12207`).
+  return isBareGeoKey(token) || isBareGeoKey(markedKey);
+}
+
+function isBareGeoKey(value: string): boolean {
+  return !value.includes(":");
 }
 
 export function placeCoversMarkedRegion(

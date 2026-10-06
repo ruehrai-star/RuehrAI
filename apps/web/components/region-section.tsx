@@ -12,7 +12,6 @@ import {
   regionListKey,
 } from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
-import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
 import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { VERLAUF_COPY } from "@/lib/verlauf/model";
 
@@ -80,9 +79,7 @@ export function RegionSection({
     if (!marked) return;
     const key = regionListKey(marked);
     let cancelled = false;
-    loadPatternForMarkedRegion(getApi(), marked, {
-      startedRunId: marked.geoKey ? startedRunIdForRegion(marked.geoKey) : null,
-    })
+    loadPatternForMarkedRegion(getApi(), marked)
       .then((bound) => {
         if (cancelled) return;
         setPattern(bound?.pattern.summary ?? null);

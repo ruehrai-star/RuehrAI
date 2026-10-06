@@ -108,3 +108,13 @@ test("set targetRegions and run snapshots cover Tempelhof via bare OSM ids", () 
   assert.equal(placeCoversMarkedRegion({ geoKey: "ortsteil:osm:55737", label: "Lichterfelde" }, marked), false);
   assert.equal(placeCoversMarkedRegion({ geoKey: "162894", label: "Tempelhof" }, marked), true);
 });
+
+test("last-segment key match only applies when at least one key is bare", () => {
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "ortsteil:osm:12207" }), false);
+  assert.equal(geoKeyCoversMarkedRegion("ortsteil:osm:12207", { geoKey: "plz5:12207" }), false);
+  assert.equal(placeCoversMarkedRegion({ geoKey: "plz5:12207" }, { geoKey: "ortsteil:osm:12207" }), false);
+  assert.equal(geoKeyCoversMarkedRegion("12207", { geoKey: "plz5:12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "plz5:12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("ortsteil:osm:12207", { geoKey: "ortsteil:osm:12207" }), true);
+});

@@ -8,7 +8,7 @@ import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
 import { analysisFailureFromHttp } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
-import { rememberStartedRun, startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { rememberStartedRun } from "@/lib/analysis/started-runs";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import { markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
@@ -186,8 +186,7 @@ export function EmpfehlungenPage() {
     void (async () => {
       try {
         const inflight = key ? inflightByKey.current.get(key) : undefined;
-        const startedRunId = current?.geoKey ? startedRunIdForRegion(current.geoKey) : null;
-        const next = await bindTrefferlisteForRegion(analysisApi, current, inflight, { startedRunId });
+        const next = await bindTrefferlisteForRegion(analysisApi, current, inflight);
         if (bindRequest.current !== token) return;
         setStarting(false);
         if (next.kind === "in_flight") {

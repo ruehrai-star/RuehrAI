@@ -299,10 +299,7 @@ test("a sibling snapshot binds the marked region without startedRunId", async ()
   assert.equal(bound.region.label, "Tempelhof");
   assert.equal(runIsForMarkedRegion(snapshot, tempelhof), true);
   assert.equal(runMatchesMarkedRegion(snapshot, tempelhof), true);
-  assert.equal(runIsForMarkedRegion(snapshot, tempelhof, "47"), true);
-  assert.equal(runIsForMarkedRegion({ ...snapshot, id: "54" }, tempelhof, "54"), true);
   assert.equal(runIsForMarkedRegion(runFor(munich, [munich]), tempelhof), false);
-  assert.equal(runIsForMarkedRegion(runFor(munich, [munich]), tempelhof, "7"), false);
 
   const foreign = await loadPatternForMarkedRegion(
     {

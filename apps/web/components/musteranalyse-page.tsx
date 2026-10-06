@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { AnalysisInput, AnalysisPattern, AnalysisRun, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { rememberStartedRun, startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { rememberStartedRun } from "@/lib/analysis/started-runs";
 import { readMarkedKey } from "@/lib/locations/marked-region";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import { markedRegion } from "@/lib/locations/regions";
@@ -93,9 +93,7 @@ export function MusteranalysePage() {
       }
 
       try {
-        const bound = await loadPatternForMarkedRegion(api, current, {
-          startedRunId: current?.geoKey ? startedRunIdForRegion(current.geoKey) : null,
-        });
+        const bound = await loadPatternForMarkedRegion(api, current);
         if (cancelled) return;
         if (bound) {
           setPattern(bound.pattern);
