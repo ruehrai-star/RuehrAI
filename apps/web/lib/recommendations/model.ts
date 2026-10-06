@@ -34,6 +34,7 @@ export const RECOMMENDATION_COPY = {
   compute: "Empfehlungen berechnen",
   running: "Empfehlungen werden ermittelt …",
   analysisRunning: "Analyse läuft …",
+  loading: "Wird geladen …",
   analysisFailed: "Analyse fehlgeschlagen.",
   missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
   startAnalysis: "Musteranalyse starten",
@@ -80,7 +81,7 @@ const AREA_RANK: Record<string, number> = {
 const SERIES_LEVEL_BADGE: Record<SeriesLevel, string> = {
   address: "Adresse",
   grid100: "Raster",
-  lor: "LOR",
+  lor: "Quartier",
   quartier: "Quartier",
   plz: "PLZ",
   bezirk: "Bezirk",
@@ -151,6 +152,8 @@ export interface PatternProfileRow {
   coverage: "series" | "single" | "none";
   series: SparkPoint[];
   missing: boolean;
+  stichtagValue: string | null;
+  stichtagYear: string | null;
 }
 
 /**
@@ -177,6 +180,11 @@ export function top3Heading(regionName: string): string {
 
 export function rankLabel(rank: number): string {
   return `Rang ${rank}`;
+}
+
+export function stichtagCopy(value: string | null, year: string | null): string {
+  if (!value) return RECOMMENDATION_COPY.missingValue;
+  return year ? `${value} · Stichtag ${year}` : value;
 }
 
 export function formatAddress(item: Recommendation): string {
@@ -266,10 +274,10 @@ function locationKey(item: Recommendation): string | null {
 export function hitBadge(item: Recommendation): string {
   const keys = [item.id, locationKey(item), item.location.grain].filter((part): part is string => Boolean(part));
   const blob = keys.join(" ");
-  if (/lor:plr:/i.test(blob) || item.kind === "lor") return "LOR";
+  if (/lor:plr:/i.test(blob) || item.kind === "lor") return "Quartier";
   if (/koeln:sq:/i.test(blob) || item.kind === "quartier") return "Quartier";
   if (item.kind) return areaKindBadge(item.kind);
-  if (/lor:/i.test(blob)) return "LOR";
+  if (/lor:/i.test(blob)) return "Quartier";
   if (/koeln:sq:/i.test(blob)) return "Quartier";
   if (item.location.grain === "grid100") return "Raster";
   if (item.location.grain === "address") return "Adresse";
@@ -284,7 +292,6 @@ export function areaKindBadge(kind: AreaKind): string {
     case "grid100":
       return "Raster";
     case "lor":
-      return "LOR";
     case "quartier":
       return "Quartier";
     case "ortsteil":
@@ -367,11 +374,7 @@ export function visibleHits(items: readonly Recommendation[], marked: PlaceRef |
     return true;
   });
   const finest = dropParentsWhenChildHits(withoutSelf);
-  return [...finest].sort((left, right) => {
-    const grain = areaRankOf(hitPlace(left)) - areaRankOf(hitPlace(right));
-    if (grain !== 0) return grain;
-    return left.rank - right.rank;
-  });
+  return [...finest].sort((left, right) => left.rank - right.rank);
 }
 
 export function topHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined, limit = 3): Recommendation[] {
@@ -408,7 +411,14 @@ export function buildPatternProfile(patternByDataset: PatternDatasetProfile[] | 
   return patternByDataset.map((profile) => {
     const coverage = normalizeCoverage(profile.yearlySeries.coverage, profile.criterion.coverage, profile.criterion.kind);
     const series = sparkFromPoints(profile.yearlySeries.points);
-    const missing = coverage === "none" || (coverage === "series" && !series.some((point) => point.value != null));
+    const points = profile.yearlySeries.points ?? [];
+    const stichtagValue =
+      coverage === "single" ? stichtagValueOf(points, profile.criterion.normalizedValue) : null;
+    const stichtagYear = coverage === "single" ? stichtagYearOf(points) : null;
+    const missing =
+      coverage === "none" ||
+      (coverage === "series" && !series.some((point) => point.value != null)) ||
+      (coverage === "single" && stichtagValue == null);
     return {
       key: profile.metricId,
       label: profile.criterion.label,
@@ -418,6 +428,8 @@ export function buildPatternProfile(patternByDataset: PatternDatasetProfile[] | 
       coverage,
       series,
       missing,
+      stichtagValue: coverage === "single" && !missing ? stichtagValue : null,
+      stichtagYear: coverage === "single" && !missing ? stichtagYear : null,
     };
   });
 }
@@ -490,10 +502,10 @@ function toCriterionRow(
   const patternMissing = !hasMatchingPattern(evidence, profile);
   const patternSeries = patternMissing ? [] : sparkFromPoints(profile?.yearlySeries.points ?? []);
   const direction = arrowDirection(evidence);
-  const stichtagYear = coverage === "single" ? stichtagYearOf(evidence, points) : null;
+  const stichtagYear = coverage === "single" ? stichtagYearOf(points) : null;
   const value =
     coverage === "single" && evidence?.normalizedValue != null ? formatNumber(evidence.normalizedValue) : null;
-  const missing = missingValue || (coverage === "single" && value == null && !stichtagYear);
+  const missing = missingValue || (coverage === "single" && value == null);
   const shownCoverage: "series" | "single" | "none" = missing && coverage !== "single" ? "none" : coverage;
 
   return {
@@ -575,11 +587,15 @@ function arrowDirection(evidence: RecommendationEvidence | undefined): "up" | "d
   return null;
 }
 
-function stichtagYearOf(evidence: RecommendationEvidence | undefined, points: readonly SeriesPoint[]): string | null {
+function stichtagYearOf(points: readonly SeriesPoint[]): string | null {
   const present = points.find((point) => point.status === "present");
-  if (present) return yearOf(present.period);
-  const match = evidence?.evidence ? /(?:Stichtag|Jahr)\s+([0-9]{4})/.exec(evidence.evidence) : null;
-  return match?.[1] ?? null;
+  return present ? yearOf(present.period) : null;
+}
+
+function stichtagValueOf(points: readonly SeriesPoint[], fallback?: number | null): string | null {
+  const present = points.find((point) => point.status === "present" && point.normalizedValue != null);
+  const value = present?.normalizedValue ?? fallback ?? null;
+  return value != null ? formatNumber(value) : null;
 }
 
 function yearOf(period: string): string {

@@ -14,6 +14,7 @@ import {
   buildPatternProfile,
   buildTrefferlisteCards,
   headingForMarkedRegion,
+  stichtagCopy,
   type SparkPoint,
   type TrefferCardView,
   type TrefferCriterionRow,
@@ -210,7 +211,7 @@ export function EmpfehlungenPage() {
         {heading && bindPhase === "ready" ? <h1>{heading}</h1> : <h1>{RECOMMENDATION_COPY.title}</h1>}
 
         {pagePhase === "loading" || bindPhase === "loading" ? (
-          <p className="message">{RECOMMENDATION_COPY.analysisRunning}</p>
+          <p className="message">{RECOMMENDATION_COPY.loading}</p>
         ) : null}
         {loadError ? (
           <p className="message message-error" role="alert">
@@ -265,7 +266,11 @@ export function EmpfehlungenPage() {
                         <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
                       ) : row.coverage === "series" ? (
                         <Sparkline points={row.series} tone="pattern" />
-                      ) : null}
+                      ) : row.coverage === "single" ? (
+                        <p className="treffer-stichtag">{stichtagCopy(row.stichtagValue, row.stichtagYear)}</p>
+                      ) : (
+                        <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -373,10 +378,7 @@ function CriterionRow({ row, inherited = false }: { row: TrefferCriterionRow; in
         ) : row.coverage === "series" ? (
           <Sparkline points={row.series} tone="hit" />
         ) : row.coverage === "single" ? (
-          <p className="treffer-stichtag">
-            {row.stichtagValue ?? RECOMMENDATION_COPY.missingValue}
-            {row.stichtagYear ? ` · Stichtag ${row.stichtagYear}` : ""}
-          </p>
+          <p className="treffer-stichtag">{stichtagCopy(row.stichtagValue, row.stichtagYear)}</p>
         ) : (
           <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
         )}

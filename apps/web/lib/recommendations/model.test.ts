@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Recommendation, RecommendationSet } from "../api/types.ts";
 import type { PatternDatasetProfile } from "@ruehrai/api-contracts";
 import {
   RECOMMENDATION_COPY,
+  areaKindBadge,
   buildPatternProfile,
   buildTrefferCard,
   buildTrefferlisteCards,
@@ -19,7 +21,9 @@ import {
   recommendationEmptyCopy,
   recommendationStatus,
   recommendationSubtitle,
+  seriesLevelBadge,
   shortCriteria,
+  stichtagCopy,
   topHits,
   trendSummary,
   visibleHits,
@@ -145,6 +149,7 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.empty, "Keine passenden Standorte in der Zielregion.");
   assert.equal(RECOMMENDATION_COPY.missingRun, "Für diese Zielregion liegt noch kein Analyselauf vor.");
   assert.equal(RECOMMENDATION_COPY.startAnalysis, "Musteranalyse starten");
+  assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
   assert.equal(RECOMMENDATION_COPY.missingGeometry, "Die Fläche kann noch nicht gezeichnet werden.");
@@ -181,15 +186,19 @@ test("a card address, score, window, and short criteria stay in German", () => {
 });
 
 test("badge mapping uses kind and catalog prefixes, never geoKey", () => {
-  assert.equal(hitBadge(item({ id: "lor:plr:01100101", rank: 1, kind: "lor", location: { geoKey: "lor:plr:01100101", grain: "other", lon: null, lat: null, name: "PLR" } })), "LOR");
+  assert.equal(hitBadge(item({ id: "lor:plr:01100101", rank: 1, kind: "lor", location: { geoKey: "lor:plr:01100101", grain: "other", lon: null, lat: null, name: "PLR" } })), "Quartier");
   assert.equal(hitBadge(item({ id: "koeln:sq:12", rank: 1, kind: "quartier", location: { geoKey: "koeln:sq:12", grain: "other", lon: null, lat: null, name: "Belgisches Viertel" } })), "Quartier");
   assert.equal(hitBadge(item({ id: "grid100:1", rank: 1, kind: "grid100", location: { geoKey: "grid100:1", grain: "grid100", lon: null, lat: null, name: "Zelle" } })), "Raster");
+  assert.equal(areaKindBadge("lor"), "Quartier");
+  assert.equal(seriesLevelBadge("lor"), "Quartier");
+  assert.equal(inheritedLabel("lor"), "vererbt von Quartier");
   const visible = [
     hitBadge(item({ id: "lor:plr:01100101", rank: 1, kind: "lor", location: { geoKey: "lor:plr:01100101", grain: "other", lon: null, lat: null, name: "Planungsraum" } })),
     hitBadge(item({ id: "koeln:sq:12", rank: 1, kind: "quartier", location: { geoKey: "koeln:sq:12", grain: "other", lon: null, lat: null, name: "Quartier" } })),
   ].join(" ");
   assert.equal(visible.includes("lor:plr"), false);
   assert.equal(visible.includes("koeln:sq"), false);
+  assert.equal(visible.includes("LOR"), false);
 });
 
 test("recommendation copy never shows the catalog key", () => {
@@ -207,7 +216,7 @@ test("recommendation copy never shows the catalog key", () => {
   }
 });
 
-test("smallest area comes first; Zielregion and enclosing areas are not hits", () => {
+test("filters drop Zielregion and enclosing areas; order follows backend rank only", () => {
   const lor = item({
     id: "lor:plr:1",
     rank: 2,
@@ -232,7 +241,43 @@ test("smallest area comes first; Zielregion and enclosing areas are not hits", (
   const ordered = visibleHits([ortsteil, berlin, lor], markedGemeinde);
   assert.deepEqual(
     ordered.map((hit) => hit.location.name),
-    ["Planungsraum", "Lankwitz"],
+    ["Lankwitz", "Planungsraum"],
+  );
+});
+
+test("a finer area with a worse rank does not jump above rank 1 or drop it from Top 3", () => {
+  const rank1 = item({
+    id: "ortsteil:osm:1",
+    rank: 1,
+    kind: "ortsteil",
+    title: "Lankwitz",
+    location: { geoKey: "ortsteil:osm:1", grain: "other", lon: null, lat: null, name: "Lankwitz" },
+  });
+  const rank2 = item({
+    id: "plz5:12247",
+    rank: 2,
+    kind: "plz",
+    title: "12247",
+    location: { geoKey: "plz5:12247", grain: "plz5", lon: null, lat: null, name: "12247" },
+  });
+  const rank3 = item({
+    id: "lor:plr:1",
+    rank: 3,
+    kind: "lor",
+    title: "Planungsraum A",
+    location: { geoKey: "lor:plr:1", grain: "other", lon: null, lat: null, name: "Planungsraum A" },
+  });
+  const rank4 = item({
+    id: "lor:plr:2",
+    rank: 4,
+    kind: "lor",
+    title: "Planungsraum B",
+    location: { geoKey: "lor:plr:2", grain: "other", lon: null, lat: null, name: "Planungsraum B" },
+  });
+  const top = topHits([rank4, rank3, rank2, rank1], markedGemeinde);
+  assert.deepEqual(
+    top.map((hit) => hit.location.name),
+    ["Lankwitz", "12247", "Planungsraum A"],
   );
 });
 
@@ -362,6 +407,7 @@ test("coverage single shows a Stichtag number and no line; none is liegt nicht v
   assert.equal(singleCard.criteria[0]?.coverage, "single");
   assert.equal(singleCard.criteria[0]?.stichtagValue, "18,4");
   assert.equal(singleCard.criteria[0]?.stichtagYear, "2022");
+  assert.equal(stichtagCopy(singleCard.criteria[0]?.stichtagValue ?? null, singleCard.criteria[0]?.stichtagYear ?? null), "18,4 · Stichtag 2022");
   assert.equal(singleCard.criteria[0]?.series.length, 0);
   assert.equal(singleCard.criteria[0]?.direction, null);
   assert.equal(singleCard.trendSummary, null);
@@ -465,6 +511,48 @@ test("top three after filter stay bound to the marked Zielregion", () => {
   assert.equal(topHits(setWith([]).items, markedGemeinde).length, 0);
 });
 
+test("coverage single without a value is only liegt nicht vor and never reads a year from evidence", () => {
+  const source = readFileSync(new URL("./model.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\(\?:Stichtag\|Jahr\)/);
+  const missing = item({
+    id: "plz5:12247",
+    rank: 1,
+    kind: "plz",
+    trend: undefined,
+    criteriaEvidence: [
+      {
+        key: "zensus",
+        label: "Gebäude",
+        direction: "unknown",
+        patternDirection: "unknown",
+        evidence: "Stichtag 2022",
+        kind: "stichtag",
+        coverage: "single",
+        scope: "local",
+        sourceLevel: "plz",
+        baseline: "per_km2",
+        baselineMethod: "official",
+        points: [{ period: "2022", status: "present", value: 184 }],
+      },
+    ],
+  });
+  const card = buildTrefferCard(missing, undefined);
+  assert.equal(card.criteria[0]?.coverage, "single");
+  assert.equal(card.criteria[0]?.missing, true);
+  assert.equal(card.criteria[0]?.stichtagValue, null);
+  assert.equal(card.criteria[0]?.stichtagYear, null);
+  assert.equal(stichtagCopy(card.criteria[0]?.stichtagValue ?? null, card.criteria[0]?.stichtagYear ?? null), "liegt nicht vor");
+});
+
+test("loading copy stays neutral; Analyse läuft is not the bind/load line", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
+  assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
+  assert.match(page, /RECOMMENDATION_COPY\.loading/);
+  assert.equal(page.includes("RECOMMENDATION_COPY.analysisRunning"), false);
+  assert.equal(page.includes("Analyse läuft"), false);
+});
+
 test("pattern profile lists datasets without ids or method codes", () => {
   const rows = buildPatternProfile([patternDataset]);
   assert.equal(rows[0]?.label, "Einwohner");
@@ -475,6 +563,56 @@ test("pattern profile lists datasets without ids or method codes", () => {
   assert.equal(visible.includes("einwohner"), false);
   assert.equal(visible.includes("official"), false);
   assert.equal(visible.includes("bestand"), false);
+});
+
+test("pattern profile coverage single shows the value plus Stichtag year", () => {
+  const single: PatternDatasetProfile = {
+    ...patternDataset,
+    metricId: "zensus",
+    sourceLevel: "plz",
+    yearlySeries: {
+      ...patternDataset.yearlySeries,
+      metricId: "zensus",
+      coverage: "single",
+      points: [{ period: "2022", status: "present", value: 184, normalizedValue: 18.4 }],
+    },
+    criterion: {
+      key: "zensus",
+      label: "Gebäude",
+      direction: "unknown",
+      evidence: "Stichtag 2022",
+      kind: "stichtag",
+      coverage: "single",
+    },
+  };
+  const absent: PatternDatasetProfile = {
+    ...single,
+    metricId: "leerstand",
+    yearlySeries: {
+      ...single.yearlySeries,
+      metricId: "leerstand",
+      coverage: "single",
+      points: [],
+    },
+    criterion: {
+      key: "leerstand",
+      label: "Leerstand",
+      direction: "unknown",
+      evidence: "Stichtag 2022",
+      kind: "stichtag",
+      coverage: "single",
+    },
+  };
+  const rows = buildPatternProfile([single, absent]);
+  assert.equal(rows[0]?.coverage, "single");
+  assert.equal(rows[0]?.missing, false);
+  assert.equal(rows[0]?.stichtagValue, "18,4");
+  assert.equal(rows[0]?.stichtagYear, "2022");
+  assert.equal(stichtagCopy(rows[0]?.stichtagValue ?? null, rows[0]?.stichtagYear ?? null), "18,4 · Stichtag 2022");
+  assert.equal(rows[1]?.missing, true);
+  assert.equal(rows[1]?.stichtagValue, null);
+  assert.equal(rows[1]?.stichtagYear, null);
+  assert.equal(stichtagCopy(rows[1]?.stichtagValue ?? null, rows[1]?.stichtagYear ?? null), "liegt nicht vor");
 });
 
 test("one match surfaces the thin-region hint and the Backend reason", () => {

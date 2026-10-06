@@ -1,6 +1,7 @@
 import type { Recommendation, RegionGeometry, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { coordinatesOf } from "../api/geo.ts";
+import { isCatalogKey } from "../format.ts";
 import { regionListKey } from "../locations/regions.ts";
 
 /**
@@ -178,7 +179,8 @@ export function hitOutlines(items: readonly Recommendation[]): {
   for (const item of items) {
     const geometry = readRegionGeometry(item.geometry);
     if (!geometry) continue;
-    const title = item.title.trim() || item.location.name?.trim() || "Treffer";
+    const name = hitDisplayName(item);
+    const title = name || "Treffer";
     features.push({
       type: "Feature",
       id: item.id,
@@ -197,7 +199,7 @@ export function hitOutlines(items: readonly Recommendation[]): {
         id: item.id,
         rank: item.rank,
         title,
-        ariaLabel: `${title}, Rang ${item.rank}`,
+        ariaLabel: name ? `${name}, Rang ${item.rank}` : rankAria(item.rank),
         lon: label.lon,
         lat: label.lat,
       });
@@ -447,6 +449,21 @@ function walkCoordinates(coordinates: unknown, visit: (lon: number, lat: number)
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function hitDisplayName(item: Recommendation): string {
+  return visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
+}
+
+function visiblePlaceText(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || isCatalogKey(trimmed)) return "";
+  return trimmed;
+}
+
+function rankAria(rank: number): string {
+  return `Rang ${rank}`;
 }
 
 function inLon(value: unknown): value is number {

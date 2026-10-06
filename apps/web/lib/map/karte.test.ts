@@ -514,6 +514,29 @@ test("Trefferliste draws only official geometry and never a lon/lat point", () =
   assert.equal(JSON.stringify(model.hitMarkers).includes("13.2"), false);
 });
 
+test("Trefferliste map title and aria-label use hitName, never a catalog key", () => {
+  const named = recommendation("lor:plr:1", "lor:plr:1", null, null);
+  named.kind = "lor";
+  named.geometry = MUNICH_BOX;
+  named.location = { ...named.location, name: "Planungsraum", grain: "other" };
+  const keyed = recommendation("lor:plr:2", "lor:plr:2", null, null);
+  keyed.kind = "lor";
+  keyed.geometry = MUNICH_BOX;
+  keyed.location = { ...keyed.location, name: "lor:plr:2", grain: "other" };
+  const namedModel = buildTrefferlisteKarte({ region: null, items: [named] });
+  const keyedModel = buildTrefferlisteKarte({ region: null, items: [keyed] });
+  assert.equal(namedModel.hitMarkers[0]?.title, "Planungsraum");
+  assert.equal(namedModel.hitMarkers[0]?.ariaLabel, "Planungsraum, Rang 1");
+  assert.equal(namedModel.hits.features[0]?.properties?.name, "Planungsraum");
+  assert.equal(namedModel.hitMarkers[0]?.title.includes("lor:"), false);
+  assert.equal(namedModel.hitMarkers[0]?.ariaLabel.includes("lor:"), false);
+  assert.equal(keyedModel.hitMarkers[0]?.title, "Treffer");
+  assert.equal(keyedModel.hitMarkers[0]?.ariaLabel, "Rang 1");
+  assert.equal(keyedModel.hitMarkers[0]?.title.includes("lor:"), false);
+  assert.equal(keyedModel.hitMarkers[0]?.ariaLabel.includes("lor:plr"), false);
+  assert.equal(keyedModel.hits.features[0]?.properties?.name, "Treffer");
+});
+
 function recommendation(id: string, title: string, lon: number | null, lat: number | null): Recommendation {
   return {
     id,
