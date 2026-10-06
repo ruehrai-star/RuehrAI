@@ -12,7 +12,8 @@ import { AreaCandidateService } from "./area-candidate.service";
 import { capCandidatesForSeries } from "./candidate-cap";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
 import { RationaleService } from "./rationale.service";
-import { visibleAreaName } from "./hit-display";
+import { displayAreaName, visibleAreaName } from "./hit-display";
+import { attachHitOverlaps } from "./hit-overlaps";
 import { RecommendationItem, RecommendationPayload, RecommendationSet } from "./types";
 import { threeYearWindow } from "./window";
 import { yieldEventLoop } from "../common/safe-array";
@@ -116,8 +117,11 @@ export class RecommendationsService {
     const ranked = reattachGeometry(rankedJob.ranked, capped.selected);
     throwIfAborted(signal);
     await yieldEventLoop();
+    const withOverlaps = await attachHitOverlaps(this.db, ranked, regions);
+    throwIfAborted(signal);
+    await yieldEventLoop();
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
-    const written = await this.rationales.write(pattern, window, ranked, signal);
+    const written = await this.rationales.write(pattern, window, withOverlaps, signal);
     throwIfAborted(signal);
     const payload: RecommendationPayload = {
       runId: run.id,
@@ -245,18 +249,26 @@ function toSet(id: string, createdAt: Date | string, payload: RecommendationPayl
 
 function hydrateHitDisplay(item: RecommendationItem): RecommendationItem {
   if (!item.location) return item;
-  const name = item.name !== undefined ? item.name : visibleAreaName(item.location.name);
+  const name = displayAreaName({
+    kind: item.kind,
+    grain: item.grain ?? item.location.grain,
+    geoKey: item.location.geoKey,
+    name: item.name !== undefined ? item.name : item.location.name,
+    title: item.title,
+    plz: null,
+  });
   const grain = item.grain ?? item.location.grain;
   const parentLabel = item.parentLabel !== undefined ? item.parentLabel : null;
   return {
     ...item,
     grain,
-    name: name ?? null,
+    name,
     parentLabel: parentLabel ?? null,
+    title: visibleAreaName(item.title) ?? name,
     location: {
       ...item.location,
       grain,
-      name: name ?? item.location.name,
+      name,
     },
   };
 }

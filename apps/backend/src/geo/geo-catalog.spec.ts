@@ -14,6 +14,7 @@ import {
   catalogLookupPlan,
   catalogNameDedupKey,
   gemeindeDisplayNameFromAgs,
+  municipalityAgsFromDisplayName,
   isAgsDistrictPlace,
   isMunicipalityPlace,
   parentMunicipalityAgs,
@@ -34,6 +35,10 @@ describe("geo catalog contract", () => {
     expect(catalogLevelForPlace({ grain: "ags", geoKey: "11000001", level: "bezirk" })).toBe("bezirk");
     expect(parentMunicipalityAgs("09162004")).toBe("09162000");
     expect(parentMunicipalityAgs("09162000")).toBeNull();
+    expect(gemeindeDisplayNameFromAgs("09162004")).toBe("München");
+    expect(municipalityAgsFromDisplayName("Köln")).toBe("05315000");
+    expect(municipalityAgsFromDisplayName("München")).toBe("09162000");
+    expect(municipalityAgsFromDisplayName("Hamburg")).toBe("02000000");
     expect(isAgsDistrictPlace({ grain: "ags", geoKey: "09162004" })).toBe(true);
     expect(isAgsDistrictPlace({ grain: "ags", geoKey: "09162000" })).toBe(false);
     expect(isMunicipalityPlace({ grain: "ags", geoKey: "09162004" })).toBe(false);

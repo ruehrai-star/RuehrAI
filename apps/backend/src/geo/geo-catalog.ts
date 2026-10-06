@@ -138,11 +138,26 @@ const SUBAREA_PARENT_LEVELS = new Set(["bezirk", "stadtbezirk", "stadtteil", "or
  */
 export function gemeindeDisplayNameFromAgs(value: string | null | undefined): string | null {
   const key = officialAgsKey(value);
-  if (!key) return null;
+  if (!key) {
+    const digits = value?.replace(/\D/g, "") ?? "";
+    if (digits.length >= 5) return gemeindeDisplayNameFromAgs(digits.padEnd(8, "0").slice(0, 8));
+    return null;
+  }
   if (key === "11000000" || key.startsWith("11000")) return "Berlin";
   if (key.startsWith("09162")) return "München";
   if (key.startsWith("02")) return "Hamburg";
   if (key.startsWith("05315")) return "Köln";
+  return null;
+}
+
+/** Reverse of `gemeindeDisplayNameFromAgs` for known Stadtstaaten / kreisfreie Städte. */
+export function municipalityAgsFromDisplayName(value: string | null | undefined): string | null {
+  const name = emptyToNull(value)?.toLocaleLowerCase("de");
+  if (!name) return null;
+  if (name === "berlin") return "11000000";
+  if (name === "münchen" || name === "muenchen") return "09162000";
+  if (name === "hamburg") return "02000000";
+  if (name === "köln" || name === "koeln") return "05315000";
   return null;
 }
 

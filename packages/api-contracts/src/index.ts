@@ -60,6 +60,7 @@ export type RecommendationWindow = Schemas["RecommendationWindow"];
 export type Recommendation = Schemas["Recommendation"];
 export type RecommendationTrend = Schemas["RecommendationTrend"];
 export type RecommendationIntersectionPart = Schemas["RecommendationIntersectionPart"];
+export type RecommendationOverlap = Schemas["RecommendationOverlap"];
 export type RecommendationLocation = Schemas["RecommendationLocation"];
 export type RecommendationEvidence = Schemas["RecommendationEvidence"];
 export type PatternLevel = Schemas["PatternLevel"];

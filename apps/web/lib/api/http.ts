@@ -760,8 +760,10 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     }
     body.patternByDataset.forEach((profile) => parsePatternDatasetProfile(profile, route));
   }
-  body.items.forEach((item) => parseRecommendation(item, route));
-  return body;
+  return {
+    ...body,
+    items: body.items.map((item) => parseRecommendation(item, route)),
+  };
 }
 
 function parsePatternLevelProfile(body: PatternLevelProfile, route: string): void {
@@ -826,6 +828,12 @@ function parsePatternDatasetProfile(body: PatternDatasetProfile, route: string):
   if (body.baselineMethod !== undefined && !BASELINE_METHODS.has(body.baselineMethod)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+}
+
+function recommendationDisplayName(body: Recommendation): string {
+  if (typeof body.name === "string") return body.name;
+  const fromLocation = body.location?.name;
+  return typeof fromLocation === "string" ? fromLocation : "";
 }
 
 function parseRecommendation(body: Recommendation, route: string): Recommendation {
@@ -893,12 +901,30 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       }
     }
   }
+  if (body.overlaps !== undefined) {
+    if (!Array.isArray(body.overlaps)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const part of body.overlaps) {
+      if (
+        !part ||
+        typeof part.geoKey !== "string" ||
+        typeof part.label !== "string" ||
+        !AREA_KINDS.has(part.kind) ||
+        typeof part.share !== "number" ||
+        part.share < 0 ||
+        part.share > 1
+      ) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
     ...body,
     grain: body.grain ?? body.location.grain,
-    name: typeof body.name === "string" || body.name === null ? body.name : body.location.name,
+    name: recommendationDisplayName(body),
     parentLabel,
     location: {
       ...body.location,

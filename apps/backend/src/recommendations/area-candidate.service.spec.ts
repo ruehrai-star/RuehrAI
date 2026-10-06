@@ -143,7 +143,24 @@ describe("AreaCandidateService", () => {
   it("lists LOR Planungsraum as finest over Ortsteil and does not require embeddings", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
-      if (text.includes("geo.geo_ref_lor") || text.includes("lor:plr:%")) {
+      if (text.includes("geo.geo_ref_lor") && !text.includes("geo_ref_zielregion_teil")) {
+        expect(text).not.toMatch(/embedding/i);
+        return {
+          rows: [
+            {
+              geo_key: "lor:plr:01100101",
+              grain: "other",
+              kind: "lor",
+              name: "PLR 01100101",
+              ags: "11000000",
+              plz: null,
+              lon: null,
+              lat: null,
+            },
+          ],
+        };
+      }
+      if (text.includes("lor:plr:%") && !text.includes("geo_ref_zielregion_teil")) {
         expect(text).not.toMatch(/embedding/i);
         return {
           rows: [

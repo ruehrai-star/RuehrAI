@@ -32,6 +32,14 @@ export interface RecommendationIntersectionPart {
   datasetKey?: string;
 }
 
+/** Spatial parent (Stadtbezirk/Bezirk) that a hit overlaps, with area share 0–1. */
+export interface RecommendationOverlap {
+  geoKey: string;
+  label: string;
+  kind: AreaKind;
+  share: number;
+}
+
 export type EvidenceKind = "trend" | "stichtag" | "absent";
 export type EvidenceScope = "local" | "inherited";
 
@@ -63,9 +71,10 @@ export interface ScoredLocation {
   title: string;
   kind: AreaKind;
   grain: Grain;
-  name: string | null;
+  name: string;
   parentLabel: string | null;
   intersectionOf?: RecommendationIntersectionPart[];
+  overlaps?: RecommendationOverlap[];
   location: RecommendationLocation;
   score: number;
   criteriaEvidence: RecommendationEvidence[];

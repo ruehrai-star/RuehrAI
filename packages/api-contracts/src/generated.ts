@@ -1523,7 +1523,10 @@ export interface components {
              */
             id: string;
             rank: number;
-            /** @description Card title. Place name or geo key from geo_ref. */
+            /**
+             * @description Card title. Same display name as `name` — never a raw catalog
+             *     key (`koeln:sq:…`, `lor:plr:…`, `plz5:…`).
+             */
             title: string;
             /**
              * @description Ebene of this hit (Adresse, 100-m-Raster, Ortsteil, LOR, PLZ,
@@ -1537,25 +1540,55 @@ export interface components {
              */
             grain?: components["schemas"]["Grain"];
             /**
-             * @description Display name of this hit. Never a catalog key (`plz5:…`,
-             *     `ortsteil:osm:…`). Null when the place name liegt nicht vor
-             *     — never `0`, never the geoKey as a stand-in.
+             * @description Display name of this hit. Always set on new sets (0.19.1).
+             *     Never a catalog key (`plz5:…`, `ortsteil:osm:…`, `koeln:sq:…`,
+             *     `lor:plr:…`), never `osm:`, `id:`, `address:`, `geo_addr`,
+             *     an INSPIRE / cell id, or the word unbekannt. Prefer the
+             *     catalog / feature name. Fallbacks: PLZ → `PLZ 80331` or
+             *     `PLZ ohne Namen`; LOR → catalog name or
+             *     `Planungsraum ohne Namen` (never the LOR/PLR number);
+             *     Köln-Quartier → feature title or `Quartier ohne Namen`
+             *     (never the Quartier id, never `Quartier <id>`);
+             *     Raster → `100-m-Rasterzelle`
+             *     (no cell id); Adresse → Straße + Hausnummer or
+             *     `Adresse ohne Hausnummer`; otherwise `{Art} ohne Namen`.
+             *     Fallbacks never contain a digit sequence, number, or id
+             *     except PLZ (`PLZ 80331`) and street + house number.
+             *     Never `0` and never the raw geoKey.
              */
-            name?: string | null;
+            name: string;
             /**
-             * @description Display name of the parent area (Ortsteil → Bezirk), never a
-             *     key and never a second name for this hit. Null when unknown
-             *     or the hit is the top area (Gemeinde).
+             * @description Gemeinde display name for every Ebene below municipality
+             *     (stadtbezirk, bezirk, stadtteil, ortsteil, quartier, lor,
+             *     plz, raster, adresse). Source is `geo_ref_admin` or the
+             *     Zielregion `parentLabel` (München, Hamburg, Berlin, Köln
+             *     included). Null when unknown or the hit is the Gemeinde.
+             *     Never a PLZ, never the first coarser candidate in an AGS
+             *     pool, never a catalog key.
              */
             parentLabel?: string | null;
             /**
-             * @description Named parts of a Schnittfläche so clients can show
+             * @description Named parts of a dataset Schnittfläche so clients can show
              *     „Schnittfläche aus A und B“ without parsing `title`.
              *     Each part is one dataset Fläche (`geoKey` is the id, `name`
              *     is the display name). Empty or omitted when this hit is a
-             *     single Fläche.
+             *     single Fläche. This is **not** the spatial parent list —
+             *     see `overlaps`.
              */
             intersectionOf?: components["schemas"]["RecommendationIntersectionPart"][];
+            /**
+             * @description Stadtbezirke / Bezirke this hit spatially intersects, with
+             *     `share` = intersection area / **clipped** hit area (0–1).
+             *     The hit outline is the same Zielregion clip as
+             *     `items[].geometry`. Bezirke outside the Zielregion are
+             *     omitted. Sorted descending. Fragments below 1 % are
+             *     omitted. Omit the field when nothing remains (or when the
+             *     Brain read failed — the run still completes). Computed for
+             *     PLZ, LOR, Ortsteil, Quartier, Raster (`grid100`) and
+             *     Adresse (typically one parent at share 1). Additive;
+             *     clients that ignore unknown fields keep working.
+             */
+            overlaps?: components["schemas"]["RecommendationOverlap"][];
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
@@ -1633,6 +1666,25 @@ export interface components {
              *     Omitted when the part is not tied to one dataset.
              */
             datasetKey?: string;
+        };
+        /**
+         * @description One Stadtbezirk or Bezirk that spatially overlaps this hit.
+         *     `share` is the fraction of the **hit** area (0–1). Never a
+         *     catalog key as `label`.
+         */
+        RecommendationOverlap: {
+            /** @description Catalog / Brain id of the overlapping Bezirk. */
+            geoKey: string;
+            /** @description Display name of the overlapping Bezirk. */
+            label: string;
+            /** @description `bezirk` (Berlin) or `stadtbezirk` (other cities). */
+            kind: components["schemas"]["AreaKind"];
+            /**
+             * Format: double
+             * @description Intersection area divided by the hit area, after transforming
+             *     geometries to EPSG:3035. Values below 0.01 are omitted.
+             */
+            share: number;
         };
         RecommendationLocation: {
             geoKey: string;

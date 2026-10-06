@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.19.0");
+  assert.equal(doc.info.version, "0.19.1");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -93,6 +93,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.18.0"));
   assert.ok(doc.info.description.includes("0.18.1"));
   assert.ok(doc.info.description.includes("0.19.0"));
+  assert.ok(doc.info.description.includes("0.19.1"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
     doc.paths["/recommendations"].get.description.includes("Never ranks"));
   assert.equal(
@@ -135,6 +136,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
     "rationale",
     "criteriaEvidence",
     "source",
+    "name",
   ]);
   assert.deepEqual(recommendation.properties.source.enum, ["llm", "heuristic"]);
   assert.equal(recommendation.properties.rank.minimum, 1);
@@ -268,16 +270,37 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.baselineMatch.type, "boolean");
   assert.equal(doc.components.schemas.PatternDatasetProfile.properties.baselineMatch.type, "boolean");
   assert.equal(recommendation.properties.grain.$ref, "#/components/schemas/Grain");
-  assert.equal(recommendation.properties.name.nullable, true);
+  assert.equal(recommendation.properties.name.nullable, undefined);
+  assert.equal(recommendation.properties.name.type, "string");
+  assert.ok(recommendation.properties.name.description.includes("PLZ 80331"));
+  assert.ok(recommendation.properties.name.description.includes("100-m-Rasterzelle"));
+  assert.ok(recommendation.properties.name.description.includes("ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("Adresse ohne Hausnummer"));
+  assert.ok(recommendation.properties.name.description.includes("Planungsraum ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("never the LOR/PLR number"));
+  assert.ok(recommendation.properties.name.description.includes("Quartier ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("never the Quartier id"));
+  assert.ok(recommendation.properties.parentLabel.description.includes("Gemeinde"));
   assert.equal(recommendation.properties.parentLabel.nullable, true);
   assert.equal(recommendation.required.includes("grain"), false);
-  assert.equal(recommendation.required.includes("name"), false);
+  assert.equal(recommendation.required.includes("name"), true);
   assert.equal(recommendation.required.includes("parentLabel"), false);
   assert.equal(recommendation.required.includes("intersectionOf"), false);
+  assert.equal(recommendation.required.includes("overlaps"), false);
   assert.equal(
     recommendation.properties.intersectionOf.items.$ref,
     "#/components/schemas/RecommendationIntersectionPart",
   );
+  assert.equal(
+    recommendation.properties.overlaps.items.$ref,
+    "#/components/schemas/RecommendationOverlap",
+  );
+  assert.deepEqual(doc.components.schemas.RecommendationOverlap.required, ["geoKey", "label", "kind", "share"]);
+  assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.minimum, 0);
+  assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.maximum, 1);
+  assert.ok(recommendation.properties.overlaps.description.includes("1 %"));
+  assert.ok(recommendation.properties.overlaps.description.includes("clipped"));
+  assert.ok(recommendation.properties.overlaps.description.includes("grid100"));
   assert.deepEqual(doc.components.schemas.RecommendationIntersectionPart.required, ["geoKey", "grain", "name"]);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.properties.name.nullable, true);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.required.includes("datasetKey"), false);
