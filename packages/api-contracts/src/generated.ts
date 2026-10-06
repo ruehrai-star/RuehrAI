@@ -610,9 +610,6 @@ export interface paths {
          *     (default 0.10) of their area inside the Zielregion.
          *     `items[].overlaps[0]` is the Zielregion (`isTargetRegion: true`)
          *     with the unclipped candidate share; further entries are Ortsteile.
-         *     Additive `items[].localDatasetCount` (0.19.6) is nAktiv: how many
-         *     local datasets have numeric `proximity` (`0` counts). `0` =
-         *     inherited/Stichtag only. Omitted on older stored sets.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1735,20 +1732,8 @@ export interface components {
              *     per-dataset closeness before the item coverage factor.
              *     Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
              *     (default 0.10) of their area inside the Zielregion.
-             *     Additive `localDatasetCount` (0.19.6) is nAktiv on this item.
              */
             score: number;
-            /**
-             * @description Additive 0.19.6. nAktiv: number of local datasets that
-             *     contribute to the score — `criteriaEvidence[]` entries with
-             *     a numeric `proximity` (`0` is valid closeness and counts).
-             *     `0` means only inherited or Stichtag values (no local
-             *     closeness). Omitted on older stored sets. Web path:
-             *     `items[].localDatasetCount`. Bind the nAktiv-0 card to
-             *     `localDatasetCount === 0`; do not re-derive from evidence
-             *     kind/scope (that heuristic can diverge from nAktiv).
-             */
-            localDatasetCount?: number;
             /**
              * @description German Begründung. Names only criteria and figures present in
              *     `criteriaEvidence`.

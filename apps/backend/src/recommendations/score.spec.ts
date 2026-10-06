@@ -3,7 +3,7 @@ import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
-import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, dataAsOfFromEvidence, localDatasetCountOf, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
+import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
 import { SCORE_FORMULA_DEFAULTS } from "./score-formula";
 import { ScoredLocation } from "./types";
 
@@ -155,7 +155,6 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.rawValue).toBe(8);
     expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBe(0.8);
     expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
-    expect(ranked[0]?.localDatasetCount).toBeGreaterThanOrEqual(1);
     expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
     expect(ranked[0]?.criteriaEvidence[0]?.trendFromTwoYears).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Dreijahresverlauf");
@@ -1168,7 +1167,6 @@ describe("score formula on rankTeilflaechen", () => {
       { patternByDataset: fallingPattern },
     );
     expect(ranked.every((item) => item.score === 0)).toBe(true);
-    expect(ranked.every((item) => item.localDatasetCount === 0)).toBe(true);
     expect(ranked.every((item) => item.criteriaEvidence[0]?.proximity === undefined)).toBe(true);
   });
 
@@ -1231,7 +1229,6 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked).toHaveLength(3);
     expect(ranked.map((item) => item.title)).not.toContain("Inherited only");
     expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
-    expect(ranked.every((item) => item.localDatasetCount === 1)).toBe(true);
   });
 
   it("does not let one dataset reach score 1.0 even when proximity is 1", () => {
@@ -1277,39 +1274,6 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0.9);
     expect(ranked[0]?.score).toBeLessThanOrEqual(0.5);
     expect(ranked[0]?.score).toBe(0.5);
-    expect(ranked.every((item) => item.localDatasetCount === 1)).toBe(true);
-  });
-
-  it("exposes localDatasetCount as nAktiv (numeric proximity, including 0)", () => {
-    const ranked = rankTeilflaechen(
-      [
-        candidate({ geoKey: "ortsteil:osm:a", kind: "ortsteil", title: "Alpha" }),
-        candidate({ geoKey: "ortsteil:osm:b", kind: "ortsteil", title: "Beta" }),
-      ],
-      [
-        series({
-          metricId: "unfallatlas",
-          requestedGeoKey: "ortsteil:osm:a",
-          coverage: "single",
-          points: [{ period: "2024", status: "present", value: 10 }],
-        }),
-        series({
-          metricId: "unfallatlas",
-          requestedGeoKey: "ortsteil:osm:b",
-          coverage: "none",
-          points: [{ period: "2024", status: "absent" }],
-        }),
-      ],
-      [trendUp],
-      [],
-      { patternByDataset: fallingPattern },
-    );
-    expect(ranked).toHaveLength(1);
-    expect(ranked[0]?.title).toBe("Alpha");
-    expect(ranked[0]?.localDatasetCount).toBe(0);
-    expect(ranked[0]?.criteriaEvidence.every((entry) => typeof entry.proximity !== "number")).toBe(true);
-    expect(localDatasetCountOf([{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0 }])).toBe(1);
-    expect(localDatasetCountOf([{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x" }])).toBe(0);
   });
 
   it("weights a local LOR dataset above an inherited parent and a coarser local Ebene", () => {

@@ -97,11 +97,6 @@ export interface ScoredLocation {
   location: RecommendationLocation;
   score: number;
   /**
-   * nAktiv: local datasets with numeric `proximity` (`0` counts).
-   * Additive 0.19.6. Always set on new rankings, including `0`.
-   */
-  localDatasetCount?: number;
-  /**
    * Share of the (unclipped) candidate inside the Zielregion, 0–1.
    * Used for tie-break. Additive.
    */

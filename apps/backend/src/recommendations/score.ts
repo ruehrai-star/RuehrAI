@@ -173,7 +173,6 @@ export function rankTeilflaechen(
         name,
       },
       score: combined.score,
-      localDatasetCount: localDatasetCountOf(withBaseline),
       targetOverlapShare: item.candidate.targetOverlapShare,
       criteriaEvidence: withBaseline,
       geometry: item.candidate.geometry ?? null,
@@ -210,8 +209,8 @@ export function dataAsOfFromEvidence(evidence: RecommendationEvidence[]): string
  */
 export function compareScoredLocations(left: ScoredLocation, right: ScoredLocation): number {
   if (right.score !== left.score) return right.score - left.score;
-  const leftCoverage = localDatasetCountOf(left.criteriaEvidence);
-  const rightCoverage = localDatasetCountOf(right.criteriaEvidence);
+  const leftCoverage = activeCoverageCount(left.criteriaEvidence);
+  const rightCoverage = activeCoverageCount(right.criteriaEvidence);
   if (rightCoverage !== leftCoverage) return rightCoverage - leftCoverage;
   const leftShare = targetRegionOverlapShare(left);
   const rightShare = targetRegionOverlapShare(right);
@@ -579,7 +578,7 @@ function withoutInventedZero(points: SeriesPoint[]): SeriesPoint[] {
   });
 }
 
-export function localDatasetCountOf(evidence: RecommendationEvidence[]): number {
+function activeCoverageCount(evidence: RecommendationEvidence[]): number {
   return evidence.filter((entry) => typeof entry.proximity === "number").length;
 }
 
