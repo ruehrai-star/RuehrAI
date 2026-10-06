@@ -319,14 +319,49 @@ test("hit names never show a geoKey or internal ID", () => {
   });
   assert.equal(hitName(ortsteil), "Ortsteil ohne Namen");
   assert.equal(hitName(address), "Adresse ohne Hausnummer");
-  assert.equal(hitName(lorFallback), "Planungsraum 07400720");
-  assert.equal(hitName(lorEmpty), "Planungsraum 07400720");
-  for (const visible of [hitName(ortsteil), hitName(address), hitName(lorEmpty)]) {
+  assert.equal(hitName(lorFallback), "Planungsraum ohne Namen");
+  assert.equal(hitName(lorEmpty), "Planungsraum ohne Namen");
+  for (const visible of [hitName(ortsteil), hitName(address), hitName(lorEmpty), hitName(lorFallback)]) {
     assert.equal(visible.includes("osm:"), false);
     assert.equal(visible.includes("address:"), false);
     assert.equal(visible.includes("geo_addr"), false);
     assert.equal(visible.includes("lor:plr:"), false);
+    assert.equal(/\d{8}/.test(visible), false);
   }
+});
+
+test("unnamed LOR never appends a number from lor:plr", () => {
+  const empty = item({
+    id: "lor:plr:07400823",
+    rank: 1,
+    kind: "lor",
+    title: "lor:plr:07400823",
+    location: { geoKey: "lor:plr:07400823", grain: "other", lon: null, lat: null, name: null },
+  });
+  assert.equal(hitName(empty), "Planungsraum ohne Namen");
+  assert.equal(hitName(empty).includes("07400823"), false);
+  assert.equal(buildTrefferCard(empty, undefined).name, "Planungsraum ohne Namen");
+});
+
+test("backend Planungsraum plus eight digits maps to Planungsraum ohne Namen", () => {
+  const numbered = item({
+    id: "lor:plr:07400823",
+    rank: 1,
+    kind: "lor",
+    name: "Planungsraum 07400823",
+    location: { geoKey: "lor:plr:07400823", grain: "other", lon: null, lat: null, name: "Planungsraum 07400823" },
+  });
+  const named = item({
+    id: "lor:plr:07400720",
+    rank: 1,
+    kind: "lor",
+    name: "Lankwitz Süd",
+    location: { geoKey: "lor:plr:07400720", grain: "other", lon: null, lat: null, name: "Lankwitz Süd" },
+  });
+  assert.equal(hitName(numbered), "Planungsraum ohne Namen");
+  assert.equal(hitName(numbered).includes("07400823"), false);
+  assert.equal(buildTrefferCard(numbered, undefined).name, "Planungsraum ohne Namen");
+  assert.equal(hitName(named), "Lankwitz Süd");
 });
 
 test("recommendation copy never shows the catalog key", () => {

@@ -4,11 +4,11 @@ UX Trefferliste v4 (Confluence 31227905). This **replaces** the earlier decision
 
 | Keys / `kind` | Badge | Name |
 | --- | --- | --- |
-| `lor:plr:…`, `kind: lor` (Berlin) | Planungsraum | `name` (last fallback `Planungsraum [amtliche Nummer]`) |
+| `lor:plr:…`, `kind: lor` (Berlin) | Planungsraum | `name`. Missing name or `Planungsraum [8-digit]` → `Planungsraum ohne Namen`. Never the LOR number. |
 | `koeln:sq:…`, `kind: quartier` (Köln) | Quartier | `name` (`Quartier [Nummer]` only as a backend fallback) |
 | `grid100` | 100-m-Raster | always `100-m-Rasterzelle` (no cell ID) |
 
-Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendations/model.ts` and `hit-copy.ts`. Catalog keys and cell IDs are never shown.
+Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendations/model.ts` and `hit-copy.ts`. Catalog keys and cell IDs are never shown. Search and Zielregion use the same Berlin word via `catalogBadge` (`lor:*` → Planungsraum, not LOR).
 
 Lage-Satz from `overlaps` uses only `label` and `share`. It is gated by `SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT` (on: #69 already clips shares to `items[].geometry`).
 

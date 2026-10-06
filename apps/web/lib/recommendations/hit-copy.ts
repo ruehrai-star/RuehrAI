@@ -22,8 +22,9 @@ const QUARTIER = "Quartier";
 const RASTER_ID_NAME = /^(?:100-m-)?Rasterzelle\s+\S/i;
 const FORBIDDEN_ID = /osm:|\bid:|address:|geo_addr|unbekannt|inspire/i;
 const INSPIRE_CELL = /\b\d+m[NS]\d+[EW]\d+/i;
-const LOR_PLR = /lor:plr:(\d{8})/i;
+const NUMBERED_PLANUNGSRAUM = /^Planungsraum \d{8}$/;
 const KOELN_SQ = /koeln:sq:/i;
+const PLANUNGSRAUM_OHNE_NAMEN = "Planungsraum ohne Namen";
 
 /**
  * Treffer Ebene-Badge (UX v4, Confluence 31227905). Badge and name use the
@@ -78,6 +79,7 @@ export function hitName(item: Recommendation): string {
   if (isRasterHit(item, hitBlob(item))) return RASTER_NAME;
   const raw = visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
   if (isRasterFallbackName(raw)) return RASTER_NAME;
+  if (NUMBERED_PLANUNGSRAUM.test(raw)) return PLANUNGSRAUM_OHNE_NAMEN;
   if (!raw || nameHasForbiddenId(raw)) return unnamedKind(item);
   return raw;
 }
@@ -136,10 +138,8 @@ function unnamedKind(item: Recommendation): string {
   if (item.kind === "address" || item.grain === "address" || item.location.grain === "address") {
     return "Adresse ohne Hausnummer";
   }
-  if (isLorHit(item, blob)) {
-    const code = lorOfficialNumber(blob);
-    return code ? `${PLANUNGSRAUM} ${code}` : `${PLANUNGSRAUM} ohne Namen`;
-  }
+  // Berlin LOR: never the eight-digit PLR number, even from lor:plr:*.
+  if (isLorHit(item, blob)) return PLANUNGSRAUM_OHNE_NAMEN;
   if (isKoelnQuartierHit(item, blob) || item.kind === "quartier") return "Quartier ohne Namen";
   if (item.kind === "ortsteil") return "Ortsteil ohne Namen";
   if (item.kind === "stadtteil") return "Stadtteil ohne Namen";
@@ -172,11 +172,6 @@ function nameHasForbiddenId(value: string): boolean {
   if (isCatalogKey(value) || FORBIDDEN_ID.test(value) || INSPIRE_CELL.test(value)) return true;
   if (RASTER_ID_NAME.test(value)) return true;
   return false;
-}
-
-function lorOfficialNumber(blob: string): string | null {
-  const match = LOR_PLR.exec(blob);
-  return match?.[1] ?? null;
 }
 
 function locationKey(item: Recommendation): string | null {
