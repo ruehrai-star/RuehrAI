@@ -551,7 +551,6 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       AND char_length(btrim(a.geo_ags::text)) = 8
       AND ${adminGeom} IS NOT NULL
       AND NOT ST_IsEmpty(${adminGeom})
-  )
   ),
   sampled_hits AS (
     SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
@@ -815,7 +814,6 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
         ($5::text IS NOT NULL AND a.geo_ags::text LIKE $5 || '%')
         OR ($2::text IS NOT NULL AND char_length(btrim($2::text)) = 5 AND a.geo_ags::text LIKE $2 || '%')
       )
-  )
   ),
   sampled_hits AS (
     SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
