@@ -72,7 +72,6 @@ async function readKnownRun(
   try {
     run = await api.getAnalysisRun(runId);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return { kind: "other" };
     if (error instanceof ApiError) {
       return { kind: "failed", runId, message: analysisFailureFromHttp(error.status, error.message) };
     }
@@ -87,6 +86,7 @@ async function readKnownRun(
   return { kind: "other" };
 }
 
+/** Load the set only after the run is completed. GET /recommendations?runId= is 404 until then. */
 export async function loadTrefferlisteAfterCompletedRun(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   runId: string,

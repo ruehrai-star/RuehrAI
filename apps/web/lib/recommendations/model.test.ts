@@ -156,7 +156,7 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
   assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
-  assert.equal(RECOMMENDATION_COPY.analysisDeadline, "Die Analyse dauert zu lange. Bitte starten Sie sie erneut.");
+  assert.equal(RECOMMENDATION_COPY.analysisDeadline, "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.");
   assert.equal(RECOMMENDATION_COPY.missingGeometry, "Die Fläche kann noch nicht gezeichnet werden.");
   assert.equal(RECOMMENDATION_COPY.missingValue, "liegt nicht vor");
   assert.equal(rankLabel(1), "Rang 1");
@@ -575,6 +575,10 @@ test("loading copy stays neutral; Analyse läuft is only the in-flight line", ()
   assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "idle" }), {
     text: null,
     tone: null,
+  });
+  assert.deepEqual(trefferStatusCopy({ pageLoading: false, bindLoading: false, runStatus: "deadline" }), {
+    text: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
+    tone: "error",
   });
 });
 

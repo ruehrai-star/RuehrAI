@@ -122,8 +122,9 @@ export function visibleSavedRegions<T>(items: readonly T[]): T[] {
 }
 
 /**
- * Visible Zielregion copy: place name, level badge, optional parentLabel.
- * Bezirke and Stadtteile read `Name · Badge · Gemeinde`, never a catalog key.
+ * Visible Zielregion copy: `[label] · [Ebene] · [parentLabel]`.
+ * Bezirk, Stadtbezirk, Stadtteil and Ortsteil use `parentLabel` as the
+ * Gemeinde. Drop the parent part when it is empty. Catalog keys stay hidden.
  */
 export function catalogHitVisibleText(source: unknown): string {
   const name = catalogPlaceName(source);

@@ -212,10 +212,58 @@ test("Bezirke and Stadtteile show the municipality via parentLabel", () => {
     level: "stadtteil" as const,
     parentLabel: "Köln",
   };
+  const nippes = {
+    id: "stadtbezirk:osm:3",
+    label: "Nippes",
+    grain: "other" as const,
+    geoKey: "stadtbezirk:osm:3",
+    level: "stadtbezirk" as const,
+    parentLabel: "Köln",
+  };
+  const lankwitz = {
+    id: "ortsteil:osm:4",
+    label: "Lankwitz",
+    grain: "other" as const,
+    geoKey: "ortsteil:osm:4",
+    level: "ortsteil" as const,
+    parentLabel: "Berlin",
+  };
   assert.equal(catalogHitVisibleText(innenstadt), "Innenstadt · Bezirk · Köln");
   assert.equal(catalogHitVisibleText(ehrenfeld), "Ehrenfeld · Stadtteil · Köln");
+  assert.equal(catalogHitVisibleText(nippes), "Nippes · Stadtbezirk · Köln");
+  assert.equal(catalogHitVisibleText(lankwitz), "Lankwitz · Ortsteil · Berlin");
+  assert.equal(catalogHitVisibleText({ ...innenstadt, parentLabel: "" }), "Innenstadt · Bezirk");
+  assert.equal(catalogHitVisibleText({ ...innenstadt, parentLabel: null }), "Innenstadt · Bezirk");
   assert.equal(catalogHitVisibleText(innenstadt).includes("stadtbezirk"), false);
   assert.equal(catalogHitVisibleText(innenstadt).includes("ags"), false);
+});
+
+test("search hits from the server are shown as-is; name and Gemeinde order is not filtered client-side", () => {
+  const hits = [
+    {
+      id: "stadtbezirk:osm:1",
+      label: "Innenstadt",
+      grain: "other" as const,
+      level: "stadtbezirk" as const,
+      parentLabel: "Köln",
+    },
+    {
+      id: "ags:05315000",
+      label: "Köln",
+      grain: "ags" as const,
+      level: "gemeinde" as const,
+      parentLabel: null,
+    },
+  ];
+  assert.deepEqual(
+    visibleSearchHits(hits).map((hit) => catalogHitVisibleText(hit)),
+    ["Innenstadt · Stadtbezirk · Köln", "Köln · Gemeinde"],
+  );
+  const region = readFileSync(new URL("../components/region-section.tsx", import.meta.url), "utf8");
+  assert.match(region, /\.search\(trimmed\)/);
+  assert.equal(region.includes("query.split"), false);
+  assert.equal(region.includes("parentLabel.includes"), false);
+  assert.equal(region.includes("label.toLowerCase"), false);
 });
 test("parentLabel stays empty when the field is missing; no parent name is guessed", () => {
   const hit = {

@@ -36,7 +36,7 @@ export const RECOMMENDATION_COPY = {
   analysisRunning: "Analyse läuft …",
   loading: "Wird geladen …",
   analysisFailed: "Analyse fehlgeschlagen.",
-  analysisDeadline: "Die Analyse dauert zu lange. Bitte starten Sie sie erneut.",
+  analysisDeadline: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
   missingRun: "Für diese Zielregion liegt noch kein Analyselauf vor.",
   startAnalysis: "Musteranalyse starten",
   restartAnalysis: "Erneut starten",

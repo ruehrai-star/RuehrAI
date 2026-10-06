@@ -17,7 +17,7 @@ export const ANALYSIS_COPY = {
   empty: "Keine Analyse ausgewählt.",
   running: "Analyse läuft …",
   failed: "Analyse fehlgeschlagen. Bitte erneut versuchen.",
-  deadline: "Die Analyse dauert zu lange. Bitte starten Sie sie erneut.",
+  deadline: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
   patternHeading: "Abgeleitetes Muster",
   briefHeading: "Kurzfassung",
   brainHeading: "Brain-Suche",

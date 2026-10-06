@@ -4,84 +4,58 @@ import {
   ANALYSIS_FAILURE_COPY,
   analysisFailureFromHttp,
   analysisFailureMessage,
+  clientDeadlineMessage,
 } from "./failure.ts";
 
-test("empty and unknown keys become a generic German sentence", () => {
-  assert.equal(analysisFailureMessage(null), ANALYSIS_FAILURE_COPY.generic);
-  assert.equal(analysisFailureMessage(""), ANALYSIS_FAILURE_COPY.generic);
-  assert.equal(analysisFailureMessage("   "), ANALYSIS_FAILURE_COPY.generic);
-  assert.equal(analysisFailureMessage("brain_search_failed"), `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.brain}`);
-  assert.equal(analysisFailureMessage("PATTERN_FAILED"), `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.pattern}`);
-  assert.equal(analysisFailureMessage("22P02"), ANALYSIS_FAILURE_COPY.generic);
-  assert.equal(analysisFailureMessage("504"), `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`);
+function line(detail: string): string {
+  return `${ANALYSIS_FAILURE_COPY.prefix}${detail}`;
+}
+
+test("closed failureReason values map to prefixed German text and never leak the key", () => {
+  assert.equal(analysisFailureMessage("timeout"), line(ANALYSIS_FAILURE_COPY.timeout));
+  assert.equal(analysisFailureMessage("pattern_failed"), line(ANALYSIS_FAILURE_COPY.pattern));
+  assert.equal(analysisFailureMessage("set_save_failed"), line(ANALYSIS_FAILURE_COPY.setSave));
+  assert.equal(analysisFailureMessage("interrupted"), line(ANALYSIS_FAILURE_COPY.interrupted));
+  assert.equal(analysisFailureMessage("internal_error"), line(ANALYSIS_FAILURE_COPY.unexpected));
+  for (const key of ["timeout", "pattern_failed", "set_save_failed", "interrupted", "internal_error"]) {
+    const text = analysisFailureMessage(key);
+    assert.equal(text.includes(key), false, `leaked ${key} in ${text}`);
+    assert.match(text, /^Analyse fehlgeschlagen: /);
+  }
 });
 
-test("timeout categories map to the duration sentence, never a code", () => {
-  assert.equal(
-    analysisFailureMessage("timeout"),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`,
-  );
-  assert.equal(
-    analysisFailureMessage("timed_out"),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`,
-  );
-  assert.equal(
-    analysisFailureMessage("gateway_timeout"),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`,
-  );
-  assert.equal(
-    analysisFailureMessage("Die Berechnung hat zu lange gedauert."),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`,
-  );
-  assert.equal(analysisFailureFromHttp(504), `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`);
-  assert.equal(analysisFailureFromHttp(408, "Gateway Time-out"), `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.timeout}`);
-});
-
-test("SQL, stacks, and English exception text stay hidden", () => {
-  assert.equal(
-    analysisFailureMessage('relation "app.analysis_runs" does not exist'),
-    ANALYSIS_FAILURE_COPY.generic,
-  );
-  assert.equal(
-    analysisFailureMessage("SELECT * FROM geo.facts WHERE id = 1"),
-    ANALYSIS_FAILURE_COPY.generic,
-  );
+test("unknown, empty, and unsafe values use the unexpected sentence", () => {
+  const unexpected = line(ANALYSIS_FAILURE_COPY.unexpected);
+  assert.equal(analysisFailureMessage(null), unexpected);
+  assert.equal(analysisFailureMessage(""), unexpected);
+  assert.equal(analysisFailureMessage("   "), unexpected);
+  assert.equal(analysisFailureMessage("brain_search_failed"), unexpected);
+  assert.equal(analysisFailureMessage("PATTERN_FAILED"), line(ANALYSIS_FAILURE_COPY.pattern));
+  assert.equal(analysisFailureMessage("22P02"), unexpected);
+  assert.equal(analysisFailureMessage("504"), unexpected);
+  assert.equal(analysisFailureMessage("timed_out"), unexpected);
+  assert.equal(analysisFailureMessage("Die Berechnung hat zu lange gedauert."), unexpected);
+  assert.equal(analysisFailureMessage('relation "app.analysis_runs" does not exist'), unexpected);
+  assert.equal(analysisFailureMessage("SELECT * FROM geo.facts WHERE id = 1"), unexpected);
   assert.equal(
     analysisFailureMessage("Error: boom\n    at Module.run (apps/backend/src/analysis/analysis.service.ts:188:13)"),
-    ANALYSIS_FAILURE_COPY.generic,
+    unexpected,
   );
-  assert.equal(analysisFailureMessage("ECONNREFUSED"), ANALYSIS_FAILURE_COPY.generic);
-  assert.equal(analysisFailureMessage('{"stack":"Error: x"}'), ANALYSIS_FAILURE_COPY.generic);
+  assert.equal(analysisFailureMessage("ECONNREFUSED"), unexpected);
+  assert.equal(analysisFailureMessage('{"stack":"Error: x"}'), unexpected);
+  assert.equal(analysisFailureMessage("Die Filialen liegen zu weit auseinander."), unexpected);
 });
 
-test("a safe German backend sentence is shown with the failed prefix", () => {
-  assert.equal(
-    analysisFailureMessage("Die Monatsumsätze reichen für eine Musteranalyse nicht aus."),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.revenue}`,
-  );
-  assert.equal(
-    analysisFailureMessage("Keine Zielregion gespeichert. Bitte zuerst eine Zielregion anlegen."),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.region}`,
-  );
-  assert.equal(
-    analysisFailureMessage("Die Brain-Suche ist fehlgeschlagen."),
-    `${ANALYSIS_FAILURE_COPY.prefix}${ANALYSIS_FAILURE_COPY.brain}`,
-  );
-  assert.equal(
-    analysisFailureMessage("Die Filialen liegen zu weit auseinander."),
-    `${ANALYSIS_FAILURE_COPY.prefix}Die Filialen liegen zu weit auseinander.`,
-  );
-  assert.equal(
-    analysisFailureMessage("Analyse fehlgeschlagen: Bitte später erneut versuchen."),
-    "Analyse fehlgeschlagen: Bitte später erneut versuchen.",
-  );
-  assert.equal(analysisFailureMessage("Die Analyse ist fehlgeschlagen. Bitte erneut versuchen."), ANALYSIS_FAILURE_COPY.generic);
+test("HTTP 404 is a generic failure; gateway timeouts map to timeout", () => {
+  assert.equal(analysisFailureFromHttp(404), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(404, "Die Analyse wurde nicht gefunden."), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(504), line(ANALYSIS_FAILURE_COPY.timeout));
+  assert.equal(analysisFailureFromHttp(408, "Gateway Time-out"), line(ANALYSIS_FAILURE_COPY.timeout));
+  assert.equal(analysisFailureFromHttp(500, "internal_error"), line(ANALYSIS_FAILURE_COPY.unexpected));
+  assert.equal(analysisFailureFromHttp(500, "set_save_failed"), line(ANALYSIS_FAILURE_COPY.setSave));
 });
 
-test("never returns the raw input when it looks like a key or code", () => {
-  for (const raw of ["brain_search_failed", "SQLSTATE", "504", "ECONNRESET", "timed_out"]) {
-    const text = analysisFailureMessage(raw);
-    assert.equal(text.includes(raw), false, `leaked ${raw} in ${text}`);
-    assert.match(text, /Analyse fehlgeschlagen/);
-  }
+test("the client safety deadline uses the timeout sentence", () => {
+  assert.equal(clientDeadlineMessage(), line(ANALYSIS_FAILURE_COPY.timeout));
+  assert.equal(clientDeadlineMessage().includes("timeout"), false);
 });

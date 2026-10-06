@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { AnalysisPattern, AnalysisRun } from "@ruehrai/api-contracts";
+import { ApiError } from "../api/types.ts";
 import type { RecommendationSet, TargetRegion } from "../api/types.ts";
-import { bindTrefferlisteForRegion, loadRecommendationsForRun, recommendationSetForRun } from "./bind.ts";
+import {
+  bindTrefferlisteForRegion,
+  loadRecommendationsForRun,
+  pollTrefferlisteRun,
+  recommendationSetForRun,
+} from "./bind.ts";
 
 const koeln: RecommendationSet = {
   id: "29",
@@ -140,8 +146,72 @@ test("bind of a failed known run maps the reason and does not POST", async () =>
   assert.equal(next.kind, "failed");
   if (next.kind === "failed") {
     assert.match(next.message, /zu lange gedauert/);
+    assert.equal(next.message.includes("timeout"), false);
     assert.equal(next.runId, "45");
   }
+});
+
+test("a 404 for a known run id is a generic failure, not empty", async () => {
+  const next = await bindTrefferlisteForRegion(
+    {
+      getAnalysisPattern: async () => {
+        throw new Error("pattern must not run after a missing run");
+      },
+      getAnalysisRun: async () => {
+        throw new ApiError("Die Analyse wurde nicht gefunden.", 404);
+      },
+      getRecommendations: async () => {
+        throw new Error("recs must not load for a missing run");
+      },
+    },
+    marked,
+    "99",
+  );
+  assert.equal(next.kind, "failed");
+  if (next.kind === "failed") {
+    assert.equal(next.runId, "99");
+    assert.match(next.message, /unerwarteter Fehler/);
+    assert.equal(next.message.includes("99"), false);
+  }
+});
+
+test("recommendations are loaded only after the run is completed", async () => {
+  const calls: string[] = [];
+  let runReads = 0;
+  const queuedThenDone = async (id: string) => {
+    runReads += 1;
+    calls.push(`run:${id}`);
+    if (runReads < 2) return run({ id, status: "running" });
+    return run({ id, status: "completed" });
+  };
+  const settled = await pollTrefferlisteRun(
+    {
+      getAnalysisPattern: async (query) => {
+        calls.push(`pattern:${query?.geoKey ?? ""}`);
+        return {
+          runId: "31",
+          createdAt: "2026-10-06T08:00:00.000Z",
+          pattern,
+          region: marked,
+        };
+      },
+      getAnalysisRun: queuedThenDone,
+      getRecommendations: async (query) => {
+        calls.push(`recs:${query?.runId ?? ""}`);
+        return koeln;
+      },
+    },
+    "31",
+    marked,
+    { sleep: async () => {}, now: () => 0, deadlineMs: 60_000 },
+  );
+  assert.equal(settled.kind, "ready");
+  assert.ok(calls.indexOf("recs:31") > -1);
+  assert.ok(calls.indexOf("recs:31") > calls.indexOf("run:31"));
+  assert.equal(
+    calls.filter((item) => item.startsWith("recs:")).length,
+    1,
+  );
 });
 
 test("Trefferliste bind is GET-only; start is an explicit button", () => {
