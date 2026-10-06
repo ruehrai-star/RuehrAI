@@ -203,6 +203,46 @@ function finestKindOrderSql(): string {
      END`;
 }
 
+/** ~1 km WGS84 cells. Round-robin per cell so SQL LIMIT is not alphabetical. */
+export const SPATIAL_SAMPLE_CELL_DEG = 0.01;
+
+const CANDIDATE_RESULT_COLUMNS =
+  "geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson";
+
+/**
+ * Cap after the spatial filter: first one hit per ~1 km cell, then a second
+ * from each cell, and so on. Never `ORDER BY geo_key LIMIT n`.
+ */
+export function spatialEvenHitsLimitSql(
+  options: { from?: string; preferFinestKind?: boolean } = {},
+): string {
+  const from = options.from ?? "hits";
+  const order = options.preferFinestKind
+    ? `${finestKindOrderSql()}, spatial_rank ASC, geo_key ASC`
+    : `spatial_rank ASC, geo_key ASC`;
+  return `
+SELECT ${CANDIDATE_RESULT_COLUMNS}
+  FROM (
+    SELECT
+      ${from}.*,
+      row_number() OVER (
+        PARTITION BY
+          ${from}.kind,
+          ${spatialCellExpr(`${from}.lon`)},
+          ${spatialCellExpr(`${from}.lat`)}
+        ORDER BY ${from}.geo_key ASC
+      ) AS spatial_rank
+    FROM ${from}
+  ) sampled
+ ORDER BY ${order}
+ LIMIT ${AREA_CANDIDATE_LIMIT}
+`;
+}
+
+function spatialCellExpr(coord: string): string {
+  return `CASE WHEN ${coord} IS NULL THEN 2147483647 ELSE floor(${coord} / ${SPATIAL_SAMPLE_CELL_DEG})::int END`;
+}
+
 export function selectCatalogHits(
   candidates: AreaCandidate[],
   regions: Array<Pick<AnalysisRegion, "geoKey" | "grain" | "ags" | "plz">>,
@@ -512,15 +552,14 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       AND ${adminGeom} IS NOT NULL
       AND NOT ST_IsEmpty(${adminGeom})
   )
-  SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
-    FROM hits
-   WHERE geo_key IS NOT NULL
-     AND NOT (geo_key = ANY($3::text[]))
-   ORDER BY
-     ${finestKindOrderSql()},
-     name ASC NULLS LAST,
-     geo_key ASC
-   LIMIT ${AREA_CANDIDATE_LIMIT}
+  ),
+  sampled_hits AS (
+    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
+      FROM hits
+     WHERE geo_key IS NOT NULL
+       AND NOT (geo_key = ANY($3::text[]))
+  )
+  ${spatialEvenHitsLimitSql({ from: "sampled_hits", preferFinestKind: true })}
 `;
 }
 
@@ -537,7 +576,8 @@ export function buildGrid100CandidateSql(): string {
   return `
   WITH region_geom AS (
     SELECT ${regionGeomExpr()} AS geom
-  )
+  ),
+  hits AS (
   SELECT
     d.geo_key::text AS geo_key,
     'grid100'::text AS grain,
@@ -567,8 +607,8 @@ export function buildGrid100CandidateSql(): string {
         OR d.metadata->>'geo_ags5' = $3
       ))`,
     )}
-  ORDER BY d.geo_key ASC
-  LIMIT ${AREA_CANDIDATE_LIMIT}
+  )
+  ${spatialEvenHitsLimitSql()}
 `;
 }
 
@@ -588,7 +628,8 @@ export function buildGeoAddressCandidateSql(): string {
   return `
   WITH region_geom AS (
     SELECT ${regionGeomExpr()} AS geom
-  )
+  ),
+  hits AS (
   SELECT
     COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) AS geo_key,
     'address'::text AS grain,
@@ -616,8 +657,8 @@ export function buildGeoAddressCandidateSql(): string {
       OR ($3::text IS NOT NULL AND a.geo_ags::text LIKE $3 || '%')
       OR ($5::text IS NOT NULL AND a.geo_plz5::text = $5)`,
     )}
-  ORDER BY COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) ASC
-  LIMIT ${AREA_CANDIDATE_LIMIT}
+  )
+  ${spatialEvenHitsLimitSql()}
 `;
 }
 
@@ -633,7 +674,8 @@ export function buildAddressCandidateSql(): string {
   return `
   WITH region_geom AS (
     SELECT ${regionGeomExpr()} AS geom
-  )
+  ),
+  hits AS (
   SELECT
     d.geo_key::text AS geo_key,
     'address'::text AS grain,
@@ -654,8 +696,8 @@ export function buildAddressCandidateSql(): string {
       `($2::text IS NOT NULL AND (d.metadata->>'ags' = $2 OR d.metadata->>'geo_ags' = $2))
       OR ($3::text IS NOT NULL AND (d.metadata->>'ags' LIKE $3 || '%' OR d.metadata->>'geo_ags5' = $3))`,
     )}
-  ORDER BY d.geo_key ASC
-  LIMIT ${AREA_CANDIDATE_LIMIT}
+  )
+  ${spatialEvenHitsLimitSql()}
 `;
 }
 
@@ -774,17 +816,16 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
         OR ($2::text IS NOT NULL AND char_length(btrim($2::text)) = 5 AND a.geo_ags::text LIKE $2 || '%')
       )
   )
-  SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
-    FROM hits
-   WHERE geo_key IS NOT NULL
-     AND ($4::text IS NULL OR geo_key IS DISTINCT FROM $4)
-     AND ($2::text IS NULL OR geo_key IS DISTINCT FROM $2)
-     AND ($3::text IS NULL OR geo_key IS DISTINCT FROM $3)
-   ORDER BY
-     ${finestKindOrderSql()},
-     name ASC NULLS LAST,
-     geo_key ASC
-   LIMIT ${AREA_CANDIDATE_LIMIT}
+  ),
+  sampled_hits AS (
+    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
+      FROM hits
+     WHERE geo_key IS NOT NULL
+       AND ($4::text IS NULL OR geo_key IS DISTINCT FROM $4)
+       AND ($2::text IS NULL OR geo_key IS DISTINCT FROM $2)
+       AND ($3::text IS NULL OR geo_key IS DISTINCT FROM $3)
+  )
+  ${spatialEvenHitsLimitSql({ from: "sampled_hits", preferFinestKind: true })}
 `;
 }
 

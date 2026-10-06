@@ -33,6 +33,8 @@ import {
   selectCatalogHits,
   selectFinestHits,
   skipAddressAndGridForRegion,
+  spatialEvenHitsLimitSql,
+  SPATIAL_SAMPLE_CELL_DEG,
   clipToRegionSql,
   clippedHitGeoJsonSql,
   overlapJoinSql,
@@ -103,6 +105,32 @@ describe("area candidate SQL", () => {
     expect(grid).toContain("g.geom IS NULL");
     expect(address).toContain("ST_Intersects");
     expect(grid).toContain("ST_Intersects");
+    expect(address).toContain("spatial_rank");
+    expect(grid).toContain("spatial_rank");
+    expect(address).toContain("PARTITION BY");
+    expect(grid).toContain("PARTITION BY");
+    expect(address).not.toMatch(/ORDER BY d\.geo_key ASC\s+LIMIT/);
+    expect(grid).not.toMatch(/ORDER BY d\.geo_key ASC\s+LIMIT/);
+  });
+
+  it("caps address and raster by even spatial cells, never alphabetical geo_key", () => {
+    const wrap = spatialEvenHitsLimitSql();
+    expect(wrap).toContain("spatial_rank");
+    expect(wrap).toContain(`floor(hits.lon / ${SPATIAL_SAMPLE_CELL_DEG})`);
+    expect(wrap).toContain("ORDER BY spatial_rank ASC, geo_key ASC");
+    expect(wrap).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
+    for (const sql of [
+      buildAddressCandidateSql(),
+      buildGrid100CandidateSql(),
+      buildGeoAddressCandidateSql(),
+      buildTeilCatalogSql(),
+      buildAreaCandidateSql(),
+    ]) {
+      expect(sql).toContain("spatial_rank");
+      expect(sql).toContain("row_number() OVER");
+      expect(sql).toMatch(/ORDER BY[\s\S]*spatial_rank ASC/);
+      expect(sql).not.toMatch(/ORDER BY[\s\S]*name ASC NULLS LAST[\s\S]*geo_key ASC\s+LIMIT/);
+    }
   });
 
   it("loads Berlin LOR PLR, Köln quartier, Hamburg fallback, and official addresses without embeddings", () => {
