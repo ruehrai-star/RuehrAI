@@ -1,5 +1,5 @@
 import type { TargetRegion } from "../api/types.ts";
-import { ensureMarkedKey } from "./regions.ts";
+import { ensureMarkedKey, findMarkedKey } from "./regions.ts";
 
 const STORAGE_KEY = "ruehrai.markedRegion";
 const CLEARED_KEY = "ruehrai.markedRegion.cleared";
@@ -122,8 +122,23 @@ function isEmptyMarkHeld(): boolean {
   }
 }
 
-/** Marked catalog key for a loaded list: stored key if it is still in the list. */
+/**
+ * True when a stored/URL key is not in the loaded list, or the user just
+ * cleared a stale mark. An empty list is still loading or truly empty — do
+ * not treat that as a miss, or a valid key would be wiped before the list arrives.
+ */
+export function isUnresolvedMarkedKey(items: readonly TargetRegion[], stored: string | null): boolean {
+  if (items.length === 0) return false;
+  if (stored) return findMarkedKey(items, stored) == null;
+  return isEmptyMarkHeld();
+}
+
+/**
+ * Marked catalog key for a loaded list: stored key if it is still in the list.
+ * An unknown URL/storage key does not fall back to another saved region.
+ */
 export function persistedMarkedKey(items: readonly TargetRegion[], stored: string | null): string | null {
   if (!stored && isEmptyMarkHeld()) return null;
+  if (stored && items.length > 0 && findMarkedKey(items, stored) == null) return null;
   return ensureMarkedKey(items, stored);
 }

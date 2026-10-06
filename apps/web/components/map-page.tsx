@@ -13,8 +13,9 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
-import { readMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
-import { ensureMarkedKey, markedRegion } from "@/lib/locations/regions";
+import { MarkedRegionMissingNotice } from "@/components/marked-region-missing";
+import { clearMarkedKey, isUnresolvedMarkedKey, persistedMarkedKey, readMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
+import { markedRegion } from "@/lib/locations/regions";
 import {
   LEGEND_LABEL,
   NO_STORES_LABEL,
@@ -53,6 +54,7 @@ export function MapPage() {
     stores: StoreLocation[] | null;
     regions: TargetRegion[];
     markedKey: string | null;
+    markedMissing: boolean;
     recommendations: Recommendation[];
     error: string | null;
     ready: boolean;
@@ -109,15 +111,19 @@ export function MapPage() {
       Promise.all([api.listStores(), api.listTargetRegions()])
         .then(([nextStores, nextRegions]) => {
           if (cancelled || current !== request) return;
+          const stored = readMarkedKey();
+          const missing = isUnresolvedMarkedKey(nextRegions, stored);
           setSnapshot({
             token,
             stores: nextStores,
             regions: nextRegions,
-            markedKey: ensureMarkedKey(nextRegions, readMarkedKey()),
+            markedKey: persistedMarkedKey(nextRegions, stored),
+            markedMissing: missing,
             recommendations: [],
             error: null,
             ready: true,
           });
+          if (missing && stored) clearMarkedKey();
         })
         .catch((error: unknown) => {
           if (cancelled || current !== request) return;
@@ -126,6 +132,7 @@ export function MapPage() {
             stores: null,
             regions: [],
             markedKey: null,
+            markedMissing: false,
             recommendations: [],
             error: errorText(error, "Filialadressen konnten nicht geladen werden."),
             ready: true,
@@ -263,10 +270,11 @@ export function MapPage() {
           regionKey={karte.regionKey}
           onMarkRegion={(key) => {
             writeMarkedKey(key);
-            setSnapshot((current) => (current ? { ...current, markedKey: key } : current));
+            setSnapshot((current) => (current ? { ...current, markedKey: key, markedMissing: false } : current));
           }}
         />
         <div className="map-notices">
+          {mine?.markedMissing ? <MarkedRegionMissingNotice /> : null}
           {karte.showEmptyAddresses ? (
             <p className="map-empty" role="status">
               {NO_STORES_LABEL}

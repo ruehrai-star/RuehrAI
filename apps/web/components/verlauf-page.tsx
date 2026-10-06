@@ -29,6 +29,7 @@ import {
   optionalRevenueCount,
 } from "@/lib/verlauf/model";
 import { CatalogHitLabel } from "./catalog-hit-label";
+import { MarkedRegionMissingNotice } from "./marked-region-missing";
 import { ProofMap } from "./proof-map";
 import { RunRegionLabel } from "./run-region-label";
 import { useSession } from "./session-provider";
@@ -49,7 +50,7 @@ export function VerlaufPage() {
   const [bindFailed, setBindFailed] = useState(false);
   const [recommendationSet, setRecommendationSet] = useState<RecommendationSet | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
+  const [markedKey, setMarkedKey, markedMissing] = usePersistedMarkedKey(regions);
   const [stores, setStores] = useState<StoreLocation[] | null>(null);
   const [revenue, setRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export function VerlaufPage() {
     visible &&
     pagePhase === "idle" &&
     visibleRegions.length > 0 &&
+    !markedMissing &&
     (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations && recPhase === "idle"));
 
   useEffect(() => {
@@ -297,6 +299,7 @@ export function VerlaufPage() {
             {loadError}
           </p>
         ) : null}
+        {visible && markedMissing ? <MarkedRegionMissingNotice /> : null}
         {bindPhase === "failed" ? (
           <div className="verlauf-load-error">
             <p className="message" role="status">
@@ -327,7 +330,7 @@ export function VerlaufPage() {
               </Link>
             </div>
           </div>
-        ) : (
+        ) : markedMissing ? null : (
           <div className="auth-actions">
             <button
               type="button"

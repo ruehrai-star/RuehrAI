@@ -164,12 +164,15 @@ test("Top-3 sentences follow the list length", () => {
   assert.equal(recommendationEmptyCopy(3), "Keine passenden Standorte in der Zielregion.");
 });
 
-test("a non-empty list always has exactly one marked row", () => {
+test("a non-empty list fills a mark only when none was asked for", () => {
   const items = [region({ label: "München", geoKey: "09162000" }), region({ label: "Berlin", geoKey: "11000000" })];
   assert.equal(ensureMarkedKey([], null), null);
   assert.equal(ensureMarkedKey(items, null), "09162000");
   assert.equal(ensureMarkedKey(items, "11000000"), "11000000");
+  assert.equal(ensureMarkedKey(items, "ortsteil:osm:999999999"), "09162000");
   assert.equal(markedRegion([], null), null);
   assert.equal(markedRegion(items, "11000000")?.label, "Berlin");
-  assert.equal(markedRegion(items, null)?.label, "München");
+  assert.equal(markedRegion(items, null), null);
+  assert.equal(markedRegion(items, "ortsteil:osm:999999999"), null);
+  assert.equal(markedRegion(items, ensureMarkedKey(items, null))?.label, "München");
 });

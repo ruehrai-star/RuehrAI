@@ -132,21 +132,29 @@ export function nextMarkedKeyAfterRemove(
   return above ? regionListKey(above) : null;
 }
 
-/** Exactly one row is marked whenever the list is not empty. */
-export function ensureMarkedKey(items: readonly TargetRegion[], markedKey: string | null): string | null {
-  if (items.length === 0) return null;
-  const match =
-    markedKey == null
-      ? undefined
-      : items.find((item) => regionListKey(item) === markedKey || catalogKeyVariants(item.geoKey).includes(markedKey));
-  return regionListKey(match ?? (items[0] as TargetRegion));
+/** Matching saved row for a stored/URL key. No fallback to another region. */
+export function findMarkedRegion(items: readonly TargetRegion[], markedKey: string | null): TargetRegion | null {
+  if (markedKey == null || items.length === 0) return null;
+  return (
+    items.find((item) => regionListKey(item) === markedKey || catalogKeyVariants(item.geoKey).includes(markedKey)) ??
+    null
+  );
 }
 
-/** The marked Zielregion row, or null when the list is empty. */
+export function findMarkedKey(items: readonly TargetRegion[], markedKey: string | null): string | null {
+  const match = findMarkedRegion(items, markedKey);
+  return match ? regionListKey(match) : null;
+}
+
+/** Exactly one row is marked whenever the list is not empty and no key was asked for. */
+export function ensureMarkedKey(items: readonly TargetRegion[], markedKey: string | null): string | null {
+  if (items.length === 0) return null;
+  return findMarkedKey(items, markedKey) ?? regionListKey(items[0] as TargetRegion);
+}
+
+/** The marked Zielregion row, or null when the key is missing or unknown. */
 export function markedRegion(items: readonly TargetRegion[], markedKey: string | null): TargetRegion | null {
-  const key = ensureMarkedKey(items, markedKey);
-  if (!key) return null;
-  return items.find((item) => regionListKey(item) === key || catalogKeyVariants(item.geoKey).includes(key)) ?? null;
+  return findMarkedRegion(items, markedKey);
 }
 
 function trimText(value: string | null | undefined): string | null {

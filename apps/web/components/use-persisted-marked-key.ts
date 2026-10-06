@@ -2,15 +2,27 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import type { TargetRegion } from "@/lib/api";
-import { persistedMarkedKey, readMarkedKey, subscribeMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
+import {
+  clearMarkedKey,
+  isUnresolvedMarkedKey,
+  persistedMarkedKey,
+  readMarkedKey,
+  subscribeMarkedKey,
+  writeMarkedKey,
+} from "@/lib/locations/marked-region";
 
 export function usePersistedMarkedKey(
   items: readonly TargetRegion[],
-): [string | null, (key: string | null) => void] {
+): [string | null, (key: string | null) => void, boolean] {
   const stored = useSyncExternalStore(subscribeMarkedKey, readMarkedKey, () => null);
   const key = persistedMarkedKey(items, stored);
+  const missing = isUnresolvedMarkedKey(items, stored);
   useEffect(() => {
+    if (missing) {
+      if (stored) clearMarkedKey();
+      return;
+    }
     if (key && key !== stored) writeMarkedKey(key);
-  }, [key, stored]);
-  return [key, writeMarkedKey];
+  }, [missing, key, stored]);
+  return [key, writeMarkedKey, missing];
 }

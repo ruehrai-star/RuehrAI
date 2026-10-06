@@ -21,6 +21,7 @@ import {
 } from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
 import { POST_STANDORTE_HREF } from "@/lib/verlauf/model";
+import { MarkedRegionMissingNotice } from "./marked-region-missing";
 import { RegionSection } from "./region-section";
 import { RevenueSection } from "./revenue-section";
 import { useSession } from "./session-provider";
@@ -30,7 +31,7 @@ export function StandortePage() {
   const { session } = useSession();
   const api = getLocationApi();
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
+  const [markedKey, setMarkedKey, markedMissing] = usePersistedMarkedKey(regions);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [storeId, setStoreId] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function StandortePage() {
   const loading = Boolean(session && loadedEmail !== session.email);
   const visibleRegions = loadedEmail === session?.email ? regions : [];
   const visibleMarkedKey = loadedEmail === session?.email ? markedKey : null;
+  const visibleMarkedMissing = loadedEmail === session?.email && markedMissing;
   const visibleStores = loadedEmail === session?.email ? stores : [];
   const revenueLoading = Boolean(session && storeId && revenueStoreId !== storeId);
   const visibleRevenue = revenueStoreId === storeId ? revenue : [];
@@ -242,6 +244,7 @@ export function StandortePage() {
           {loadError}
         </p>
       ) : null}
+      {visibleMarkedMissing ? <MarkedRegionMissingNotice /> : null}
       <RegionSection
         items={visibleRegions}
         markedKey={visibleMarkedKey}
