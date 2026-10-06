@@ -51,6 +51,12 @@ export interface AreaCandidate {
   /** Clipped hit outline (EPSG:4326), when Brain geom ∩ Zielregion is available. */
   geometry?: RegionGeometry | null;
   geometryUnavailableReason?: string | null;
+  /**
+   * Share of this polygon inside the Zielregion
+   * (`ST_Area(intersection)/ST_Area(candidate)` in EPSG:3035).
+   * Points inside are 1. Omitted when unknown.
+   */
+  targetOverlapShare?: number;
 }
 
 /** Separates `{grain}:{geoKey}` from the Zielregion in set-unique item ids. */
@@ -138,6 +144,7 @@ export interface AreaCandidateSqlRow {
   lat: number | string | null;
   /** GeoJSON text from ST_AsGeoJSON of clipped outline. */
   geometry_geojson?: string | null;
+  target_overlap_share?: number | string | null;
 }
 
 export interface ParentMembership {
@@ -223,7 +230,7 @@ export function compareSpatialGeoKey(left: string, right: string): number {
 }
 
 const CANDIDATE_RESULT_COLUMNS =
-  "geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson";
+  "geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson, target_overlap_share";
 
 /**
  * Cap after the spatial filter: first one hit per ~1 km cell, then a second
@@ -410,7 +417,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("o")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("o"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("o"))} AS geometry_geojson,
+      ${targetOverlapShareSql(geom4326("o"), "1")}
     FROM children c
     JOIN geo.geo_ref_ortsteil o
       ON o.geo_ortsteil_id::text = c.child_id
@@ -432,7 +440,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("l")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("l")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("l"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("l"))} AS geometry_geojson,
+      ${targetOverlapShareSql(geom4326("l"), "1")}
     FROM children c
     JOIN geo.geo_ref_lor l
       ON ${lorJoinOnChild("l", "c.child_id")}
@@ -457,7 +466,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       q.lon::float8 AS lon,
       q.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM children c
     LEFT JOIN LATERAL (
       SELECT d.title, d.metadata, d.lon, d.lat
@@ -485,7 +495,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       NULL::float8 AS lon,
       NULL::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM children c
     WHERE lower(btrim(c.child_grain)) = 'address'
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
@@ -513,7 +524,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("b")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("b"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("b"))} AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM children c
     JOIN geo.geo_ref_bezirk b
       ON b.geo_bezirk_id::text = c.child_id
@@ -535,7 +547,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       p.geo_plz5::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("p")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("p"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("p"))} AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM children c
     JOIN geo.geo_ref_plz p
       ON p.geo_plz5::text = c.child_id
@@ -556,7 +569,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${adminGeom})) AS lon,
       ST_Y(ST_PointOnSurface(${adminGeom})) AS lat,
-      ${clippedHitGeoJsonSql(adminGeom)} AS geometry_geojson
+      ${clippedHitGeoJsonSql(adminGeom)} AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM children c
     JOIN geo.geo_ref_admin a
       ON a.geo_ags::text = c.child_id
@@ -569,7 +583,7 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       AND NOT ST_IsEmpty(${adminGeom})
   ),
   sampled_hits AS (
-    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
+    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson, target_overlap_share
       FROM hits
      WHERE geo_key IS NOT NULL
        AND NOT (geo_key = ANY($3::text[]))
@@ -602,7 +616,8 @@ export function buildGrid100CandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'plz', d.metadata->>'geo_plz5')), '') AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.grain = 'grid100'
     AND d.source_theme = 'breitband_gitter'
@@ -658,7 +673,8 @@ export function buildGeoAddressCandidateSql(): string {
     NULLIF(btrim(a.geo_plz5::text), '') AS plz,
     ST_X(ST_PointOnSurface(${hitGeom})) AS lon,
     ST_Y(ST_PointOnSurface(${hitGeom})) AS lat,
-    ${clippedHitGeoJsonSql(hitGeom)} AS geometry_geojson
+    ${clippedHitGeoJsonSql(hitGeom)} AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM geo.geo_ref_address a, region_geom g
   WHERE COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) IS NOT NULL
     AND NOT (COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) = ANY($4::text[]))
@@ -700,7 +716,8 @@ export function buildAddressCandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'plz', d.metadata->>'geo_plz5')), '') AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.grain = 'address'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -760,7 +777,8 @@ export function buildAreaCandidateSql(
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("o")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("o"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("o"))} AS geometry_geojson,
+      ${targetOverlapShareSql(geom4326("o"))}
     FROM geo.geo_ref_ortsteil o, region_geom g
     WHERE ${hasArea("o")}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
@@ -790,7 +808,8 @@ export function buildAreaCandidateSql(
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("b")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("b"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("b"))} AS geometry_geojson,
+      ${targetOverlapShareSql(geom4326("b"))}
     FROM geo.geo_ref_bezirk b, region_geom g
     WHERE ${hasArea("b")}
       AND NULLIF(btrim(b.name), '') IS NOT NULL
@@ -807,7 +826,8 @@ export function buildAreaCandidateSql(
       p.geo_plz5::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("p")})) AS lon,
       ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat,
-      ${clippedHitGeoJsonSql(geom4326("p"))} AS geometry_geojson
+      ${clippedHitGeoJsonSql(geom4326("p"))} AS geometry_geojson,
+      ${targetOverlapShareSql(geom4326("p"))}
     FROM geo.geo_ref_plz p, region_geom g
     WHERE ${hasArea("p")}
       AND NULLIF(btrim(p.geo_plz5::text), '') IS NOT NULL
@@ -824,7 +844,8 @@ export function buildAreaCandidateSql(
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${adminGeom})) AS lon,
       ST_Y(ST_PointOnSurface(${adminGeom})) AS lat,
-      ${clippedHitGeoJsonSql(adminGeom)} AS geometry_geojson
+      ${clippedHitGeoJsonSql(adminGeom)} AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
     FROM geo.geo_ref_admin a, region_geom g
     WHERE $6::boolean
       AND NULLIF(btrim(a.geo_ags::text), '') IS NOT NULL
@@ -835,7 +856,7 @@ export function buildAreaCandidateSql(
       )
   ),
   sampled_hits AS (
-    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson
+    SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson, target_overlap_share
       FROM hits
      WHERE geo_key IS NOT NULL
        AND ($4::text IS NULL OR geo_key IS DISTINCT FROM $4)
@@ -928,7 +949,8 @@ export function buildLorPlrCatalogSql(minOverlapShare: number = readAnalysisMinO
     NULL::text AS plz,
     ST_X(ST_PointOnSurface(${geom})) AS lon,
     ST_Y(ST_PointOnSurface(${geom})) AS lat,
-    ${clippedHitGeoJsonSql(geom)} AS geometry_geojson
+    ${clippedHitGeoJsonSql(geom)} AS geometry_geojson,
+      ${targetOverlapShareSql(geom)}
   FROM geo.geo_ref_lor l, region_geom g
   WHERE ${lorPlanungsraumFilter("l")}
     AND NOT (${plrKey} = ANY($2::text[]))
@@ -973,7 +995,8 @@ export function buildLorPlrFeatureCandidateSql(): string {
     NULL::text AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -1007,7 +1030,8 @@ export function buildLorFeatureCandidateSql(): string {
     NULL::text AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -1044,7 +1068,8 @@ export function buildKoelnQuartierCandidateSql(): string {
     NULL::text AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -1087,7 +1112,8 @@ export function buildHamburgStadtteilFallbackSql(): string {
     NULL::text AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
-      NULL::text AS geometry_geojson
+      NULL::text AS geometry_geojson,
+      NULL::float8 AS target_overlap_share
   FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'hamburg_stadtteil_regionalstatistik'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -1311,19 +1337,36 @@ export function regionsGeometryParam(regions: AnalysisRegion[]): string | null {
   return JSON.stringify({ type: "GeometryCollection", geometries: geoms });
 }
 
+export interface OverlapRegionMeta {
+  geoKey: string | null;
+  label: string | null;
+  kind: AreaKind | null;
+}
+
+/** Display name + kind of the item's Zielregion (never a catalog key as label). */
+export function overlapRegionMeta(
+  region?: Pick<AnalysisRegion, "geoKey" | "label" | "level" | "grain"> | null,
+): OverlapRegionMeta {
+  const geoKey = region?.geoKey?.trim() || null;
+  const label = region?.label?.trim() || null;
+  const level = region?.level?.trim();
+  const grain = region?.grain?.trim();
+  const kind = isAreaKind(level) ? level : isAreaKind(grain) ? grain : geoKey ? "ortsteil" : null;
+  return { geoKey, label, kind };
+}
+
 /**
- * Batched spatial parents (Stadtbezirk/Bezirk) for every eligible hit.
- * Hit geoms are clipped to the Zielregion (`$3`, same as `items[].geometry`)
- * before share = intersection / clipped hit area in EPSG:3035.
- * $1 geo_key[]  $2 kind[]  $3 Zielregion GeoJSON (nullable)
+ * Overlaps of the **unclipped** candidate: Zielregion first, then Ortsteile.
+ * `share` = intersection / candidate area in EPSG:3035 (points: ST_Covers → 1).
+ * $1 geo_key[]  $2 kind[]  $3 Zielregion GeoJSON
+ * $4 region geoKey  $5 region label  $6 region kind
  */
 export function buildHitOverlapSql(): string {
   const plzGeom = geom4326("p");
   const lorGeom = geom4326("l");
   const ortGeom = geom4326("o");
-  const bezirkGeom = geom4326("b");
+  const parentOrtGeom = geom4326("ot");
   const addrGeom = addressGeom4326("a");
-  const clip = clipToRegionSql("r.geom", "g");
   return `
   WITH hits AS (
     SELECT geo_key, kind
@@ -1331,6 +1374,12 @@ export function buildHitOverlapSql(): string {
   ),
   region_geom AS (
     SELECT ${regionGeomFromParam("$3")} AS geom
+  ),
+  region_meta AS (
+    SELECT
+      NULLIF(btrim($4::text), '') AS geo_key,
+      NULLIF(btrim($5::text), '') AS label,
+      NULLIF(btrim($6::text), '') AS kind
   ),
   hit_raw AS (
     SELECT h.geo_key, ${plzGeom} AS geom
@@ -1395,48 +1444,72 @@ export function buildHitOverlapSql(): string {
          ORDER BY h.geo_key ASC
       ) addr
   ),
-  hit_geom AS (
-    SELECT r.geo_key, ${clip} AS geom
-      FROM hit_raw r, region_geom g
-  ),
   shares AS (
     SELECT
       h.geo_key AS hit_geo_key,
-      CASE
-        WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN b.geo_bezirk_id::text
-        ELSE 'stadtbezirk:' || b.geo_bezirk_id::text
-      END AS geo_key,
-      NULLIF(btrim(b.name), '') AS label,
-      CASE
-        WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN 'bezirk'
-        ELSE 'stadtbezirk'
-      END AS kind,
-      ${overlapShareSql("h.geom", bezirkGeom)} AS share
-    FROM hit_geom h
+      m.geo_key,
+      m.label,
+      m.kind,
+      TRUE AS is_target_region,
+      ${overlapShareSql("h.geom", "g.geom")} AS share
+    FROM hit_raw h
     CROSS JOIN region_geom g
-    JOIN geo.geo_ref_bezirk b
-      ON ${hasArea("b")}
-     AND NULLIF(btrim(b.name), '') IS NOT NULL
-     AND ${overlapJoinSql("h.geom", bezirkGeom)}
-     AND (g.geom IS NULL OR ST_Intersects(${bezirkGeom}, g.geom))
+    CROSS JOIN region_meta m
+    WHERE g.geom IS NOT NULL
+      AND h.geom IS NOT NULL
+      AND NOT ST_IsEmpty(h.geom)
+      AND m.geo_key IS NOT NULL
+      AND m.label IS NOT NULL
+      AND m.kind IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      h.geo_key AS hit_geo_key,
+      (lower(btrim(ot.kind)) || ':' || ot.geo_ortsteil_id::text) AS geo_key,
+      NULLIF(btrim(ot.name), '') AS label,
+      CASE
+        WHEN lower(btrim(ot.kind)) = 'stadtteil' THEN 'stadtteil'
+        ELSE 'ortsteil'
+      END AS kind,
+      FALSE AS is_target_region,
+      ${overlapShareSql("h.geom", parentOrtGeom)} AS share
+    FROM hit_raw h
+    JOIN geo.geo_ref_ortsteil ot
+      ON ${hasArea("ot")}
+     AND NULLIF(btrim(ot.name), '') IS NOT NULL
+     AND ${overlapJoinSql("h.geom", parentOrtGeom)}
+    CROSS JOIN region_meta m
     WHERE h.geom IS NOT NULL
       AND NOT ST_IsEmpty(h.geom)
+      AND (lower(btrim(ot.kind)) || ':' || ot.geo_ortsteil_id::text) IS DISTINCT FROM m.geo_key
+      AND ot.geo_ortsteil_id::text IS DISTINCT FROM m.geo_key
   )
-  SELECT hit_geo_key, geo_key, label, kind, share
+  SELECT hit_geo_key, geo_key, label, kind, share, is_target_region
     FROM shares
-   WHERE share >= ${OVERLAP_MIN_SHARE}
-   ORDER BY hit_geo_key ASC, share DESC, label ASC
+   WHERE share IS NOT NULL
+     AND (is_target_region OR share >= ${OVERLAP_MIN_SHARE})
+   ORDER BY hit_geo_key ASC, is_target_region DESC, share DESC, label ASC
 `;
 }
 
 export function hitOverlapQuery(
   hits: Array<{ geoKey: string; kind: AreaKind }>,
   regionGeometry: string | null = null,
+  region: OverlapRegionMeta | null = null,
 ): CandidateQuery {
   const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
+  const meta = region ?? { geoKey: null, label: null, kind: null };
   return {
     sql: buildHitOverlapSql(),
-    params: [eligible.map((hit) => hit.geoKey), eligible.map((hit) => hit.kind), regionGeometry],
+    params: [
+      eligible.map((hit) => hit.geoKey),
+      eligible.map((hit) => hit.kind),
+      regionGeometry,
+      meta.geoKey,
+      meta.label,
+      meta.kind,
+    ],
   };
 }
 
@@ -1523,6 +1596,18 @@ function hasArea(alias: string): string {
   return `${alias}.geom IS NOT NULL AND NOT ST_IsEmpty(${alias}.geom)`;
 }
 
+export function polygonOverlapShareExpr(hitGeom: string, regionGeom: string): string {
+  return `(
+      ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${regionGeom})), 3035))
+      / NULLIF(ST_Area(ST_Transform(ST_MakeValid(${hitGeom}), 3035)), 0)
+    )`;
+}
+
+function targetOverlapShareSql(hitGeom: string, fallbackWhenNoRegion: "NULL" | "1" = "NULL"): string {
+  const fallback = fallbackWhenNoRegion === "1" ? "1::float8" : "NULL::float8";
+  return `CASE WHEN g.geom IS NULL THEN ${fallback} ELSE ${polygonOverlapShareExpr(hitGeom, "g.geom")} END AS target_overlap_share`;
+}
+
 /**
  * Share of candidate polygon area inside the Zielregion, EPSG:3035.
  * Points (dimension 0) skip the area ratio and stay eligible.
@@ -1535,10 +1620,7 @@ export function polygonMinOverlapPredicate(
   return `(
     ST_Dimension(${hitGeom}) = 0
     OR GeometryType(${hitGeom}) IN ('POINT', 'MULTIPOINT')
-    OR (
-      ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${regionGeom})), 3035))
-      / NULLIF(ST_Area(ST_Transform(ST_MakeValid(${hitGeom}), 3035)), 0)
-    ) >= ${sqlNumericLiteral(minShare)}
+    OR ${polygonOverlapShareExpr(hitGeom, regionGeom)} >= ${sqlNumericLiteral(minShare)}
   )`;
 }
 

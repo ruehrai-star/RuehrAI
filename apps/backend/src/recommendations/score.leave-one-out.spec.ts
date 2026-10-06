@@ -2,11 +2,8 @@ import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { PatternCriterion } from "../analysis/types";
 import { YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate } from "./area-candidates";
-import { rankTeilflaechen } from "./score";
+import { LOO_MIN_STORES, assertEnoughLooStores, evaluateLeaveOneOut, formatLeaveOneOutMarkdown } from "./score-loo";
 import { leaveOneOutTopN } from "./score-formula";
-
-/** Documented acceptance: left-out store area in Top-N of its region. N = max(3, ceil(n/10)). */
-export const LEAVE_ONE_OUT_TOP_N = 3;
 
 function candidate(geoKey: string, title: string): AreaCandidate {
   return {
@@ -84,32 +81,33 @@ describe("Leave-one-out: Bestandsfilialen in ihrer Region", () => {
     { geoKey: "ortsteil:osm:far-6", title: "Anders 6", first: 1, last: 35 },
   ];
   const pool = [...stores, ...distractors].map((item) => candidate(item.geoKey, item.title));
-  const yearlyFor = (items: Array<{ geoKey: string; first: number; last: number }>): YearlySeries[] =>
-    items.flatMap((item) => [unfall(item.geoKey, item.first, item.last), inhabitants(item.geoKey)]);
+  const values = new Map([...stores, ...distractors].map((item) => [item.geoKey, item] as const));
+  const yearlyFor = (geoKeys: string[]): YearlySeries[] =>
+    geoKeys.flatMap((geoKey) => {
+      const item = values.get(geoKey);
+      if (!item) return [];
+      return [unfall(item.geoKey, item.first, item.last), inhabitants(item.geoKey)];
+    });
+
+  it("aborts when fewer than 3 stores", () => {
+    expect(LOO_MIN_STORES).toBe(3);
+    expect(() => assertEnoughLooStores(stores.slice(0, 2))).toThrow(/mindestens 3/);
+  });
 
   it("places each left-out store area in Top-N (max 3 or upper tenth) of its region", () => {
-    const ranks: Array<{ title: string; rank: number; score: number; nAktiv: number }> = [];
-    for (const leftOut of stores) {
-      const remaining = stores.filter((item) => item.geoKey !== leftOut.geoKey);
-      const patternByDataset = buildPatternByDataset(yearlyFor(remaining));
-      const ranked = rankTeilflaechen(pool, yearlyFor([...stores, ...distractors]), [criterion], [], {
-        patternByDataset,
-      });
-      const regionHits = ranked.filter((item) => item.targetRegionGeoKey === "ortsteil:osm:region");
-      const index = regionHits.findIndex((item) => item.location.geoKey === leftOut.geoKey);
-      expect(index).toBeGreaterThanOrEqual(0);
-      const topN = leaveOneOutTopN(regionHits.length);
-      expect(index).toBeLessThan(topN);
-      const hit = regionHits[index]!;
-      ranks.push({
-        title: leftOut.title,
-        rank: index + 1,
-        score: hit.score,
-        nAktiv: hit.criteriaEvidence.filter((entry) => typeof entry.proximity === "number").length,
-      });
-    }
-    expect(ranks).toHaveLength(stores.length);
-    expect(ranks.every((row) => row.rank <= Math.max(LEAVE_ONE_OUT_TOP_N, Math.ceil(pool.length / 10)))).toBe(true);
-    expect(ranks.every((row) => row.nAktiv >= 1)).toBe(true);
+    const report = evaluateLeaveOneOut({
+      stores: stores.map(({ geoKey, title }) => ({ geoKey, title })),
+      pool,
+      yearlyFor,
+      criteria: [criterion],
+      targetRegionGeoKey: "ortsteil:osm:region",
+    });
+    expect(report.passed).toBe(true);
+    expect(report.rows).toHaveLength(stores.length);
+    expect(report.rows.every((row) => row.rank != null && row.rank <= row.topN)).toBe(true);
+    expect(report.rows.every((row) => row.nAktiv >= 1)).toBe(true);
+    expect(leaveOneOutTopN(pool.length)).toBe(Math.max(3, Math.ceil(pool.length / 10)));
+    expect(formatLeaveOneOutMarkdown(report)).toContain("Filiale 1");
+    expect(buildPatternByDataset(yearlyFor([stores[0]!.geoKey, stores[1]!.geoKey])).length).toBeGreaterThan(0);
   });
 });

@@ -601,9 +601,12 @@ export interface paths {
          *     `absent` (`liegt nicht vor`), never `0`. Kleinräumige
          *     yearlySeries rows may have a null embedding. Additive
          *     `criteriaEvidence[].proximity` is the per-dataset closeness;
-         *     `trendYears` is the calendar-year count of a trend.
+         *     `trendYears` is the calendar-year count of a trend;
+         *     `trendFromTwoYears` is true when that count is 2.
          *     Polygon candidates require `ANALYSIS_MIN_OVERLAP_SHARE`
          *     (default 0.10) of their area inside the Zielregion.
+         *     `items[].overlaps[0]` is the Zielregion (`isTargetRegion: true`)
+         *     with the unclipped candidate share; further entries are Ortsteile.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1691,18 +1694,18 @@ export interface components {
              */
             intersectionOf?: components["schemas"]["RecommendationIntersectionPart"][];
             /**
-             * @description Stadtbezirke / Bezirke this hit spatially intersects, with
-             *     `share` = intersection area / **clipped** hit area (0–1).
-             *     The hit outline is the same Zielregion clip as
-             *     `items[].geometry` (the item's own
-             *     `targetRegionGeoKey`, not the union of all regions).
-             *     Bezirke outside that Zielregion are
-             *     omitted. Sorted descending. Fragments below 1 % are
-             *     omitted. Omit the field when nothing remains (or when the
-             *     Brain read failed — the run still completes). Computed for
-             *     PLZ, LOR, Ortsteil, Quartier, Raster (`grid100`) and
-             *     Adresse (typically one parent at share 1). Additive;
-             *     clients that ignore unknown fields keep working.
+             * @description Zielregion and Ortsteile this **unclipped** candidate
+             *     spatially intersects. The first entry is always the item's
+             *     Zielregion (`isTargetRegion: true`) with
+             *     `share` = candidate ∩ Zielregion / candidate area (0–1,
+             *     EPSG:3035). Further entries are Ortsteile of the unclipped
+             *     candidate, share descending, fragments below 1 % omitted.
+             *     `label` is a display name, never a catalog key.
+             *     Omit the field when nothing remains (or when the Brain
+             *     read failed — the run still completes). Computed for PLZ,
+             *     LOR, Ortsteil, Quartier, Raster (`grid100`) and Adresse
+             *     (points typically share 1). Additive 0.19.5; clients that
+             *     ignore unknown fields keep working.
              */
             overlaps?: components["schemas"]["RecommendationOverlap"][];
             location: components["schemas"]["RecommendationLocation"];
@@ -1791,23 +1794,37 @@ export interface components {
             datasetKey?: string;
         };
         /**
-         * @description One Stadtbezirk or Bezirk that spatially overlaps this hit.
-         *     `share` is the fraction of the **hit** area (0–1). Never a
-         *     catalog key as `label`.
+         * @description One Zielregion or Ortsteil that spatially overlaps this hit.
+         *     `share` is the fraction of the **unclipped** candidate area
+         *     (0–1). Never a catalog key as `label`. Additive 0.19.5:
+         *     the Zielregion is first with `isTargetRegion: true`.
          */
         RecommendationOverlap: {
-            /** @description Catalog / Brain id of the overlapping Bezirk. */
+            /** @description Catalog / Brain id of the overlapping area. Not for display. */
             geoKey: string;
-            /** @description Display name of the overlapping Bezirk. */
+            /**
+             * @description Display name of the overlapping area. Never a catalog key
+             *     (`ortsteil:…`, `lor:plr:…`, `ags:…`).
+             */
             label: string;
-            /** @description `bezirk` (Berlin) or `stadtbezirk` (other cities). */
+            /**
+             * @description Zielregion kind (often `ortsteil`) or `ortsteil` /
+             *     `stadtteil` for parent parts.
+             */
             kind: components["schemas"]["AreaKind"];
             /**
              * Format: double
-             * @description Intersection area divided by the hit area, after transforming
-             *     geometries to EPSG:3035. Values below 0.01 are omitted.
+             * @description Intersection area divided by the unclipped candidate area,
+             *     after transforming geometries to EPSG:3035. Zielregion
+             *     entries are kept even below 0.01; Ortsteil fragments below
+             *     0.01 are omitted.
              */
             share: number;
+            /**
+             * @description Additive 0.19.5. True on the item's Zielregion entry
+             *     (always first). Omitted on Ortsteile.
+             */
+            isTargetRegion?: boolean;
         };
         RecommendationLocation: {
             geoKey: string;
@@ -1841,6 +1858,8 @@ export interface components {
          *     the baseline; omitted when the dataset is absent, inherited, or
          *     statistically neutral. Additive `trendYears` is the number of
          *     distinct calendar years of a local trend (2 = two-year trend).
+         *     Additive `trendFromTwoYears` (0.19.5) is true when `trendYears`
+         *     is 2.
          */
         RecommendationEvidence: {
             key: string;
@@ -1899,6 +1918,12 @@ export interface components {
              *     `none` or fewer than two years. Never `0`.
              */
             trendYears?: number;
+            /**
+             * @description Additive 0.19.5. True when `trendYears` is 2. Omitted
+             *     otherwise. Web path:
+             *     `items[].criteriaEvidence[].trendFromTwoYears`.
+             */
+            trendFromTwoYears?: boolean;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

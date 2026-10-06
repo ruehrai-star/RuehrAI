@@ -212,15 +212,36 @@ describe("Trefferliste fixtures (Köln Innenstadt, Tempelhof, Lichterfelde)", ()
       yearly.push(inherited(item.geoKey, "destatis_bevoelkerung_alter", "kreis", "11000"));
     }
     const ranked = rankTeilflaechen(loaded, yearly, pattern);
-    expect(ranked.length).toBeGreaterThan(0);
-    expect(ranked.every((item) => item.kind === "lor")).toBe(true);
     expect(ranked).toHaveLength(9);
+    expect(ranked.every((item) => item.kind === "lor")).toBe(true);
     expect(ranked.every((item) => item.score === 0)).toBe(true);
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "unfallatlas")?.evidence).toMatch(/liegt nicht vor/);
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.scope).toBe("inherited");
+  });
+
+  it("lists Tempelhof PLR when Unfallatlas is local", () => {
+    const plr = nOf("lor", 9, "lor:plr:tempelhof:", berlinAgs);
+    const parent = candidate({
+      geoKey: tempelhof.geoKey,
+      kind: "ortsteil",
+      title: "Tempelhof",
+      ags: berlinAgs,
+    });
+    const loaded = selectCatalogHits([...plr, parent], [tempelhof]);
+    const yearly: YearlySeries[] = [];
+    plr.forEach((item, index) => {
+      yearly.push(localUnfall(item.geoKey, 20 - index, 8 + index, "lor"), inhabitants(item.geoKey, "lor"));
+      yearly.push(inherited(item.geoKey, "wanderungen", "gemeinde", berlinAgs));
+    });
+    const ranked = rankTeilflaechen(loaded, yearly, pattern, [], {
+      patternByDataset: buildPatternByDataset([localUnfall(plr[0]!.geoKey, 20, 8, "lor"), inhabitants(plr[0]!.geoKey, "lor")]),
+    });
+    expect(ranked).toHaveLength(9);
+    expect(ranked.every((item) => item.kind === "lor")).toBe(true);
+    expect(ranked.some((item) => item.score > 0)).toBe(true);
+    expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "unfallatlas")?.proximity).toBeGreaterThan(0);
+    expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.scope).toBe("inherited");
     expect(ranked.map((item) => item.location.geoKey)).not.toContain(tempelhof.geoKey);
-    expect(ranked.map((item) => item.kind)).not.toContain("ortsteil");
-    expect(ranked.map((item) => item.kind)).not.toContain("bezirk");
   });
 
   it("lists Lichterfelde Teilflächen instead of an empty hit list", () => {
@@ -230,10 +251,15 @@ describe("Trefferliste fixtures (Köln Innenstadt, Tempelhof, Lichterfelde)", ()
     expect(plr.length + bzr.length + plz.length).toBe(24);
     const loaded = selectCatalogHits([...plr, ...bzr, ...plz], [lichterfelde]);
     const yearly: YearlySeries[] = [];
-    for (const item of plr) {
-      yearly.push(inhabitants(item.geoKey, "lor"));
-    }
-    const ranked = rankTeilflaechen(loaded, yearly, pattern);
+    plr.forEach((item, index) => {
+      yearly.push(localUnfall(item.geoKey, 16 + index, 10, "lor"), inhabitants(item.geoKey, "lor"));
+    });
+    const ranked = rankTeilflaechen(loaded, yearly, pattern, [], {
+      patternByDataset: buildPatternByDataset([
+        localUnfall(plr[0]!.geoKey, 16, 10, "lor"),
+        inhabitants(plr[0]!.geoKey, "lor"),
+      ]),
+    });
     expect(ranked.length).toBeGreaterThan(0);
     expect(ranked).toHaveLength(12);
     expect(ranked.every((item) => item.kind === "lor")).toBe(true);
@@ -244,20 +270,34 @@ describe("Trefferliste fixtures (Köln Innenstadt, Tempelhof, Lichterfelde)", ()
     const siblings = [
       candidate({ geoKey: "lor:plr:a", kind: "lor", title: "PLR A", ags: berlinAgs }),
       candidate({ geoKey: "lor:plr:b", kind: "lor", title: "PLR B", ags: berlinAgs }),
+      candidate({ geoKey: "lor:plr:c", kind: "lor", title: "PLR C", ags: berlinAgs }),
     ];
     const ranked = rankTeilflaechen(
       siblings,
       [
         inhabitants("lor:plr:a", "lor"),
         inhabitants("lor:plr:b", "lor"),
+        inhabitants("lor:plr:c", "lor"),
+        localUnfall("lor:plr:a", 20, 8, "lor"),
+        localUnfall("lor:plr:b", 18, 10, "lor"),
+        localUnfall("lor:plr:c", 12, 14, "lor"),
         inherited("lor:plr:a", "wanderungen", "gemeinde", berlinAgs),
         inherited("lor:plr:b", "wanderungen", "gemeinde", berlinAgs),
+        inherited("lor:plr:c", "wanderungen", "gemeinde", berlinAgs),
         inherited("lor:plr:a", "destatis_bevoelkerung_alter", "kreis", "11000"),
         inherited("lor:plr:b", "destatis_bevoelkerung_alter", "kreis", "11000"),
+        inherited("lor:plr:c", "destatis_bevoelkerung_alter", "kreis", "11000"),
       ],
       pattern,
+      [],
+      {
+        patternByDataset: buildPatternByDataset([
+          localUnfall("lor:plr:a", 20, 8, "lor"),
+          inhabitants("lor:plr:a", "lor"),
+        ]),
+      },
     );
-    expect(ranked.map((item) => item.title).sort()).toEqual(["PLR A", "PLR B"]);
+    expect(ranked.map((item) => item.title).sort()).toEqual(["PLR A", "PLR B", "PLR C"]);
     expect(ranked.every((item) => item.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.match === false)).toBe(
       true,
     );

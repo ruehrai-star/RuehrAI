@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.19.4");
+  assert.equal(doc.info.version, "0.19.5");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -97,6 +97,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.19.2"));
   assert.ok(doc.info.description.includes("0.19.3"));
   assert.ok(doc.info.description.includes("0.19.4"));
+  assert.ok(doc.info.description.includes("0.19.5"));
   assert.ok(doc.info.description.includes("ANALYSIS_SCORE_TREND_WEIGHT"));
   assert.ok(doc.info.description.includes("ANALYSIS_MIN_OVERLAP_SHARE"));
   assert.ok(doc.info.description.includes("year span"));
@@ -107,6 +108,8 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendYears.type, "integer");
   assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendYears.minimum, 2);
   assert.equal(doc.components.schemas.RecommendationEvidence.required.includes("trendYears"), false);
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.trendFromTwoYears.type, "boolean");
+  assert.equal(doc.components.schemas.RecommendationEvidence.required.includes("trendFromTwoYears"), false);
   assert.ok(doc.components.schemas.Recommendation.properties.score.description.includes("robust"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.proximity.description.includes("0.19.4"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
@@ -368,8 +371,12 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.minimum, 0);
   assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.maximum, 1);
   assert.ok(recommendation.properties.overlaps.description.includes("1 %"));
-  assert.ok(recommendation.properties.overlaps.description.includes("clipped"));
+  assert.ok(recommendation.properties.overlaps.description.includes("unclipped"));
+  assert.ok(recommendation.properties.overlaps.description.includes("isTargetRegion"));
   assert.ok(recommendation.properties.overlaps.description.includes("grid100"));
+  assert.equal(doc.components.schemas.RecommendationOverlap.properties.isTargetRegion.type, "boolean");
+  assert.equal(doc.components.schemas.RecommendationOverlap.required.includes("isTargetRegion"), false);
+  assert.ok(doc.components.schemas.RecommendationOverlap.description.includes("isTargetRegion"));
   assert.deepEqual(doc.components.schemas.RecommendationIntersectionPart.required, ["geoKey", "grain", "name"]);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.properties.name.nullable, true);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.required.includes("datasetKey"), false);

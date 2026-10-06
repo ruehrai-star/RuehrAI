@@ -9,6 +9,7 @@ import {
   spatialMd5,
   spatialEvenHitsLimitSql,
   teilCatalogQuery,
+  lorPlrCatalogQuery,
 } from "./area-candidates";
 import { rankTeilflaechen } from "./score";
 
@@ -166,10 +167,18 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
         ('07400721', 'Tempelhof-Nord', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
         ('07400722', 'Tempelhof-Süd', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
         ('07400723', 'Marienhöhe', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+        ('07400823', 'Wittekindstraße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+        ('07400826', 'Marienhöhe-Ost', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+        ('07400927', 'Rathaus Tempelhof', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('07400926', 'Alt-Tempelhof', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
         ('06200420', 'Lichterfelde-Ost', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)),
         ('06200421', 'Lichterfelde-West', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
         ('06200422', 'Botanischer Garten', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($7), 4326)),
-        ('06200423', 'Lichterfelde-Süd', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($8), 4326))`,
+        ('06200423', 'Lichterfelde-Süd', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($8), 4326)),
+        ('06200311', 'Alt-Lankwitz', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($9), 4326)),
+        ('02200211', 'Chamissokiez', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
+        ('07300619', 'Grazer Platz', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($11), 4326)),
+        ('07501031', 'Eisenacher Straße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($12), 4326))`,
       [
         box(13.36, 52.46, 13.38, 52.475),
         box(13.38, 52.46, 13.40, 52.475),
@@ -179,6 +188,10 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
         box(13.31, 52.42, 13.33, 52.43),
         box(13.29, 52.43, 13.31, 52.44),
         box(13.31, 52.43, 13.33, 52.44),
+        box(13.36, 52.4, 13.38, 52.45000002),
+        box(13.38, 52.4, 13.40, 52.450025),
+        box(13.40, 52.4, 13.415, 52.4500005),
+        box(13.355, 52.4, 13.375, 52.45035),
       ],
     );
     await client.query(`
@@ -314,6 +327,76 @@ describePg("PostGIS: Score-Rang Tempelhof / Lichterfelde und md5-Vorauswahl", ()
     expect(lichterfeldeRanked[0]?.name).toBe("Lichterfelde-Ost");
     expect(tempelhofRanked.every((item) => (item.trend?.summary ?? "").includes("lor:plr:") === false)).toBe(true);
     expect(JSON.stringify(tempelhofRanked.map((item) => item.criteriaEvidence[0]?.evidence))).not.toMatch(/lor:plr:/);
+  });
+
+  it("keeps inner Tempelhof PLR and ranks them before edge fragments by Zielregion share", async () => {
+    const query = lorPlrCatalogQuery(TEMPELHOF);
+    const rows = await client.query<{
+      geo_key: string;
+      kind: string;
+      name: string | null;
+      grain: string;
+      target_overlap_share: number | string | null;
+    }>(query.sql, query.params);
+    const names = rows.rows.map((row) => row.name);
+    const edge = ["Alt-Lankwitz", "Chamissokiez", "Grazer Platz", "Eisenacher Straße"];
+    for (const label of edge) expect(names).not.toContain(label);
+    expect(rows.rows.length).toBeGreaterThanOrEqual(8);
+    expect(rows.rows.every((row) => Number(row.target_overlap_share) >= 0.9)).toBe(true);
+
+    const sameSeries = (geoKey: string): YearlySeries[] => [
+      {
+        metricId: "unfallatlas",
+        requestedLevel: "lor",
+        requestedGeoKey: geoKey,
+        sourceLevel: "lor",
+        sourceGeoKey: geoKey,
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 20 },
+          { period: "2025", status: "present", value: 8 },
+        ],
+      },
+      {
+        metricId: "bevoelkerung",
+        requestedLevel: "lor",
+        requestedGeoKey: geoKey,
+        sourceLevel: "lor",
+        sourceGeoKey: geoKey,
+        granularity: "year",
+        coverage: "multi",
+        points: [
+          { period: "2023", status: "present", value: 10_000 },
+          { period: "2025", status: "present", value: 10_000 },
+        ],
+      },
+    ];
+    const candidates: AreaCandidate[] = rows.rows.map((row) => ({
+      id: `${row.grain}:${row.geo_key}@${TEMPELHOF.geoKey}`,
+      geoKey: row.geo_key,
+      grain: row.grain === "plz5" ? "plz5" : "other",
+      kind: "lor",
+      title: row.name ?? row.geo_key,
+      name: row.name,
+      ags: "11000000",
+      plz: null,
+      lon: null,
+      lat: null,
+      targetRegionGeoKey: TEMPELHOF.geoKey!,
+      targetOverlapShare: Number(row.target_overlap_share),
+    }));
+    const ranked = rankTeilflaechen(
+      candidates,
+      candidates.flatMap((item) => sameSeries(item.geoKey)),
+      [criterion],
+      [TEMPELHOF],
+      { patternByDataset: buildPatternByDataset(sameSeries("lor:plr:07400720")) },
+    );
+    expect(ranked.every((item) => item.score === ranked[0]?.score)).toBe(true);
+    const shares = ranked.map((item) => item.targetOverlapShare ?? 0);
+    expect(shares).toEqual([...shares].sort((left, right) => right - left));
+    expect(ranked.map((item) => item.name)).not.toEqual(expect.arrayContaining(edge));
   });
 });
 

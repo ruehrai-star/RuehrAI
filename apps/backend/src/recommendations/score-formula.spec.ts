@@ -1,4 +1,6 @@
 import {
+  IQR_TO_SIGMA,
+  MAD_TO_SIGMA,
   SCORE_FORMULA_DEFAULTS,
   closeness,
   combineCandidateScore,
@@ -21,6 +23,8 @@ import { SeriesPoint } from "../analysis/yearly-series";
 
 describe("score formula primitives", () => {
   it("uses MAD and falls back to IQR; n<3 or spread 0 is neutral", () => {
+    expect(MAD_TO_SIGMA).toBe(1.4826);
+    expect(IQR_TO_SIGMA).toBe(1.349);
     expect(median([1, 2, 3])).toBe(2);
     expect(mad([1, 2, 3])).toBe(1);
     expect(iqr([0, 1, 2, 3, 4])).toBeGreaterThan(0);
@@ -29,9 +33,12 @@ describe("score formula primitives", () => {
     expect(robustSpread([1])).toBeNull();
     expect(robustSpread([])).toBeNull();
     const spread = robustSpread([1, 2, 10]);
-    expect(spread).toBeGreaterThan(0);
+    expect(spread).toBeCloseTo(mad([1, 2, 10]) * MAD_TO_SIGMA);
     expect(closeness(1, 1, spread!)).toBe(1);
     expect(closeness(10, 1, spread!)).toBeLessThan(1);
+    expect(mad([1, 1, 1, 100])).toBe(0);
+    expect(iqr([1, 1, 1, 100])).toBeGreaterThan(0);
+    expect(robustSpread([1, 1, 1, 100])).toBeCloseTo(iqr([1, 1, 1, 100]) / IQR_TO_SIGMA);
   });
 
   it("never divides by zero and treats identical values as neutral", () => {

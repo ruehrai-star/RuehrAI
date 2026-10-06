@@ -7,6 +7,7 @@ import {
   assertCandidateQueryArity,
   hitOverlapQuery,
   overlapEligibleKind,
+  overlapRegionMeta,
   regionsGeometryParam,
 } from "./area-candidates";
 import { RecommendationOverlap } from "./types";
@@ -17,6 +18,7 @@ export interface HitOverlapRow {
   label: string | null;
   kind: string | null;
   share: number | string | null;
+  is_target_region?: boolean | string | number | null;
 }
 
 export interface OverlapHost {
@@ -29,7 +31,7 @@ export interface OverlapHost {
 
 const logger = new Logger("HitOverlaps");
 
-/** Keep shares ≥ 1 %, sort descending. Empty list → omit. */
+/** Zielregion first (`isTargetRegion`), then share descending. Empty list → omit. */
 export function selectOverlaps(rows: HitOverlapRow[]): RecommendationOverlap[] {
   const parts: RecommendationOverlap[] = [];
   for (const row of rows) {
@@ -37,6 +39,9 @@ export function selectOverlaps(rows: HitOverlapRow[]): RecommendationOverlap[] {
     if (overlap) parts.push(overlap);
   }
   parts.sort((left, right) => {
+    const leftTarget = left.isTargetRegion === true;
+    const rightTarget = right.isTargetRegion === true;
+    if (leftTarget !== rightTarget) return leftTarget ? -1 : 1;
     if (right.share !== left.share) return right.share - left.share;
     return left.label.localeCompare(right.label, "de");
   });
@@ -86,6 +91,7 @@ export async function attachHitOverlaps<T extends OverlapHost>(
       const query = hitOverlapQuery(
         regionHits.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })),
         geometry,
+        overlapRegionMeta(region),
       );
       if ((query.params[0] as string[]).length === 0) continue;
       assertCandidateQueryArity(query);
@@ -113,14 +119,29 @@ function toOverlap(row: HitOverlapRow): RecommendationOverlap | null {
   const label = row.label?.trim() ?? "";
   const kind = row.kind?.trim() ?? "";
   const share = typeof row.share === "number" ? row.share : Number(row.share);
+  const isTarget = isTargetRegionFlag(row.is_target_region);
   if (!geoKey || !label || !isAreaKind(kind) || !Number.isFinite(share)) return null;
-  if (share < OVERLAP_MIN_SHARE) return null;
+  if (looksLikeCatalogKey(label)) return null;
+  if (share < 0 || share > 1) return null;
+  if (!isTarget && share < OVERLAP_MIN_SHARE) return null;
   return {
     geoKey,
     label,
     kind,
     share: roundShare(share),
+    ...(isTarget ? { isTargetRegion: true } : {}),
   };
+}
+
+function isTargetRegionFlag(value: HitOverlapRow["is_target_region"]): boolean {
+  return value === true || value === "t" || value === "true" || value === 1;
+}
+
+/** Labels must be display names, never catalog keys. */
+export function looksLikeCatalogKey(label: string): boolean {
+  return /^(?:ags|ags5|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|grid100|address|lor:plr|koeln:sq|quartier|lor|hamburg_stadtteil):/i.test(
+    label.trim(),
+  );
 }
 
 function roundShare(value: number): number {

@@ -255,9 +255,10 @@ describe("area candidate SQL", () => {
     const address = buildAddressCandidateSql();
     const grid = buildGrid100CandidateSql();
     const geoAddress = buildGeoAddressCandidateSql();
-    for (const sql of [teil, address, grid, geoAddress]) {
-      expect(sql).not.toContain("NULLIF(ST_Area(ST_Transform(ST_MakeValid(");
-    }
+    expect(teil).not.toContain(">= 0.1");
+    expect(address).not.toContain(">= 0.1");
+    expect(grid).not.toContain(">= 0.1");
+    expect(geoAddress).not.toContain(">= 0.1");
   });
 
   it("sends geometry and Kreis parent memberships for Gemeinden", () => {
@@ -667,9 +668,11 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
       JSON.stringify({ type: "Polygon", coordinates: [[[11.4, 48.0], [11.7, 48.0], [11.7, 48.3], [11.4, 48.3], [11.4, 48.0]]] }),
     );
     expect(overlaps.params).toHaveLength(highestSqlPlaceholder(overlaps.sql));
-    expect(highestSqlPlaceholder(overlaps.sql)).toBe(3);
+    expect(highestSqlPlaceholder(overlaps.sql)).toBe(6);
     expect(overlaps.sql).toContain("region_geom");
     expect(overlaps.sql).toContain("geo.geo_ref_address");
+    expect(overlaps.sql).toContain("geo.geo_ref_ortsteil");
+    expect(overlaps.sql).toContain("is_target_region");
     expect(overlaps.sql).toContain("grid100");
     expect(overlaps.sql).toContain("ST_Covers");
     expect(overlaps.sql).toContain("ST_Dimension");

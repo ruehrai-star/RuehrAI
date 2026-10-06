@@ -149,27 +149,56 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     await client.query(
       `INSERT INTO geo.geo_ref_lor (geo_lor_id, name, geo_ags, geo_bezirk_id, lor_level, valid_to, geom) VALUES
         ('07400720', 'Germaniagarten', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
-        ('06200420', 'Lichterfelde-Ost', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
-        ('01100310', 'Alexanderplatzviertel', '11000000', '11000001', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
-        ('02100103', 'Am Berlin Museum', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
-        ('02400623', 'Andreasviertel', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
-        ('09999999', 'Alt-Lankwitz-Rand', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326))`,
+        ('07400721', 'Paradestraße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+        ('07400823', 'Wittekindstraße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('07400826', 'Marienhöhe', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)),
+        ('07400927', 'Rathaus Tempelhof', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)),
+        ('07400722', 'Tempelhofer Feld', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
+        ('07400824', 'Ringbahnstraße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($7), 4326)),
+        ('07400926', 'Alt-Tempelhof', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($8), 4326)),
+        ('06200420', 'Lichterfelde-Ost', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($9), 4326)),
+        ('01100310', 'Alexanderplatzviertel', '11000000', '11000001', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
+        ('02100103', 'Am Berlin Museum', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
+        ('02400623', 'Andreasviertel', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
+        ('06200311', 'Alt-Lankwitz', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($11), 4326)),
+        ('02200211', 'Chamissokiez', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($12), 4326)),
+        ('07300619', 'Grazer Platz', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($13), 4326)),
+        ('07501031', 'Eisenacher Straße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($14), 4326))`,
       [
-        box(13.36, 52.46, 13.41, 52.48),
+        box(13.355, 52.452, 13.37, 52.462),
+        box(13.37, 52.452, 13.385, 52.462),
+        box(13.385, 52.452, 13.4, 52.462),
+        box(13.4, 52.4496, 13.415, 52.4596),
+        box(13.355, 52.462, 13.37, 52.472),
+        box(13.37, 52.462, 13.385, 52.472),
+        box(13.385, 52.462, 13.4, 52.472),
+        box(13.4, 52.462, 13.415, 52.472),
         box(13.29, 52.42, 13.34, 52.44),
         box(13.39, 52.51, 13.42, 52.53),
-        box(13.35, 52.4, 13.42, 52.4500001),
+        box(13.36, 52.4, 13.38, 52.45000002),
+        box(13.38, 52.4, 13.4, 52.450025),
+        box(13.4, 52.4, 13.415, 52.4500005),
+        box(13.355, 52.4, 13.375, 52.45035),
       ],
     );
     await client.query(
       `INSERT INTO geo.geo_ref_ortsteil (geo_ortsteil_id, kind, name, geo_ags, geom) VALUES
-        ('osm:tempelhof-mitte', 'ortsteil', 'Tempelhof-Mitte', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
-        ('osm:alt-lankwitz', 'ortsteil', 'Alt-Lankwitz', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))`,
-      [box(13.36, 52.46, 13.41, 52.48), box(13.35, 52.4, 13.42, 52.4500001)],
+        ('osm:162894', 'ortsteil', 'Tempelhof', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+        ('osm:tempelhof-mitte', 'ortsteil', 'Tempelhof-Mitte', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)),
+        ('osm:alt-lankwitz', 'ortsteil', 'Alt-Lankwitz', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)),
+        ('osm:lankwitz', 'ortsteil', 'Lankwitz', '11000000', ST_SetSRID(ST_GeomFromGeoJSON($3), 4326))`,
+      [box(13.35, 52.45, 13.42, 52.49), box(13.36, 52.46, 13.41, 52.48), box(13.35, 52.4, 13.42, 52.4500001)],
     );
     await client.query(`
       INSERT INTO geo.geo_ref_zielregion_teil (parent_grain, parent_id, child_grain, child_id) VALUES
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400720'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400721'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400823'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400826'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400927'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400722'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400824'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400926'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200420')
     `);
   }, 60_000);
@@ -181,13 +210,28 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
   it("Tempelhof LOR catalog only returns intersecting Planungsräume with geometry", async () => {
     const query = lorPlrCatalogQuery(TEMPELHOF);
     expect(query.sql).toBe(buildLorPlrCatalogSql());
-    const result = await client.query<{ geo_key: string; geometry_geojson: string | null; name: string | null }>(
-      query.sql,
-      query.params,
-    );
-    expect(result.rows.map((row) => row.geo_key)).toEqual(["lor:plr:07400720"]);
-    expect(result.rows.map((row) => row.name)).not.toContain("Alt-Lankwitz-Rand");
-    expect(result.rows[0]?.name).toBe("Germaniagarten");
+    const result = await client.query<{
+      geo_key: string;
+      geometry_geojson: string | null;
+      name: string | null;
+      target_overlap_share: number | string | null;
+    }>(query.sql, query.params);
+    const inner = [
+      "Germaniagarten",
+      "Paradestraße",
+      "Wittekindstraße",
+      "Marienhöhe",
+      "Rathaus Tempelhof",
+      "Tempelhofer Feld",
+      "Ringbahnstraße",
+      "Alt-Tempelhof",
+    ];
+    const edge = ["Alt-Lankwitz", "Chamissokiez", "Grazer Platz", "Eisenacher Straße"];
+    const names = result.rows.map((row) => row.name);
+    expect(names).toEqual(expect.arrayContaining(inner));
+    expect(result.rows).toHaveLength(8);
+    for (const label of edge) expect(names).not.toContain(label);
+    expect(result.rows.every((row) => Number(row.target_overlap_share) >= 0.9)).toBe(true);
     expect(result.rows[0]?.geometry_geojson).toContain("Polygon");
     await assertRowsIntersectRegion(result.rows, TEMPELHOF.geometry!);
   });
@@ -226,6 +270,7 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     const names = result.rows.map((row) => row.name);
     expect(names).toContain("Tempelhof-Mitte");
     expect(names).not.toContain("Alt-Lankwitz");
+    expect(names).not.toContain("Lankwitz");
     expect(result.rows.map((row) => row.geo_key)).toContain("ortsteil:osm:tempelhof-mitte");
     expect(result.rows.map((row) => row.geo_key)).not.toContain("ortsteil:osm:alt-lankwitz");
   });

@@ -147,6 +147,7 @@ export function rankTeilflaechen(
         baselineMatch,
         ...(closeness != null ? { proximity: roundScore(closeness) } : {}),
         ...(years != null ? { trendYears: years } : {}),
+        ...(years === 2 ? { trendFromTwoYears: true } : {}),
       };
     });
     const combined = combineCandidateScore(parts, config);
@@ -172,6 +173,7 @@ export function rankTeilflaechen(
         name,
       },
       score: combined.score,
+      targetOverlapShare: item.candidate.targetOverlapShare,
       criteriaEvidence: withBaseline,
       geometry: item.candidate.geometry ?? null,
       geometryUnavailableReason:
@@ -201,17 +203,22 @@ export function dataAsOfFromEvidence(evidence: RecommendationEvidence[]): string
 }
 
 /**
- * Tie-break: score, then coverage (active datasets), then overlaps-share,
- * then stable id. Never the visible name.
+ * Tie-break: score, then coverage (nAktiv), then share of the candidate
+ * inside the Zielregion, then stable id. Never the visible name.
+ * Randflächen with a tiny Zielregion share lose to inner Planungsräume.
  */
 export function compareScoredLocations(left: ScoredLocation, right: ScoredLocation): number {
   if (right.score !== left.score) return right.score - left.score;
   const leftCoverage = activeCoverageCount(left.criteriaEvidence);
   const rightCoverage = activeCoverageCount(right.criteriaEvidence);
   if (rightCoverage !== leftCoverage) return rightCoverage - leftCoverage;
-  const leftShare = maxOverlapShare(left);
-  const rightShare = maxOverlapShare(right);
-  if (rightShare !== leftShare) return rightShare - leftShare;
+  const leftShare = targetRegionOverlapShare(left);
+  const rightShare = targetRegionOverlapShare(right);
+  if (leftShare != null || rightShare != null) {
+    const leftValue = leftShare ?? -1;
+    const rightValue = rightShare ?? -1;
+    if (rightValue !== leftValue) return rightValue - leftValue;
+  }
   return left.id.localeCompare(right.id, "de");
 }
 
@@ -575,10 +582,15 @@ function activeCoverageCount(evidence: RecommendationEvidence[]): number {
   return evidence.filter((entry) => typeof entry.proximity === "number").length;
 }
 
-function maxOverlapShare(item: Pick<ScoredLocation, "overlaps">): number {
-  const shares = item.overlaps?.map((part) => part.share) ?? [];
-  if (shares.length === 0) return 0;
-  return Math.max(...shares);
+function targetRegionOverlapShare(
+  item: Pick<ScoredLocation, "overlaps" | "targetOverlapShare">,
+): number | null {
+  const marked = item.overlaps?.find((part) => part.isTargetRegion);
+  if (marked && Number.isFinite(marked.share)) return marked.share;
+  if (typeof item.targetOverlapShare === "number" && Number.isFinite(item.targetOverlapShare)) {
+    return item.targetOverlapShare;
+  }
+  return null;
 }
 
 function sampleFromEvidence(entry: RecommendationEvidence) {

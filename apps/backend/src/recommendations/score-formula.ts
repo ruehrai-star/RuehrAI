@@ -18,6 +18,11 @@ export const SCORE_FORMULA_DEFAULTS = {
   minDispersionN: 3,
 } as const;
 
+/** Consistency constant: σ ≈ 1.4826 · MAD for a normal distribution. */
+export const MAD_TO_SIGMA = 1.4826;
+/** Consistency constant: σ ≈ IQR / 1.349 for a normal distribution. */
+export const IQR_TO_SIGMA = 1.349;
+
 export interface ScoreFormulaConfig {
   trendWeight: number;
   niveauWeight: number;
@@ -96,15 +101,16 @@ export function iqr(values: number[]): number {
 }
 
 /**
- * Robust scale for proximity. Neutral (`null`) when n < minN or both MAD
- * and IQR are 0 — never divide by 0.
+ * Robust scale for proximity (σ-equivalent). Neutral (`null`) when n < minN
+ * or both MAD and IQR are 0 — never divide by 0.
+ * MAD is scaled by 1.4826; IQR fallback by 1/1.349.
  */
 export function robustSpread(values: number[], minN: number = SCORE_FORMULA_DEFAULTS.minDispersionN): number | null {
   if (values.length < minN) return null;
-  const scale = mad(values);
+  const scale = mad(values) * MAD_TO_SIGMA;
   if (scale > 0) return scale;
   const range = iqr(values);
-  return range > 0 ? range : null;
+  return range > 0 ? range / IQR_TO_SIGMA : null;
 }
 
 /** 1 − min(1, |candidate − pattern| / spread). Spread must be > 0. */

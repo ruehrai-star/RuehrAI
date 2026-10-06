@@ -156,6 +156,7 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBe(0.8);
     expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
     expect(ranked[0]?.criteriaEvidence[0]?.trendYears).toBe(2);
+    expect(ranked[0]?.criteriaEvidence[0]?.trendFromTwoYears).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Dreijahresverlauf");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("je 1.000 Einwohner");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).not.toContain("sechs Monaten");
@@ -1169,6 +1170,67 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked.every((item) => item.criteriaEvidence[0]?.proximity === undefined)).toBe(true);
   });
 
+  it("does not list inherited-only candidates when siblings have local data", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:a", kind: "ortsteil", title: "Alpha" }),
+        candidate({ geoKey: "ortsteil:osm:b", kind: "ortsteil", title: "Beta" }),
+        candidate({ geoKey: "ortsteil:osm:c", kind: "ortsteil", title: "Gamma" }),
+        candidate({ geoKey: "ortsteil:osm:d", kind: "ortsteil", title: "Inherited only" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:a",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:a"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:b",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 18 },
+            { period: "2025", status: "present", value: 12 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:b"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:c",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 16 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:c"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:d",
+          requestedLevel: "ortsteil",
+          sourceLevel: "gemeinde",
+          sourceGeoKey: "09162000",
+          coverage: "multi",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    expect(ranked).toHaveLength(3);
+    expect(ranked.map((item) => item.title)).not.toContain("Inherited only");
+    expect(ranked[0]?.criteriaEvidence[0]?.proximity).toBeGreaterThan(0);
+  });
+
   it("does not let one dataset reach score 1.0 even when proximity is 1", () => {
     const ranked = rankTeilflaechen(
       [
@@ -1348,7 +1410,7 @@ describe("score formula on rankTeilflaechen", () => {
       location: { geoKey: "z-last", grain: "other", lon: null, lat: null, name: "AAA zuerst" },
       score: 0.4,
       criteriaEvidence: [{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 }],
-      overlaps: [{ geoKey: "b1", label: "Bezirk", kind: "bezirk", share: 0.2 }],
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.02, isTargetRegion: true }],
     };
     const right: ScoredLocation = {
       id: "other:a-first",
@@ -1365,7 +1427,7 @@ describe("score formula on rankTeilflaechen", () => {
         { key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0.8 },
         { key: "wanderungen", label: "Wanderungen", direction: "up", patternDirection: "up", evidence: "y", proximity: 0.5 },
       ],
-      overlaps: [{ geoKey: "b1", label: "Bezirk", kind: "bezirk", share: 0.9 }],
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.999, isTargetRegion: true }],
     };
     expect(compareScoredLocations(left, right)).toBeGreaterThan(0);
     const sameCoverage: ScoredLocation = {
@@ -1373,9 +1435,24 @@ describe("score formula on rankTeilflaechen", () => {
       id: "other:name-wins-not",
       title: "AAA",
       criteriaEvidence: right.criteriaEvidence,
-      overlaps: [{ geoKey: "b1", label: "Bezirk", kind: "bezirk", share: 0.1 }],
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.12, isTargetRegion: true }],
     };
     expect(compareScoredLocations(sameCoverage, right)).toBeGreaterThan(0);
+    const edgeBeforeInnerById: ScoredLocation = {
+      ...sameCoverage,
+      id: "other:aaa-edge",
+      title: "Alt-Lankwitz",
+      targetOverlapShare: 0.000008,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.000008, isTargetRegion: true }],
+    };
+    const innerAfterEdgeById: ScoredLocation = {
+      ...right,
+      id: "other:zzz-inner",
+      title: "Wittekindstraße",
+      targetOverlapShare: 1,
+      overlaps: [{ geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 1, isTargetRegion: true }],
+    };
+    expect(compareScoredLocations(edgeBeforeInnerById, innerAfterEdgeById)).toBeGreaterThan(0);
     const sameShare: ScoredLocation = {
       ...sameCoverage,
       overlaps: right.overlaps,

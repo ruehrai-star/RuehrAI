@@ -7,14 +7,16 @@ import {
   hitOverlapQuery,
   highestSqlPlaceholder,
   overlapEligibleKind,
+  overlapRegionMeta,
   regionsGeometryParam,
 } from "./area-candidates";
 import { ScoredLocation } from "./types";
 
 function row(overrides: Partial<HitOverlapRow> & Pick<HitOverlapRow, "hit_geo_key" | "label" | "share">): HitOverlapRow {
   return {
-    geo_key: overrides.geo_key ?? `stadtbezirk:${overrides.label}`,
-    kind: overrides.kind ?? "stadtbezirk",
+    geo_key: overrides.geo_key ?? `ortsteil:${overrides.label}`,
+    kind: overrides.kind ?? "ortsteil",
+    is_target_region: overrides.is_target_region ?? false,
     ...overrides,
   };
 }
@@ -121,19 +123,29 @@ describe("hit overlaps", () => {
     expect(params[2]).toBe(regionsGeometryParam([zielregion()]));
   });
 
-  it("clips shares to the Zielregion so an outer Bezirk does not appear", () => {
-    const sql = buildHitOverlapSql();
-    expect(sql).toContain("region_geom");
-    expect(sql).toContain("$3");
-    expect(sql).toContain("ST_Intersection");
-    expect(sql).toContain("ST_MakeValid(ST_Intersection");
-    const clipped = selectOverlaps([
-      row({ hit_geo_key: "50667", label: "Innenstadt", share: 0.62 }),
-      row({ hit_geo_key: "50667", label: "Altstadt-Süd", share: 0.38 }),
+  it("puts the Zielregion first even when an Ortsteil share is larger", () => {
+    const parts = selectOverlaps([
+      row({ hit_geo_key: "lor:plr:06200311", label: "Lankwitz", share: 0.98, geo_key: "ortsteil:osm:lankwitz" }),
+      row({
+        hit_geo_key: "lor:plr:06200311",
+        label: "Tempelhof",
+        share: 0.02,
+        geo_key: "ortsteil:osm:162894",
+        is_target_region: true,
+      }),
     ]);
-    expect(clipped.map((part) => part.label)).toEqual(["Innenstadt", "Altstadt-Süd"]);
-    expect(clipped.find((part) => part.label === "Nippes")).toBeUndefined();
-    expect(clipped.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 5);
+    expect(parts).toEqual([
+      { geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.02, isTargetRegion: true },
+      { geoKey: "ortsteil:osm:lankwitz", label: "Lankwitz", kind: "ortsteil", share: 0.98 },
+    ]);
+  });
+
+  it("drops catalog keys used as labels", () => {
+    expect(
+      selectOverlaps([
+        row({ hit_geo_key: "x", label: "ortsteil:osm:162894", share: 1, is_target_region: true }),
+      ]),
+    ).toEqual([]);
   });
 
   it("includes grid100 and address, typically one Stadtbezirk at share 1", async () => {
@@ -141,8 +153,22 @@ describe("hit overlaps", () => {
     expect(overlapEligibleKind("address")).toBe(true);
     const queryReadingFeatures = jest.fn().mockResolvedValue({
       rows: [
-        row({ hit_geo_key: "grid100:1", label: "Maxvorstadt", share: 1 }),
-        row({ hit_geo_key: "address:1", label: "Maxvorstadt", share: 1 }),
+        row({
+          hit_geo_key: "grid100:1",
+          label: "Innenstadt",
+          share: 1,
+          geo_key: "bezirk:osm:innenstadt",
+          kind: "bezirk",
+          is_target_region: true,
+        }),
+        row({
+          hit_geo_key: "address:1",
+          label: "Innenstadt",
+          share: 1,
+          geo_key: "bezirk:osm:innenstadt",
+          kind: "bezirk",
+          is_target_region: true,
+        }),
       ],
     });
     const result = await attachHitOverlaps(
@@ -151,7 +177,7 @@ describe("hit overlaps", () => {
       [zielregion()],
     );
     expect(result[0]?.overlaps).toEqual([
-      { geoKey: "stadtbezirk:Maxvorstadt", label: "Maxvorstadt", kind: "stadtbezirk", share: 1 },
+      { geoKey: "bezirk:osm:innenstadt", label: "Innenstadt", kind: "bezirk", share: 1, isTargetRegion: true },
     ]);
     expect(result[1]?.overlaps?.[0]?.share).toBe(1);
     const params = queryReadingFeatures.mock.calls[0]?.[1] as unknown[];
@@ -168,19 +194,24 @@ describe("hit overlaps", () => {
         { geoKey: "address:1", kind: "address" },
       ],
       regionsGeometryParam([zielregion()]),
+      overlapRegionMeta(zielregion()),
     );
     expect(query.params).toHaveLength(highestSqlPlaceholder(query.sql));
-    expect(highestSqlPlaceholder(query.sql)).toBe(3);
+    expect(highestSqlPlaceholder(query.sql)).toBe(6);
     expect(query.sql).toContain("ST_Transform");
     expect(query.sql).toContain("3035");
-    expect(query.sql).toContain("geo.geo_ref_bezirk");
+    expect(query.sql).toContain("geo.geo_ref_ortsteil");
     expect(query.sql).toContain("geo.geo_ref_plz");
     expect(query.sql).toContain("geo.geo_ref_address");
     expect(query.sql).toContain("grid100");
     expect(query.sql).toContain("region_geom");
+    expect(query.sql).toContain("is_target_region");
     expect(query.sql).toContain("ST_Covers");
     expect(query.sql).toContain("ST_Dimension");
+    expect(query.sql).not.toContain("geo.geo_ref_bezirk");
     expect(query.sql).not.toContain("<=>");
+    expect(query.params[4]).toBe("Innenstadt");
+    expect(query.params[5]).toBe("bezirk");
   });
 
   it("clips overlaps to each item's own Zielregion when the same Fläche appears twice", async () => {
@@ -203,18 +234,31 @@ describe("hit overlaps", () => {
       },
     });
     const queryReadingFeatures = jest.fn().mockImplementation(async (_sql: string, params: unknown[]) => {
-      const geom = String(params[2] ?? "");
-      if (geom.includes("6.94")) {
-        return { rows: [row({ hit_geo_key: "12207", label: "Steglitz-Zehlendorf", share: 1, geo_key: "11000006", kind: "bezirk" })] };
-      }
-      return { rows: [row({ hit_geo_key: "12207", label: "Tempelhof-Schöneberg", share: 0.4, geo_key: "11000007", kind: "bezirk" })] };
+      const label = String(params[4] ?? "");
+      const geoKey = String(params[3] ?? "");
+      return {
+        rows: [
+          row({
+            hit_geo_key: "12207",
+            label,
+            share: 1,
+            geo_key: geoKey,
+            kind: "ortsteil",
+            is_target_region: true,
+          }),
+        ],
+      };
     });
     const leftHit = { ...hit("12207"), id: "plz5:12207@ortsteil:osm:licht", targetRegionGeoKey: left.geoKey ?? "" };
     const rightHit = { ...hit("12207"), id: "plz5:12207@ortsteil:osm:steg", targetRegionGeoKey: right.geoKey ?? "" };
     const result = await attachHitOverlaps({ queryReadingFeatures }, [leftHit, rightHit], [left, right]);
     expect(queryReadingFeatures).toHaveBeenCalledTimes(2);
-    expect(result[0]?.overlaps?.map((part) => part.label)).toEqual(["Steglitz-Zehlendorf"]);
-    expect(result[1]?.overlaps?.map((part) => part.label)).toEqual(["Tempelhof-Schöneberg"]);
+    expect(result[0]?.overlaps).toEqual([
+      { geoKey: "ortsteil:osm:licht", label: "Lichterfelde", kind: "ortsteil", share: 1, isTargetRegion: true },
+    ]);
+    expect(result[1]?.overlaps).toEqual([
+      { geoKey: "ortsteil:osm:steg", label: "Steglitz", kind: "ortsteil", share: 1, isTargetRegion: true },
+    ]);
     expect(result[0]?.id).not.toBe(result[1]?.id);
   });
 });
