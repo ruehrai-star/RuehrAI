@@ -45,6 +45,7 @@ export type {
   RecommendationCreate,
   RecommendationEvidence,
   RecommendationIntersectionPart,
+  RecommendationOverlap,
   RecommendationTrend,
   RecommendationWindow,
   RegionGeometry,

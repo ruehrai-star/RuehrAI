@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { AnalysisRegion } from "../analysis/types";
 import { throwIfAborted } from "../analysis/run-abort";
-import { toCoord } from "../customer/values";
+import { emptyToNull, toCoord } from "../customer/values";
 import { parseRegionGeometry, RegionGeometry } from "../geo/region-geometry";
 import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
@@ -11,6 +11,8 @@ import {
 } from "../database/pg-error";
 import { Grain } from "../target-region/dto";
 import { pushAll, yieldEventLoop } from "../common/safe-array";
+import { gemeindeDisplayNameFromAgs, officialAgsKey } from "../geo/geo-catalog";
+import { municipalityAgsFrom } from "../analysis/yearly-series";
 import {
   AREA_CANDIDATE_LIMIT,
   AreaCandidate,
@@ -29,11 +31,13 @@ import {
   lorFeatureCandidateQuery,
   lorPlrCatalogQuery,
   lorPlrFeatureCandidateQuery,
+  municipalityNameQuery,
   parentMemberships,
   selectCatalogHits,
   skipAddressAndGridForRegion,
   teilCatalogQuery,
 } from "./area-candidates";
+import { displayAreaName } from "./hit-display";
 
 const GRAIN_SET = new Set<string>(["address", "grid100", "plz8", "plz5", "ags", "ags5", "other"]);
 
@@ -73,7 +77,7 @@ export class AreaCandidateService {
         seen.add(candidate.id);
         out.push(candidate);
       }
-      return { items: out, truncated };
+      return { items: await this.withMunicipalityNames(out), truncated };
     } catch (error) {
       if (isGeoCatalogUnavailable(error) || isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) {
         this.logger.log(`Area-candidate catalog read missed (${messageOf(error)}).`);
@@ -152,11 +156,11 @@ export class AreaCandidateService {
         try {
           return await this.readQuery(teilCatalogQuery(region, "legacy"));
         } catch (legacyError) {
-          if (isMissingTeilCatalog(legacyError)) return null;
+          if (isMissingTeilCatalog(legacyError) || isOptionalTeilJoinMissing(legacyError)) return null;
           throw legacyError;
         }
       }
-      if (isMissingTeilCatalog(error)) return null;
+      if (isMissingTeilCatalog(error) || isOptionalTeilJoinMissing(error)) return null;
       throw error;
     }
   }
@@ -200,6 +204,42 @@ export class AreaCandidateService {
     }
     return { items, truncated: result.rows.length >= AREA_CANDIDATE_LIMIT };
   }
+
+  private async withMunicipalityNames(items: AreaCandidate[]): Promise<AreaCandidate[]> {
+    if (items.length === 0) return items;
+    const keys = uniqueAgs(
+      items.map((item) => municipalityAgsFrom(item) ?? officialAgsKey(item.ags)).filter((value): value is string => Boolean(value)),
+    );
+    const fallback = (item: AreaCandidate): string | null =>
+      gemeindeDisplayNameFromAgs(item.ags) ?? gemeindeDisplayNameFromAgs(item.geoKey);
+    if (keys.length === 0) {
+      return items.map((item) => ({ ...item, municipalityName: item.municipalityName ?? fallback(item) }));
+    }
+    try {
+      const query = municipalityNameQuery(keys);
+      assertCandidateQueryArity(query);
+      const result = await featuresReadQuery(this.db)<{ geo_ags: string | null; name: string | null }>(
+        query.sql,
+        query.params,
+      );
+      const names = new Map<string, string>();
+      for (const row of result.rows) {
+        const ags = row.geo_ags?.trim();
+        const name = emptyToNull(row.name);
+        if (ags && name) names.set(ags, name);
+      }
+      return items.map((item) => {
+        const ags = municipalityAgsFrom(item) ?? officialAgsKey(item.ags);
+        return {
+          ...item,
+          municipalityName: (ags ? names.get(ags) : undefined) ?? item.municipalityName ?? fallback(item),
+        };
+      });
+    } catch (error) {
+      this.logger.log(`Municipality-name catalog read missed (${messageOf(error)}).`);
+      return items.map((item) => ({ ...item, municipalityName: item.municipalityName ?? fallback(item) }));
+    }
+  }
 }
 
 function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
@@ -209,7 +249,7 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
   if (!geoKey || !grain || !kind) return null;
   const name = row.name?.trim() || null;
   const geometry = parseOptionalGeometry(row.geometry_geojson);
-  return {
+  const draft: AreaCandidate = {
     id: `${grain}:${geoKey}`,
     geoKey,
     grain,
@@ -223,6 +263,8 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
     geometry: geometry,
     geometryUnavailableReason: geometry ? null : "Die Fläche kann noch nicht gezeichnet werden.",
   };
+  const display = displayAreaName(draft);
+  return { ...draft, title: display, name: display };
 }
 
 function parseOptionalGeometry(raw: string | null | undefined): RegionGeometry | null {
@@ -248,6 +290,13 @@ function isMissingTeilCatalog(error: unknown): boolean {
   return /zielregion_teil/i.test(messageOf(error));
 }
 
+function isOptionalTeilJoinMissing(error: unknown): boolean {
+  if (!isMissingFeaturesRelation(error) && !isUndefinedColumn(error) && !isGeoCatalogUnavailable(error)) {
+    return false;
+  }
+  return /geo_ref_lor|location_feature_docs|lor_level|valid_to/i.test(messageOf(error));
+}
+
 function isUndefinedColumn(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("code" in error)) return false;
   return (error as { code?: unknown }).code === "42703";
@@ -255,4 +304,8 @@ function isUndefinedColumn(error: unknown): boolean {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+function uniqueAgs(values: string[]): string[] {
+  return [...new Set(values)];
 }

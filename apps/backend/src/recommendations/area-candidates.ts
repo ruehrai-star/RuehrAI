@@ -1,7 +1,7 @@
 import { AnalysisRegion } from "../analysis/types";
 import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
-import { catalogLevelFromGeoKey, officialAgsKey } from "../geo/geo-catalog";
+import { catalogLevelFromGeoKey, municipalityAgsFromDisplayName, officialAgsKey } from "../geo/geo-catalog";
 import { Grain } from "../target-region/dto";
 import { minNumber } from "../common/safe-array";
 
@@ -34,6 +34,8 @@ export interface AreaCandidate {
   plz: string | null;
   lon: number | null;
   lat: number | null;
+  /** Gemeinde display name from geo_ref_admin / AGS-prefix fallbacks. */
+  municipalityName?: string | null;
   /** Clipped hit outline (EPSG:4326), when Brain geom ∩ Zielregion is available. */
   geometry?: RegionGeometry | null;
   geometryUnavailableReason?: string | null;
@@ -285,42 +287,50 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
     UNION ALL
 
     SELECT
-      CASE
-        WHEN c.child_id LIKE 'lor:%' THEN c.child_id
-        ELSE 'lor:' || c.child_id
-      END AS geo_key,
+      ${lorGeoKeyExpr("l", "c.child_id")} AS geo_key,
       'other'::text AS grain,
       'lor'::text AS kind,
-      COALESCE(
-        NULLIF(btrim(c.child_id), ''),
-        CASE WHEN c.child_id LIKE 'lor:%' THEN c.child_id ELSE 'lor:' || c.child_id END
-      ) AS name,
-      NULL::text AS ags,
+      NULLIF(btrim(l.name), '') AS name,
+      NULLIF(btrim(l.geo_ags::text), '') AS ags,
       NULL::text AS plz,
-      NULL::float8 AS lon,
-      NULL::float8 AS lat,
-      NULL::text AS geometry_geojson
+      ST_X(ST_PointOnSurface(${geom4326("l")})) AS lon,
+      ST_Y(ST_PointOnSurface(${geom4326("l")})) AS lat,
+      ${clippedHitGeoJsonSql(geom4326("l"))} AS geometry_geojson
     FROM children c
+    JOIN geo.geo_ref_lor l
+      ON ${lorJoinOnChild("l", "c.child_id")}
+    CROSS JOIN region_geom g
     WHERE lower(btrim(c.child_grain)) IN ('lor', 'lor_plr')
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
+      AND ${lorPlanungsraumFilter("l")}
+      AND ${hasArea("l")}
 
     UNION ALL
 
     SELECT
-      CASE
-        WHEN c.child_id LIKE 'koeln:sq:%' THEN c.child_id
-        WHEN c.child_id LIKE 'quartier:%' THEN regexp_replace(c.child_id, '^quartier:', 'koeln:sq:')
-        ELSE 'koeln:sq:' || c.child_id
-      END AS geo_key,
+      ${koelnQuartierKeyExpr("c.child_id")} AS geo_key,
       'other'::text AS grain,
       'quartier'::text AS kind,
-      COALESCE(NULLIF(btrim(c.child_id), ''), 'koeln:sq:' || c.child_id) AS name,
-      NULL::text AS ags,
+      NULLIF(btrim(q.title), '') AS name,
+      COALESCE(
+        NULLIF(btrim(q.metadata->>'ags'), ''),
+        NULLIF(btrim(q.metadata->>'geo_ags'), ''),
+        '05315000'
+      ) AS ags,
       NULL::text AS plz,
-      NULL::float8 AS lon,
-      NULL::float8 AS lat,
+      q.lon::float8 AS lon,
+      q.lat::float8 AS lat,
       NULL::text AS geometry_geojson
     FROM children c
+    LEFT JOIN LATERAL (
+      SELECT d.title, d.metadata, d.lon, d.lat
+        FROM features.location_feature_docs d
+       WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
+         AND d.geo_key = ${koelnQuartierKeyExpr("c.child_id")}
+         AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
+       ORDER BY d.ref_period DESC NULLS LAST
+       LIMIT 1
+    ) q ON true
     WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
 
@@ -503,6 +513,7 @@ export function buildGeoAddressCandidateSql(): string {
     'address'::text AS grain,
     'address'::text AS kind,
     COALESCE(
+      NULLIF(btrim(concat_ws(' ', NULLIF(btrim(a.strasse), ''), NULLIF(btrim(a.hnr), ''))), ''),
       NULLIF(btrim(a.geo_key::text), ''),
       'address:' || a.geo_addr_id::text
     ) AS name,
@@ -708,11 +719,20 @@ export function areaCandidateParams(
   return [geometry, ags, plz, geoKey, includeGemeinden ? kreis : null, includeGemeinden];
 }
 
+export function municipalityAgsForRegion(region: AnalysisRegion): string | null {
+  return (
+    municipalityAgsFrom(region) ??
+    officialAgsKey(region.ags) ??
+    municipalityAgsFromDisplayName(region.parentLabel) ??
+    municipalityAgsFromDisplayName(region.label)
+  );
+}
+
 export function featureCandidateParams(
   region: AnalysisRegion,
 ): [string | null, string | null, string | null, string[]] {
   const geometry = region.geometry ? JSON.stringify(region.geometry) : null;
-  const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
+  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
   const kreis = kreisAgsFrom(region);
   return [geometry, ags, kreis, excludeKeys(region)];
 }
@@ -745,7 +765,9 @@ function berlinLorMembershipSql(): string {
 }
 
 /**
- * Berlin LOR Planungsraum 2021 outlines (`lor:plr:*`, `lor_version=2021`).
+ * Berlin LOR Planungsraum outlines (`lor:plr:*`).
+ * Real columns: `lor_level` / `valid_from` / `valid_to` (no `lor_version`).
+ * `geo_lor_id` is already `lor:plr:…` on STAGE — do not prefix twice.
  * Skip when `geo.geo_ref_lor` is missing (42P01 / 42703).
  *
  * $1 ags (nullable)
@@ -755,7 +777,7 @@ function berlinLorMembershipSql(): string {
  */
 export function buildLorPlrCatalogSql(): string {
   const geom = geom4326("l");
-  const plrKey = `'lor:plr:' || l.geo_lor_id::text`;
+  const plrKey = lorGeoKeyExpr("l");
   return `
   WITH region_geom AS (
     SELECT ${regionGeomFromParam("$4")} AS geom
@@ -764,14 +786,14 @@ export function buildLorPlrCatalogSql(): string {
     ${plrKey} AS geo_key,
     'other'::text AS grain,
     'lor'::text AS kind,
-    COALESCE(NULLIF(btrim(l.name), ''), ${plrKey}) AS name,
+    NULLIF(btrim(l.name), '') AS name,
     NULLIF(btrim(l.geo_ags::text), '') AS ags,
     NULL::text AS plz,
     ST_X(ST_PointOnSurface(${geom})) AS lon,
     ST_Y(ST_PointOnSurface(${geom})) AS lat,
     ${clippedHitGeoJsonSql(geom)} AS geometry_geojson
   FROM geo.geo_ref_lor l, region_geom g
-  WHERE COALESCE(l.lor_version::text, '2021') IN ('2021', '21')
+  WHERE ${lorPlanungsraumFilter("l")}
     AND NOT (${plrKey} = ANY($2::text[]))
     AND ${hasArea("l")}
     AND (
@@ -860,34 +882,43 @@ export function buildLorFeatureCandidateSql(): string {
 /**
  * Köln Quartiere (`koeln:sq:*`), finer than Ortsteil. Prefer these keys over
  * quartier→bezirk `parent_fallback` rows.
+ * When the Zielregion has no AGS (e.g. Bezirk Innenstadt), derive the
+ * municipality AGS or filter by region geometry.
  *
- * $1 ags (nullable)
+ * $1 ags (nullable, derived Gemeinde AGS allowed)
  * $2 exclude geoKey[]
+ * $3 Zielregion GeoJSON (nullable)
  */
 export function buildKoelnQuartierCandidateSql(): string {
   return `
+  WITH region_geom AS (
+    SELECT ${regionGeomFromParam("$3")} AS geom
+  )
   SELECT DISTINCT ON (d.geo_key)
     d.geo_key::text AS geo_key,
     'other'::text AS grain,
     'quartier'::text AS kind,
-    COALESCE(NULLIF(btrim(d.title), ''), d.geo_key::text) AS name,
+    NULLIF(btrim(d.title), '') AS name,
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULL::text AS plz,
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
       NULL::text AS geometry_geojson
-  FROM features.location_feature_docs d
+  FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND d.geo_key LIKE 'koeln:sq:%'
     AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
     AND NOT (d.geo_key = ANY($2::text[]))
-    AND $1::text IS NOT NULL
     AND (
-      $1 = '05315000'
-      OR $1 LIKE '05315%'
-      OR d.metadata->>'geo_ags' = $1
-      OR d.metadata->>'ags' = $1
+      ($1::text IS NOT NULL AND (
+        $1 = '05315000'
+        OR $1 LIKE '05315%'
+        OR d.metadata->>'geo_ags' = $1
+        OR d.metadata->>'ags' = $1
+      ))
+      OR (g.geom IS NOT NULL AND d.lon IS NOT NULL AND d.lat IS NOT NULL
+          AND ST_Intersects(g.geom, ST_SetSRID(ST_MakePoint(d.lon::float8, d.lat::float8), 4326)))
     )
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
   LIMIT ${AREA_CANDIDATE_LIMIT}
@@ -933,7 +964,7 @@ export function buildHamburgStadtteilFallbackSql(): string {
 export function lorCandidateParams(
   region: AnalysisRegion,
 ): [string | null, string[], string[], string | null] {
-  const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
+  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
   return [ags, excludeKeys(region), bezirkIdVariants(region), regionGeometryParam(region)];
 }
 
@@ -942,8 +973,14 @@ export function regionGeometryParam(region: AnalysisRegion): string | null {
 }
 
 export function hamburgFallbackParams(region: AnalysisRegion): [string | null, string[]] {
-  const ags = municipalityAgsFrom(region) ?? region.ags?.trim() ?? null;
+  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
   return [ags, excludeKeys(region)];
+}
+
+export function koelnQuartierCandidateParams(
+  region: AnalysisRegion,
+): [string | null, string[], string | null] {
+  return [municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null, excludeKeys(region), regionGeometryParam(region)];
 }
 
 export interface CandidateQuery {
@@ -1000,7 +1037,7 @@ export function lorFeatureCandidateQuery(region: AnalysisRegion): CandidateQuery
 }
 
 export function koelnQuartierCandidateQuery(region: AnalysisRegion): CandidateQuery {
-  return { sql: buildKoelnQuartierCandidateSql(), params: [...hamburgFallbackParams(region)] };
+  return { sql: buildKoelnQuartierCandidateSql(), params: [...koelnQuartierCandidateParams(region)] };
 }
 
 export function hamburgStadtteilFallbackQuery(region: AnalysisRegion): CandidateQuery {
@@ -1051,6 +1088,147 @@ function bezirkIdVariants(region: AnalysisRegion): string[] {
   return unique(values);
 }
 
+
+function lorGeoKeyExpr(alias: string, childIdExpr?: string): string {
+  const id = `${alias}.geo_lor_id::text`;
+  const fallback = childIdExpr ?? id;
+  return `CASE
+      WHEN ${id} LIKE 'lor:%' THEN ${id}
+      WHEN ${fallback} LIKE 'lor:%' THEN ${fallback}
+      ELSE 'lor:plr:' || ${id}
+    END`;
+}
+
+function lorJoinOnChild(alias: string, childIdExpr: string): string {
+  const id = `${alias}.geo_lor_id::text`;
+  return `(
+      ${id} = ${childIdExpr}
+      OR ${id} = regexp_replace(${childIdExpr}, '^lor:(plr:)?', '')
+      OR ('lor:plr:' || ${id}) = ${childIdExpr}
+      OR ${id} = CASE WHEN ${childIdExpr} LIKE 'lor:%' THEN ${childIdExpr} ELSE 'lor:plr:' || ${childIdExpr} END
+    )`;
+}
+
+function lorPlanungsraumFilter(alias: string): string {
+  return `lower(btrim(${alias}.lor_level::text)) IN ('planungsraum', 'plr')
+    AND ${alias}.valid_to IS NULL`;
+}
+
+function koelnQuartierKeyExpr(childIdExpr: string): string {
+  return `CASE
+      WHEN ${childIdExpr} LIKE 'koeln:sq:%' THEN ${childIdExpr}
+      WHEN ${childIdExpr} LIKE 'quartier:%' THEN regexp_replace(${childIdExpr}, '^quartier:', 'koeln:sq:')
+      ELSE 'koeln:sq:' || ${childIdExpr}
+    END`;
+}
+
+/**
+ * $1 municipality AGS[]
+ */
+export function buildMunicipalityNameSql(): string {
+  return `
+  SELECT a.geo_ags::text AS geo_ags,
+         NULLIF(btrim(a.name), '') AS name
+    FROM geo.geo_ref_admin a
+   WHERE a.geo_ags::text = ANY($1::text[])
+     AND char_length(btrim(a.geo_ags::text)) = 8
+`;
+}
+
+export function municipalityNameQuery(agsKeys: string[]): CandidateQuery {
+  return { sql: buildMunicipalityNameSql(), params: [agsKeys] };
+}
+
+/** Share of the hit's area; drop fragments below this (1 %). */
+export const OVERLAP_MIN_SHARE = 0.01;
+
+const OVERLAP_HIT_KINDS = new Set<AreaKind>(["plz", "lor", "quartier", "ortsteil", "stadtteil"]);
+
+export function overlapEligibleKind(kind: AreaKind): boolean {
+  return OVERLAP_HIT_KINDS.has(kind);
+}
+
+/**
+ * Batched spatial parents (Stadtbezirk/Bezirk) for every eligible hit.
+ * Intersect in 4326, compute area share in 3035. $1 geo_key[]  $2 kind[]
+ */
+export function buildHitOverlapSql(): string {
+  const plzGeom = geom4326("p");
+  const lorGeom = geom4326("l");
+  const ortGeom = geom4326("o");
+  const bezirkGeom = geom4326("b");
+  return `
+  WITH hits AS (
+    SELECT geo_key, kind
+      FROM unnest($1::text[], $2::text[]) AS t(geo_key, kind)
+  ),
+  hit_geom AS (
+    SELECT h.geo_key, ${plzGeom} AS geom
+      FROM hits h
+      JOIN geo.geo_ref_plz p
+        ON p.geo_plz5::text = h.geo_key
+        OR ('plz5:' || p.geo_plz5::text) = h.geo_key
+     WHERE h.kind = 'plz'
+       AND ${hasArea("p")}
+
+    UNION ALL
+
+    SELECT h.geo_key, ${lorGeom} AS geom
+      FROM hits h
+      JOIN geo.geo_ref_lor l
+        ON ${lorJoinOnChild("l", "h.geo_key")}
+     WHERE h.kind = 'lor'
+       AND ${hasArea("l")}
+
+    UNION ALL
+
+    SELECT h.geo_key, ${ortGeom} AS geom
+      FROM hits h
+      JOIN geo.geo_ref_ortsteil o
+        ON (lower(btrim(o.kind)) || ':' || o.geo_ortsteil_id::text) = h.geo_key
+        OR o.geo_ortsteil_id::text = h.geo_key
+     WHERE h.kind IN ('ortsteil', 'stadtteil')
+       AND ${hasArea("o")}
+  ),
+  shares AS (
+    SELECT
+      h.geo_key AS hit_geo_key,
+      CASE
+        WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN b.geo_bezirk_id::text
+        ELSE 'stadtbezirk:' || b.geo_bezirk_id::text
+      END AS geo_key,
+      NULLIF(btrim(b.name), '') AS label,
+      CASE
+        WHEN b.geo_bezirk_id::text ~ '^110000(0[1-9]|1[0-2])$' THEN 'bezirk'
+        ELSE 'stadtbezirk'
+      END AS kind,
+      (
+        ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(h.geom, ${bezirkGeom})), 3035))
+        / NULLIF(ST_Area(ST_Transform(h.geom, 3035)), 0)
+      )::float8 AS share
+    FROM hit_geom h
+    JOIN geo.geo_ref_bezirk b
+      ON ${hasArea("b")}
+     AND NULLIF(btrim(b.name), '') IS NOT NULL
+     AND ST_Intersects(h.geom, ${bezirkGeom})
+     AND NOT ST_IsEmpty(ST_Intersection(h.geom, ${bezirkGeom}))
+    WHERE h.geom IS NOT NULL
+      AND NOT ST_IsEmpty(h.geom)
+  )
+  SELECT hit_geo_key, geo_key, label, kind, share
+    FROM shares
+   WHERE share >= ${OVERLAP_MIN_SHARE}
+   ORDER BY hit_geo_key ASC, share DESC, label ASC
+`;
+}
+
+export function hitOverlapQuery(hits: Array<{ geoKey: string; kind: AreaKind }>): CandidateQuery {
+  const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
+  return {
+    sql: buildHitOverlapSql(),
+    params: [eligible.map((hit) => hit.geoKey), eligible.map((hit) => hit.kind)],
+  };
+}
 
 /**
  * GeoJSON (EPSG:4326) of hit geom clipped to region_geom CTE `g.geom`.

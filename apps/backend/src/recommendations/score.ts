@@ -24,7 +24,7 @@ import {
 } from "../analysis/series-baseline";
 import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-series";
 import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
-import { areaGroupKey, hitParentLabel, visibleAreaName } from "./hit-display";
+import { areaGroupKey, displayAreaName, hitParentLabel } from "./hit-display";
 import {
   EvidenceScope,
   RecommendationEvidence,
@@ -67,12 +67,12 @@ export function rankTeilflaechen(
       ...entry,
       baselineMatch: entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline),
     }));
-    const name = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
+    const name = displayAreaName(candidate);
     const parentLabel = hitParentLabel(candidate, candidates, regions, byGroup);
     const intersectionOf = intersectionParts(candidate, byGroup, byGeoKey, criteria);
     scored.push({
       id: candidate.id,
-      title: candidate.title,
+      title: name,
       kind: candidate.kind,
       grain: candidate.grain,
       name,
@@ -197,7 +197,7 @@ function intersectionParts(
     const finest = minNumber(matches.map((candidate) => areaKindRank(candidate.kind)));
     const chosen = matches.find((candidate) => areaKindRank(candidate.kind) === finest);
     if (!chosen) continue;
-    const name = visibleAreaName(chosen.name) ?? visibleAreaName(chosen.title);
+    const name = displayAreaName(chosen);
     if (seen.has(chosen.geoKey)) continue;
     seen.add(chosen.geoKey);
     const part: RecommendationIntersectionPart = {

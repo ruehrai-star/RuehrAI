@@ -19,11 +19,14 @@ import {
   grid100CandidateQuery,
   hamburgStadtteilFallbackQuery,
   highestSqlPlaceholder,
+  hitOverlapQuery,
   isRegionAnchor,
   koelnQuartierCandidateQuery,
   lorFeatureCandidateQuery,
   lorPlrCatalogQuery,
   lorPlrFeatureCandidateQuery,
+  municipalityAgsForRegion,
+  municipalityNameQuery,
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
@@ -75,7 +78,7 @@ describe("area candidate SQL", () => {
     expect(sql).toContain("geometry_geojson");
     expect(sql).toMatch(/SELECT geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson/);
     expect(sql).not.toContain("<=>");
-    expect(sql).not.toContain("location_feature_docs");
+    expect(sql).not.toMatch(/embedding/i);
     expect(adminGeom4326("a", "prefer")).toContain("geom_4326");
     expect(adminGeom4326("a", "legacy")).toContain("3035");
   });
@@ -103,22 +106,35 @@ describe("area candidate SQL", () => {
     expect(lor).not.toContain("<=>");
     expect(lor).not.toMatch(/embedding/i);
     expect(plrCatalog).toContain("geo.geo_ref_lor");
-    expect(plrCatalog).toContain("lor:plr:");
+    expect(plrCatalog).toContain("lor_level");
+    expect(plrCatalog).toContain("valid_to");
+    expect(plrCatalog).not.toContain("lor_version");
     expect(plrCatalog).toContain("geo_lor_id");
     expect(plrCatalog).not.toContain("l.geo_key");
+    expect(plrCatalog).not.toContain("lor_version");
+    expect(plrCatalog).toContain("WHEN l.geo_lor_id::text LIKE 'lor:%'");
+    expect(plrCatalog).toContain("NULLIF(btrim(l.name), '') AS name");
     expect(plrCatalog).toContain("ST_Intersection");
     expect(plrCatalog).toContain("geometry_geojson");
     expect(plrFeature).toContain("lor:plr:%");
     expect(plrFeature).not.toMatch(/embedding/i);
     expect(quartier).toContain("koeln:sq:%");
     expect(quartier).toContain("parent_fallback");
+    expect(quartier).toContain("$3");
+    expect(quartier).toContain("ST_Intersects");
     expect(geoAddress).toContain("geo.geo_ref_address");
     expect(geoAddress).toContain("geo_addr_id");
     expect(geoAddress).toContain("geom_3035");
+    expect(geoAddress).toContain("a.strasse");
+    expect(geoAddress).toContain("a.hnr");
     expect(geoAddress).not.toContain("a.name");
     expect(geoAddress).not.toMatch(/embedding/i);
     expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
     expect(teil).toMatch(/child_grain\)\) IN \('lor', 'lor_plr'\)/);
+    expect(teil).toContain("geo.geo_ref_lor");
+    expect(teil).toContain("NULLIF(btrim(l.name), '') AS name");
+    expect(teil).toContain("koeln_statistischer_datenkatalog");
+    expect(teil).not.toContain("name = child_id");
     expect(teil).toContain("koeln_quartier");
     expect(teil).toContain("WHEN 'lor' THEN 2");
     expect(teil).toContain("WHEN 'quartier' THEN 2");
@@ -169,6 +185,23 @@ describe("area candidate SQL", () => {
     );
     expect(plr.grains).toEqual(expect.arrayContaining(["lor", "lor_plr", "gemeinde"]));
     expect(plr.ids).toContain("lor:plr:07400720");
+  });
+
+  it("derives Köln AGS from the region parentLabel when ags is missing", () => {
+    expect(
+      municipalityAgsForRegion(
+        region({
+          label: "Innenstadt",
+          grain: "other",
+          geoKey: "bezirk:osm:1",
+          ags: null,
+          level: "bezirk",
+          parentLabel: "Köln",
+          geometry: null,
+        }),
+      ),
+    ).toBe("05315000");
+    expect(municipalityAgsForRegion(region({ label: "Hamburg", parentLabel: null, geoKey: "02000000", ags: "02000000" }))).toBe("02000000");
   });
 });
 
@@ -506,5 +539,21 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
     expect(lorPlrFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
     expect(highestSqlPlaceholder(lorFeatureCandidateQuery(tempelhof).sql)).toBe(3);
     expect(lorFeatureCandidateQuery(tempelhof).params).toHaveLength(3);
+  });
+
+  it("passes geometry $3 into Köln Quartier feature SQL", () => {
+    expect(highestSqlPlaceholder(koelnQuartierCandidateQuery(muenchen).sql)).toBe(3);
+    expect(koelnQuartierCandidateQuery(muenchen).params).toHaveLength(3);
+  });
+
+  it("matches municipality-name and overlap SQL $n to params", () => {
+    const names = municipalityNameQuery(["09162000", "11000000"]);
+    expect(names.params).toHaveLength(highestSqlPlaceholder(names.sql));
+    const overlaps = hitOverlapQuery([
+      { geoKey: "81541", kind: "plz" },
+      { geoKey: "80331", kind: "plz" },
+    ]);
+    expect(overlaps.params).toHaveLength(highestSqlPlaceholder(overlaps.sql));
+    expect(highestSqlPlaceholder(overlaps.sql)).toBe(2);
   });
 });

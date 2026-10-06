@@ -341,6 +341,52 @@ test("GET /recommendations keeps official grain, parentLabel, and intersectionOf
   assert.deepEqual(latest?.items[0]?.intersectionOf, withParts.items[0]?.intersectionOf);
 });
 
+test("GET /recommendations keeps optional overlaps without treating them as intersectionOf", async () => {
+  const withOverlaps = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        grain: "plz5",
+        name: "PLZ 81541",
+        parentLabel: "München",
+        overlaps: [
+          { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 0.42 },
+          { geoKey: "stadtbezirk:og", label: "Obergiesing-Fasangarten", kind: "stadtbezirk", share: 0.38 },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withOverlaps),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.parentLabel, "München");
+  assert.equal(latest?.items[0]?.name, "PLZ 81541");
+  assert.deepEqual(latest?.items[0]?.overlaps, withOverlaps.items[0]?.overlaps);
+});
+
+test("GET /recommendations fills name from location when a stored set still has name null", async () => {
+  const legacy = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        name: null,
+        location: { ...set.items[0].location, name: "PLZ 80801" },
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(legacy),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(typeof latest?.items[0]?.name, "string");
+  assert.equal(latest?.items[0]?.name, "PLZ 80801");
+});
+
 test("GET /recommendations maps 404 to no set", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

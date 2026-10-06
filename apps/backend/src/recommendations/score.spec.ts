@@ -400,13 +400,13 @@ describe("rankTeilflaechen", () => {
     );
 
     expect(ranked.map((item) => item.kind)).toEqual(["plz"]);
-    expect(ranked[0]?.title).toBe("10115");
+    expect(ranked[0]?.title).toBe("PLZ 10115");
     expect(ranked[0]?.grain).toBe("plz5");
-    expect(ranked[0]?.name).toBe("10115");
-    expect(ranked[0]?.parentLabel).toBe("Mitte");
+    expect(ranked[0]?.name).toBe("PLZ 10115");
+    expect(ranked[0]?.parentLabel).toBe("Berlin");
     expect(ranked[0]?.intersectionOf).toEqual([
       { geoKey: "11000001", grain: "other", name: "Mitte", datasetKey: "kba_elektro_pkw" },
-      { geoKey: "10115", grain: "plz5", name: "10115", datasetKey: "wanderungen" },
+      { geoKey: "10115", grain: "plz5", name: "PLZ 10115", datasetKey: "wanderungen" },
     ]);
   });
 
@@ -440,6 +440,77 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.intersectionOf).toBeUndefined();
     expect(ranked[0]?.name).toBe("Schwabing");
     expect(ranked[0]?.grain).toBe("other");
+  });
+
+  it("always fills name with documented fallbacks and never a catalog key", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({
+          geoKey: "koeln:sq:101010001",
+          kind: "quartier",
+          name: "koeln:sq:101010001",
+          title: "koeln:sq:101010001",
+          ags: "05315000",
+        }),
+        candidate({
+          geoKey: "lor:plr:07400823",
+          kind: "lor",
+          name: "Wittekindstraße",
+          title: "lor:plr:07400823",
+          ags: "11000000",
+        }),
+        candidate({
+          geoKey: "80331",
+          kind: "plz",
+          grain: "plz5",
+          name: "80331",
+          title: "80331",
+          plz: "80331",
+          ags: "09162000",
+        }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "koeln:sq:101010001",
+          requestedLevel: "quartier",
+          sourceLevel: "quartier",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("koeln:sq:101010001", "quartier"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "lor:plr:07400823",
+          requestedLevel: "lor",
+          sourceLevel: "lor",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("lor:plr:07400823", "lor"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "80331",
+          requestedLevel: "plz",
+          sourceLevel: "plz",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("80331", "plz"),
+      ],
+      [trendUp],
+    );
+    expect(ranked.every((item) => typeof item.name === "string" && item.name.length > 0)).toBe(true);
+    expect(ranked.find((item) => item.kind === "quartier")?.name).toBe("Quartier 101010001");
+    expect(ranked.find((item) => item.kind === "quartier")?.name).not.toContain("koeln:sq:");
+    expect(ranked.find((item) => item.kind === "lor")?.name).toBe("Wittekindstraße");
+    expect(ranked.find((item) => item.kind === "plz")?.name).toBe("PLZ 80331");
   });
 
   it("treats a missing Bezugsgröße as absent and never invents 0", () => {

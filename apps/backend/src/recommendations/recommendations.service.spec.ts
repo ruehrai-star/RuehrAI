@@ -112,12 +112,13 @@ function inhabitants(
 
 describe("RecommendationsService", () => {
   const query = jest.fn();
+  const queryReadingFeatures = jest.fn();
   const load = jest.fn();
   const resolve = jest.fn();
   const build = jest.fn();
   const write = jest.fn();
   const service = new RecommendationsService(
-    { query } as unknown as DatabaseService,
+    { query, queryReadingFeatures } as unknown as DatabaseService,
     { load } as unknown as AreaCandidateService,
     { resolve } as unknown as StoreSurroundingsService,
     { build } as unknown as YearlySeriesService,
@@ -126,6 +127,8 @@ describe("RecommendationsService", () => {
 
   beforeEach(() => {
     query.mockReset();
+    queryReadingFeatures.mockReset();
+    queryReadingFeatures.mockResolvedValue({ rows: [] });
     load.mockReset();
     resolve.mockReset();
     build.mockReset();
@@ -224,6 +227,29 @@ describe("RecommendationsService", () => {
     expect(insert[0]).toContain("INSERT INTO app.recommendation_sets");
     expect(resolve).toHaveBeenCalled();
     expect(load.mock.calls[0]?.[0]?.[0]?.geoKey).toBe("09162000");
+  });
+
+  it("omits overlaps and still stores the set when the Brain overlap read fails", async () => {
+    queryReadingFeatures.mockRejectedValue(new Error("statement timeout"));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "9", created_at: new Date("2026-09-29T12:00:00.000Z") }],
+      });
+    load.mockResolvedValue({
+      items: [area("ortsteil:osm:1", "Schwabing")],
+      truncated: false,
+    });
+    build
+      .mockResolvedValueOnce([trend("ortsteil:osm:store", 20, 8, "ortsteil"), inhabitants("ortsteil:osm:store", "ortsteil")])
+      .mockResolvedValueOnce([trend("ortsteil:osm:1", 20, 8), inhabitants("ortsteil:osm:1")]);
+
+    const set = await service.create("4", undefined, asOf);
+    expect(set.id).toBe("9");
+    expect(set.count).toBe(1);
+    expect(set.items[0]?.name).toBe("Schwabing");
+    expect(set.items[0]?.overlaps).toBeUndefined();
+    expect(query.mock.calls[1]?.[0]).toEqual(expect.stringContaining("INSERT INTO app.recommendation_sets"));
   });
 
   it("scores Ortsteil candidates against a PLZ-store dataset on normalized values", async () => {

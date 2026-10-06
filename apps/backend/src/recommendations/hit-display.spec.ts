@@ -1,6 +1,6 @@
 import { AnalysisRegion } from "../analysis/types";
 import { AreaCandidate } from "./area-candidates";
-import { hitParentLabel, isHiddenCatalogKey, visibleAreaName } from "./hit-display";
+import { displayAreaName, hitParentLabel, isHiddenCatalogKey, visibleAreaName } from "./hit-display";
 
 function area(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -36,7 +36,7 @@ function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
 }
 
 describe("hit display names", () => {
-  it("drops catalog keys and empty names", () => {
+  it("drops catalog keys and empty names from visibleAreaName", () => {
     expect(isHiddenCatalogKey("ortsteil:osm:5712247")).toBe(true);
     expect(isHiddenCatalogKey("plz5:12247")).toBe(true);
     expect(isHiddenCatalogKey("12247")).toBe(false);
@@ -46,31 +46,116 @@ describe("hit display names", () => {
     expect(visibleAreaName(null)).toBeNull();
   });
 
-  it("uses the Bezirk name as parent of an Ortsteil when that Bezirk is in the pool", () => {
-    const lankwitz = area({
-      geoKey: "ortsteil:osm:5712247",
-      kind: "ortsteil",
-      name: "Lankwitz",
-      ags: "11000006",
-    });
-    const bezirk = area({
-      geoKey: "11000006",
-      kind: "bezirk",
-      grain: "ags",
-      name: "Steglitz-Zehlendorf",
-      ags: "11000006",
-    });
-    expect(hitParentLabel(lankwitz, [lankwitz, bezirk], [])).toBe("Steglitz-Zehlendorf");
+  it("fills name for every grain including documented fallbacks", () => {
+    expect(
+      displayAreaName(area({ geoKey: "koeln:sq:101010001", kind: "quartier", name: "koeln:sq:101010001", title: "koeln:sq:101010001", ags: "05315000" })),
+    ).toBe("Quartier 101010001");
+    expect(
+      displayAreaName(
+        area({
+          geoKey: "koeln:sq:101010001",
+          kind: "quartier",
+          name: null,
+          title: "Köln Quartier Kapitol-Viertel (101010001)",
+          ags: "05315000",
+        }),
+      ),
+    ).toBe("Kapitol-Viertel");
+    expect(
+      displayAreaName(
+        area({
+          geoKey: "lor:plr:07400823",
+          kind: "lor",
+          name: "Wittekindstraße",
+          title: "lor:plr:07400823",
+          ags: "11000000",
+        }),
+      ),
+    ).toBe("Wittekindstraße");
+    expect(
+      displayAreaName(area({ geoKey: "lor:plr:07400823", kind: "lor", name: "lor:plr:07400823", title: "lor:plr:07400823", ags: "11000000" })),
+    ).toBe("Planungsraum 07400823");
+    expect(
+      displayAreaName(area({ geoKey: "80331", kind: "plz", grain: "plz5", name: "80331", title: "80331", plz: "80331", ags: "09162000" })),
+    ).toBe("PLZ 80331");
+    expect(
+      displayAreaName(area({ geoKey: "cell-1", kind: "grid100", grain: "grid100", name: "cell-1", title: "cell-1" })),
+    ).toBe("Rasterzelle cell-1");
+    expect(
+      displayAreaName(
+        area({ geoKey: "address:1", kind: "address", grain: "address", name: "Sendlinger Str. 1", title: "address:1" }),
+      ),
+    ).toBe("Sendlinger Str. 1");
   });
 
-  it("falls back to the Zielregion label when the region is the parent Bezirk", () => {
+  it("uses the Gemeinde as parentLabel, never Allach or a PLZ", () => {
+    const plz = area({
+      geoKey: "80331",
+      kind: "plz",
+      grain: "plz5",
+      name: "80331",
+      plz: "80331",
+      ags: "09162000",
+    });
+    const allach = area({
+      geoKey: "stadtbezirk:allach",
+      kind: "stadtbezirk",
+      name: "Allach-Untermenzing",
+      ags: "09162000",
+    });
+    const maxvorstadt = area({
+      geoKey: "stadtbezirk:maxvorstadt",
+      kind: "stadtbezirk",
+      name: "Maxvorstadt",
+      ags: "09162000",
+    });
+    const munich = area({
+      geoKey: "09162000",
+      kind: "gemeinde",
+      grain: "ags",
+      name: "München",
+      ags: "09162000",
+    });
+    expect(hitParentLabel(plz, [plz, allach, maxvorstadt, munich], [])).toBe("München");
+    expect(hitParentLabel(plz, [plz, allach, maxvorstadt], [])).toBe("München");
+
+    const stadtteil = area({
+      geoKey: "stadtteil:osm:altstadt",
+      kind: "stadtteil",
+      name: "Altstadt-Nord",
+      ags: "05315000",
+    });
+    const plzCologne = area({
+      geoKey: "50667",
+      kind: "plz",
+      grain: "plz5",
+      name: "50667",
+      plz: "50667",
+      ags: "05315000",
+    });
+    expect(hitParentLabel(stadtteil, [stadtteil, plzCologne], [region({ label: "Innenstadt", level: "bezirk", parentLabel: "Köln", ags: "05315000", geoKey: "bezirk:osm:1" })])).toBe(
+      "Köln",
+    );
+
+    const lor = area({
+      geoKey: "lor:plr:07400823",
+      kind: "lor",
+      name: "Wittekindstraße",
+      ags: "11000000",
+    });
+    expect(hitParentLabel(lor, [lor], [region({ label: "Tempelhof", level: "ortsteil", parentLabel: "Berlin", ags: "11000000", geoKey: "ortsteil:osm:162894" })])).toBe(
+      "Berlin",
+    );
+  });
+
+  it("falls back to the Zielregion Gemeinde when the region is a Bezirk", () => {
     const lankwitz = area({
       geoKey: "ortsteil:osm:5712247",
       kind: "ortsteil",
       name: "Lankwitz",
       ags: "11000006",
     });
-    expect(hitParentLabel(lankwitz, [lankwitz], [region()])).toBe("Steglitz-Zehlendorf");
+    expect(hitParentLabel(lankwitz, [lankwitz], [region()])).toBe("Berlin");
   });
 
   it("leaves parentLabel empty on a Gemeinde and never uses a key", () => {
@@ -86,20 +171,19 @@ describe("hit display names", () => {
         region({ label: "München", geoKey: "09162000", ags: "09162000", level: "gemeinde", parentLabel: null }),
       ]),
     ).toBeNull();
-    const keyed = area({
-      geoKey: "ortsteil:osm:1",
+  });
+
+  it("covers Hamburg Stadtteil parentLabel as Hamburg", () => {
+    const altona = area({
+      geoKey: "ortsteil:osm:altona",
       kind: "ortsteil",
-      name: "Schwabing",
-      ags: "09162000",
+      name: "Altona-Altstadt",
+      ags: "02000000",
     });
-    const parentKey = area({
-      geoKey: "09162000",
-      kind: "gemeinde",
-      grain: "ags",
-      name: "ags:09162000",
-      title: "ags:09162000",
-      ags: "09162000",
-    });
-    expect(hitParentLabel(keyed, [keyed, parentKey], [])).toBeNull();
+    expect(
+      hitParentLabel(altona, [altona], [
+        region({ label: "Altona-Altstadt", level: "ortsteil", parentLabel: "Hamburg", ags: "02000000", geoKey: "ortsteil:osm:altona" }),
+      ]),
+    ).toBe("Hamburg");
   });
 });
