@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.19.5
+  version: 0.19.6
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -257,6 +257,10 @@ info:
     Zielregion / candidate area in EPSG:3035) and then Ortsteile of the
     unclipped candidate; `label` is never a geo-key. Additive; no DB
     migration.
+    `0.19.6` adds optional `items[].localDatasetCount` (nAktiv): the
+    number of local datasets with a numeric `criteriaEvidence[].proximity`
+    (`0` is a valid closeness and counts). `0` means inherited/Stichtag
+    only. Omitted on older stored sets. Additive; no DB migration.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -1215,6 +1219,9 @@ paths:
         (default 0.10) of their area inside the Zielregion.
         `items[].overlaps[0]` is the Zielregion (`isTargetRegion: true`)
         with the unclipped candidate share; further entries are Ortsteile.
+        Additive `items[].localDatasetCount` (0.19.6) is nAktiv: how many
+        local datasets have numeric `proximity` (`0` counts). `0` =
+        inherited/Stichtag only. Omitted on older stored sets.
 
         `rank` is 1-based and gapless **je Zielregion**
         (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -3018,6 +3025,19 @@ components:
             per-dataset closeness before the item coverage factor.
             Polygon candidates need ≥ `ANALYSIS_MIN_OVERLAP_SHARE`
             (default 0.10) of their area inside the Zielregion.
+            Additive `localDatasetCount` (0.19.6) is nAktiv on this item.
+        localDatasetCount:
+          type: integer
+          minimum: 0
+          description: |
+            Additive 0.19.6. nAktiv: number of local datasets that
+            contribute to the score — `criteriaEvidence[]` entries with
+            a numeric `proximity` (`0` is valid closeness and counts).
+            `0` means only inherited or Stichtag values (no local
+            closeness). Omitted on older stored sets. Web path:
+            `items[].localDatasetCount`. Bind the nAktiv-0 card to
+            `localDatasetCount === 0`; do not re-derive from evidence
+            kind/scope (that heuristic can diverge from nAktiv).
         rationale:
           type: string
           description: |
