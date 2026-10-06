@@ -24,6 +24,7 @@ import {
   buildKarte,
 } from "@/lib/map/karte";
 import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
+import { visibleHits } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
 import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { SearchPanel } from "./search-panel";
@@ -158,7 +159,12 @@ export function MapPage() {
         if (cancelled) return;
         setSnapshot((current) =>
           current && current.token === token
-            ? { ...current, recommendations: set?.items ?? [] }
+            ? {
+                ...current,
+                recommendations: visibleHits(set?.items ?? [], marked, {
+                  runRegionCount: bound?.regions.length,
+                }),
+              }
             : current,
         );
       } catch {

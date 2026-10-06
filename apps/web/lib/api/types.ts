@@ -78,9 +78,21 @@ export type RecommendationLocation = ContractRecommendationLocation & {
   level?: CatalogLevel | null;
   parentLabel?: string | null;
 };
+
+/**
+ * Additive OpenAPI 0.19.2 fields. Optional until `@ruehrai/api-contracts`
+ * ships that version; older payloads omit them.
+ */
+export type RecommendationV192Fields = {
+  /** Zielregion this item belongs to. Rank is per this key, from 1. */
+  targetRegionGeoKey?: string;
+  /** As-of stamp for the card line `Stichtag [Jahr]`. */
+  dataAsOf?: string;
+};
+
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
-};
+} & RecommendationV192Fields;
 export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
   items: Recommendation[];
 };

@@ -18,6 +18,7 @@ import {
   buildPatternProfile,
   buildTrefferlisteCards,
   headingForMarkedRegion,
+  rankLabel,
   stichtagCopy,
   trefferStatusCopy,
   type SparkPoint,
@@ -96,8 +97,13 @@ export function EmpfehlungenPage() {
       ? recommendationSet
       : null;
   const cards = useMemo(
-    () => (bindPhase === "ready" && !inFlight ? buildTrefferlisteCards(boundRecommendations, marked) : []),
-    [bindPhase, boundRecommendations, marked, inFlight],
+    () =>
+      bindPhase === "ready" && !inFlight
+        ? buildTrefferlisteCards(boundRecommendations, marked, {
+            runRegionCount: bound?.regions.length,
+          })
+        : [],
+    [bindPhase, boundRecommendations, marked, bound, inFlight],
   );
   const patternRows = useMemo(
     () =>
@@ -586,7 +592,7 @@ function TrefferCard({
   return (
     <article className={selected ? "section-card rec-card is-selected" : "section-card rec-card"}>
       <button type="button" className="treffer-card-head" onClick={onSelect}>
-        <p className="treffer-rank">{`Rang ${card.rank}`}</p>
+        <p className="treffer-rank">{rankLabel(card.rank)}</p>
         <h2>{card.name}</h2>
         <p className="hint">
           {card.badge}
@@ -595,6 +601,7 @@ function TrefferCard({
         {card.intersection ? <p className="hint">{card.intersection}</p> : null}
         {card.lage ? <p className="hint treffer-lage">{card.lage}</p> : null}
       </button>
+      {card.stichtagLabel ? <p className="treffer-stichtag">{card.stichtagLabel}</p> : null}
       {card.trendSummary ? <p className="summary-line">{card.trendSummary}</p> : null}
       <p className="message">{card.rationale}</p>
       {card.geometryHint ? <p className="hint">{card.geometryHint}</p> : null}

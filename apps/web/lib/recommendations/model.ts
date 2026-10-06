@@ -155,6 +155,8 @@ export interface TrefferCardView {
   lage: string | null;
   /** Full overlap list for Details: `[Name]: [x] %`. */
   overlapDetails: string[];
+  /** `Stichtag [Jahr]` from `items[].dataAsOf`. Omitted when the field is missing. */
+  stichtagLabel: string | null;
   trendSummary: string | null;
   rationale: string;
   criteria: TrefferCriterionRow[];
@@ -225,6 +227,17 @@ export function rankLabel(rank: number): string {
 export function stichtagCopy(value: string | null, year: string | null): string {
   if (!value) return RECOMMENDATION_COPY.missingValue;
   return year ? `${value} · Stichtag ${year}` : value;
+}
+
+/** Card line from `items[].dataAsOf`. Never invented when the field is missing. */
+export function stichtagFromDataAsOf(value: string | null | undefined): string | null {
+  const year = yearFromDataAsOf(value);
+  return year ? `Stichtag ${year}` : null;
+}
+
+export interface VisibleHitsOptions {
+  /** Zielregionen on the run snapshot (`input.regions`). Used only when `targetRegionGeoKey` is absent. */
+  runRegionCount?: number;
 }
 
 export function formatAddress(item: Recommendation): string {
@@ -343,6 +356,48 @@ export function trendSummary(item: Recommendation): string | null {
   return summary.length > 0 ? summary : null;
 }
 
+export function targetRegionGeoKeyOf(item: Recommendation): string | null {
+  if (typeof item.targetRegionGeoKey !== "string") return null;
+  const trimmed = item.targetRegionGeoKey.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Hits for the marked Zielregion.
+ *
+ * From OpenAPI 0.19.2, `items[].targetRegionGeoKey` is the Zielregion the
+ * item belongs to (`===` the marked `geoKey`) and `rank` is per region from 1.
+ * Until that field exists, a multi-region set mixes every Zielregion under one
+ * global rank — show no hits rather than Innenstadt rows under Tempelhof.
+ */
+export function visibleHits(
+  items: readonly Recommendation[],
+  marked: PlaceRef | null | undefined,
+  options?: VisibleHitsOptions,
+): Recommendation[] {
+  const multiRegion = isMultiRegionSet(items, options?.runRegionCount);
+  const inMarkedRegion = items.filter((item) => belongsToMarkedRegion(item, marked, multiRegion));
+  const markedRank = marked ? areaRankOf(marked) : 9;
+  const withoutSelf = inMarkedRegion.filter((item) => {
+    if (isAddressHit(item)) return false;
+    if (!hitName(item)) return false;
+    if (marked && isSameAsMarked(item, marked)) return false;
+    if (areaRankOf(hitPlace(item)) >= markedRank) return false;
+    return true;
+  });
+  const finest = dropParentsWhenChildHits(withoutSelf);
+  return [...finest].sort((left, right) => left.rank - right.rank);
+}
+
+export function topHits(
+  items: readonly Recommendation[],
+  marked: PlaceRef | null | undefined,
+  options?: VisibleHitsOptions,
+  limit = 3,
+): Recommendation[] {
+  return visibleHits(items, marked, options).slice(0, limit);
+}
+
 export function inheritedLabel(level: SeriesLevel | null | undefined): string {
   const badge = seriesLevelBadge(level) ?? "Ebene";
   return `vererbt von ${badge}`;
@@ -358,23 +413,6 @@ export function intersectionLine(item: Recommendation): string | null {
   const last = names[names.length - 1];
   const rest = names.slice(0, -1).join(", ");
   return `Schnittfläche aus ${rest} und ${last}`;
-}
-
-export function visibleHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined): Recommendation[] {
-  const markedRank = marked ? areaRankOf(marked) : 9;
-  const withoutSelf = items.filter((item) => {
-    if (isAddressHit(item)) return false;
-    if (!hitName(item)) return false;
-    if (marked && isSameAsMarked(item, marked)) return false;
-    if (areaRankOf(hitPlace(item)) >= markedRank) return false;
-    return true;
-  });
-  const finest = dropParentsWhenChildHits(withoutSelf);
-  return [...finest].sort((left, right) => left.rank - right.rank);
-}
-
-export function topHits(items: readonly Recommendation[], marked: PlaceRef | null | undefined, limit = 3): Recommendation[] {
-  return visibleHits(items, marked).slice(0, limit);
 }
 
 export function buildTrefferCard(
@@ -395,6 +433,7 @@ export function buildTrefferCard(
     intersection: intersectionLine(item),
     lage: overlapLageSentence(item.overlaps),
     overlapDetails: overlapDetailLines(item.overlaps),
+    stichtagLabel: stichtagFromDataAsOf(item.dataAsOf),
     trendSummary: trendSummary(item),
     rationale: item.rationale,
     criteria: local,
@@ -435,9 +474,10 @@ export function buildPatternProfile(patternByDataset: PatternDatasetProfile[] | 
 export function buildTrefferlisteCards(
   set: RecommendationSet | null,
   marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
+  options?: VisibleHitsOptions,
 ): TrefferCardView[] {
   if (!set) return [];
-  return topHits(set.items, marked).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
+  return topHits(set.items, marked, options).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
 }
 
 /**
@@ -459,17 +499,16 @@ function buildCriterionRows(
   patternByDataset: PatternDatasetProfile[] | undefined,
   marked?: PlaceRef | null,
 ): TrefferCriterionRow[] {
-  const evidenceByKey = new Map<string, RecommendationEvidence>();
-  for (const evidence of item.criteriaEvidence) {
-    evidenceByKey.set(evidence.metricId ?? evidence.key, evidence);
-  }
+  const profiles = patternByDataset ?? [];
   const rows: TrefferCriterionRow[] = [];
   const seen = new Set<string>();
 
-  for (const profile of patternByDataset ?? []) {
-    const key = profile.metricId || profile.criterion.key;
+  for (const profile of profiles) {
+    const key = profileMetricId(profile) || profile.criterion.key;
     seen.add(key);
-    const evidence = evidenceByKey.get(key) ?? item.criteriaEvidence.find((row) => row.key === profile.criterion.key);
+    const evidence = evidenceForProfile(item.criteriaEvidence, profile);
+    if (evidence?.metricId) seen.add(evidence.metricId);
+    if (evidence?.key) seen.add(evidence.key);
     rows.push(toCriterionRow(key, evidence, profile, marked));
   }
 
@@ -477,7 +516,8 @@ function buildCriterionRows(
     const key = evidence.metricId ?? evidence.key;
     if (seen.has(key) || seen.has(evidence.key)) continue;
     seen.add(key);
-    rows.push(toCriterionRow(key, evidence, undefined, marked));
+    const profile = profiles.find((row) => evidenceMatchesProfileMetric(evidence, row));
+    rows.push(toCriterionRow(key, evidence, profile, marked));
   }
 
   const local = rows.filter((row) => !row.inherited);
@@ -570,11 +610,69 @@ function hasMatchingPattern(
   evidence: RecommendationEvidence | undefined,
   profile: PatternDatasetProfile | undefined,
 ): boolean {
-  if (!profile) return false;
-  if (evidence?.baselineMatch === false || profile.baselineMatch === false) return false;
-  if (evidence?.baseline && profile.baseline && evidence.baseline !== profile.baseline) return false;
-  if (evidence?.sourceLevel && profile.sourceLevel && evidence.sourceLevel !== profile.sourceLevel) return false;
+  if (!profile || !evidence) return false;
+  if (!evidenceMatchesProfileMetric(evidence, profile)) return false;
+  if (evidence.baselineMatch === false || profile.baselineMatch === false) return false;
+  if (evidence.baseline && profile.baseline && evidence.baseline !== profile.baseline) return false;
+  if (evidence.sourceLevel && profile.sourceLevel && evidence.sourceLevel !== profile.sourceLevel) return false;
   return true;
+}
+
+function profileMetricId(profile: PatternDatasetProfile): string {
+  return profile.metricId || profile.yearlySeries.metricId;
+}
+
+function evidenceForProfile(
+  evidence: readonly RecommendationEvidence[],
+  profile: PatternDatasetProfile,
+): RecommendationEvidence | undefined {
+  const metricId = profileMetricId(profile);
+  return (
+    evidence.find((row) => row.metricId === metricId) ??
+    evidence.find((row) => !row.metricId && (row.key === metricId || row.key === profile.criterion.key))
+  );
+}
+
+function evidenceMatchesProfileMetric(
+  evidence: RecommendationEvidence,
+  profile: PatternDatasetProfile,
+): boolean {
+  const metricId = profileMetricId(profile);
+  if (evidence.metricId) return evidence.metricId === metricId;
+  return evidence.key === metricId || evidence.key === profile.criterion.key;
+}
+
+function belongsToMarkedRegion(
+  item: Recommendation,
+  marked: PlaceRef | null | undefined,
+  multiRegion: boolean,
+): boolean {
+  const target = targetRegionGeoKeyOf(item);
+  if (target) {
+    if (!marked) return false;
+    const markedKey = typeof marked.geoKey === "string" ? marked.geoKey.trim() : "";
+    if (!markedKey) return false;
+    return target === markedKey || samePlace({ geoKey: target }, { geoKey: markedKey });
+  }
+  // Contract < 0.19.2: no targetRegionGeoKey. A multi-region set would mix
+  // every Zielregion under one global rank — hide rather than mix.
+  return !multiRegion;
+}
+
+function isMultiRegionSet(items: readonly Recommendation[], runRegionCount: number | undefined): boolean {
+  if ((runRegionCount ?? 0) > 1) return true;
+  const keys = new Set<string>();
+  for (const item of items) {
+    const key = targetRegionGeoKeyOf(item);
+    if (key) keys.add(key);
+  }
+  return keys.size > 1;
+}
+
+function yearFromDataAsOf(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const year = value.trim().slice(0, 4);
+  return /^[0-9]{4}$/.test(year) ? year : null;
 }
 
 function isInherited(evidence: RecommendationEvidence | undefined, marked?: PlaceRef | null): boolean {

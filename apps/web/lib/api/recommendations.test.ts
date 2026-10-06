@@ -469,6 +469,33 @@ test("GET /recommendations accepts a year window and more than three hits", asyn
   assert.equal(latest?.items[3]?.rank, 4);
 });
 
+test("GET /recommendations accepts additive 0.19.2 targetRegionGeoKey and dataAsOf", async () => {
+  const withV192 = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        targetRegionGeoKey: "ortsteil:osm:162894",
+        dataAsOf: "2022-12-31",
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withV192),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.targetRegionGeoKey, "ortsteil:osm:162894");
+  assert.equal(latest?.items[0]?.dataAsOf, "2022-12-31");
+  const without = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(set),
+  });
+  const older = await without.getRecommendations();
+  assert.equal(older?.items[0]?.targetRegionGeoKey, undefined);
+  assert.equal(older?.items[0]?.dataAsOf, undefined);
+});
+
 test("a recommendation set whose count disagrees with its items is rejected", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

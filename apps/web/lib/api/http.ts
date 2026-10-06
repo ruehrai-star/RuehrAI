@@ -905,6 +905,12 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
   if (body.parentLabel != null && typeof body.parentLabel !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+  if (body.targetRegionGeoKey !== undefined && typeof body.targetRegionGeoKey !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.dataAsOf !== undefined && typeof body.dataAsOf !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   if (body.intersectionOf !== undefined) {
     if (!Array.isArray(body.intersectionOf)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);

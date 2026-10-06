@@ -30,6 +30,7 @@ import {
   seriesLevelBadge,
   shortCriteria,
   stichtagCopy,
+  stichtagFromDataAsOf,
   topHits,
   trefferStatusCopy,
   trendSummary,
@@ -81,7 +82,7 @@ function item(partial: Partial<Recommendation> & Pick<Recommendation, "id" | "ra
     source: "heuristic",
     geometry: polygon,
     trend: { direction: "up", summary: "Einwohner steigt seit drei Jahren, je 1.000 Einwohner." },
-    targetRegionGeoKey: "ortsteil:osm:5712247",
+    targetRegionGeoKey: "11000000",
     ...partial,
     location: {
       geoKey: "ortsteil:osm:5712247",
@@ -1109,4 +1110,166 @@ test("Lage-Satz sits in the card header and Details, not in the Begründung", ()
   assert.match(head, /treffer-lage/);
   assert.match(page, /card\.overlapDetails/);
   assert.equal(page.includes("card.lage ? <p className=\"message\">"), false);
+});
+
+const markedTempelhof = {
+  label: "Tempelhof",
+  geoKey: "ortsteil:osm:162894",
+  grain: "other" as const,
+  level: "ortsteil" as const,
+  parentLabel: "Berlin",
+};
+
+const markedInnenstadt = {
+  label: "Innenstadt",
+  geoKey: "bezirk:osm:2613798",
+  grain: "other" as const,
+  level: "bezirk" as const,
+  parentLabel: "Köln",
+};
+
+test("visibleHits keeps only items whose targetRegionGeoKey is the marked geoKey", () => {
+  const templehofHit = item({
+    id: "lor:plr:tempelhof-1",
+    rank: 1,
+    kind: "lor",
+    title: "Lichtenrade",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    location: { geoKey: "lor:plr:tempelhof-1", grain: "other", lon: null, lat: null, name: "Lichtenrade" },
+  });
+  const innenstadtHit = item({
+    id: "ortsteil:osm:2613711",
+    rank: 1,
+    kind: "ortsteil",
+    title: "Altstadt-Nord",
+    targetRegionGeoKey: "bezirk:osm:2613798",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  const mixed = [innenstadtHit, templehofHit];
+  assert.deepEqual(
+    visibleHits(mixed, markedTempelhof).map((hit) => hit.location.name),
+    ["Lichtenrade"],
+  );
+  assert.deepEqual(
+    visibleHits(mixed, markedInnenstadt).map((hit) => hit.location.name),
+    ["Altstadt-Nord"],
+  );
+  assert.equal(visibleHits(mixed, markedTempelhof)[0]?.rank, 1);
+});
+
+test("a multi-region set without targetRegionGeoKey shows no hits rather than mixing regions", () => {
+  const altstadt = item({
+    id: "ortsteil:osm:2613711",
+    rank: 122,
+    kind: "ortsteil",
+    title: "Altstadt-Nord",
+    targetRegionGeoKey: "",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  assert.equal(visibleHits([altstadt], markedTempelhof, { runRegionCount: 6 }).length, 0);
+  assert.equal(buildTrefferlisteCards(setWith([altstadt]), markedTempelhof, { runRegionCount: 6 }).length, 0);
+  const page = readFileSync(new URL("./model.ts", import.meta.url), "utf8");
+  assert.match(page, /targetRegionGeoKey/);
+  assert.match(page, /multi-region set mixes every Zielregion/);
+});
+
+test("backend rank is shown unchanged; no re-numbering", () => {
+  const ranked = item({
+    id: "lor:plr:tempelhof-1",
+    rank: 122,
+    kind: "lor",
+    title: "Lichtenrade",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    location: { geoKey: "lor:plr:tempelhof-1", grain: "other", lon: null, lat: null, name: "Lichtenrade" },
+  });
+  const cards = buildTrefferlisteCards(setWith([ranked]), markedTempelhof);
+  assert.equal(cards[0]?.rank, 122);
+  assert.equal(rankLabel(cards[0]!.rank), "Rang 122");
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /rankLabel\(card\.rank\)/);
+  assert.equal(page.includes("Rang ${index"), false);
+});
+
+test("Stichtag comes from dataAsOf; Entwicklungssatz from trend.summary when direction is known", () => {
+  assert.equal(stichtagFromDataAsOf("2022-12-31"), "Stichtag 2022");
+  assert.equal(stichtagFromDataAsOf("2022"), "Stichtag 2022");
+  assert.equal(stichtagFromDataAsOf(undefined), null);
+  const withAsOf = item({
+    id: "lor:plr:1",
+    rank: 1,
+    dataAsOf: "2022-12-31T00:00:00.000Z",
+    trend: { direction: "up", summary: "Einwohner steigt je 1.000 Einwohner." },
+  });
+  const unknown = item({
+    id: "lor:plr:2",
+    rank: 2,
+    dataAsOf: "2022",
+    trend: { direction: "unknown", summary: "sollte nicht erscheinen" },
+  });
+  const card = buildTrefferCard(withAsOf, [patternDataset]);
+  assert.equal(card.stichtagLabel, "Stichtag 2022");
+  assert.equal(card.trendSummary, "Einwohner steigt je 1.000 Einwohner.");
+  assert.equal(buildTrefferCard(unknown, undefined).trendSummary, null);
+  assert.equal(buildTrefferCard(unknown, undefined).stichtagLabel, "Stichtag 2022");
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /card\.stichtagLabel/);
+  assert.match(page, /card\.trendSummary/);
+});
+
+test("pattern yearlySeries links to the criterion by metricId at the same level and baseline", () => {
+  const hit = item({
+    id: "lor:plr:1",
+    rank: 1,
+    kind: "lor",
+    criteriaEvidence: [
+      {
+        key: "einwohner",
+        metricId: "einwohner",
+        label: "Einwohner",
+        direction: "up",
+        patternDirection: "up",
+        evidence: "steigt",
+        coverage: "series",
+        scope: "local",
+        sourceLevel: "lor",
+        baseline: "per_1000_inhabitants",
+        baselineMatch: true,
+        normalizedValue: 2,
+        points: [{ period: "2025", status: "present", value: 2, normalizedValue: 2 }],
+      },
+    ],
+  });
+  const matching: PatternDatasetProfile = {
+    ...patternDataset,
+    metricId: "einwohner",
+    sourceLevel: "lor",
+    baseline: "per_1000_inhabitants",
+    yearlySeries: {
+      ...patternDataset.yearlySeries,
+      metricId: "einwohner",
+      sourceLevel: "lor",
+      points: [
+        { period: "2023", status: "present", value: 8, normalizedValue: 8 },
+        { period: "2024", status: "present", value: 9, normalizedValue: 9 },
+      ],
+    },
+  };
+  const otherMetric: PatternDatasetProfile = {
+    ...matching,
+    metricId: "unfallatlas",
+    yearlySeries: { ...matching.yearlySeries, metricId: "unfallatlas" },
+    criterion: { ...matching.criterion, key: "unfallatlas", label: "Unfälle" },
+  };
+  const otherLevel: PatternDatasetProfile = { ...matching, sourceLevel: "gemeinde" };
+  const otherBaseline: PatternDatasetProfile = { ...matching, baseline: "per_km2" };
+  const matched = buildTrefferCard(hit, [matching]);
+  assert.equal(matched.criteria[0]?.patternMissing, false);
+  assert.deepEqual(
+    matched.criteria[0]?.patternSeries.map((point) => point.value),
+    [8, 9],
+  );
+  const mismatchedMetric = buildTrefferCard(hit, [otherMetric]).criteria.find((row) => row.label === "Einwohner");
+  assert.equal(mismatchedMetric?.patternMissing, true);
+  assert.equal(buildTrefferCard(hit, [otherLevel]).criteria[0]?.patternMissing, true);
+  assert.equal(buildTrefferCard(hit, [otherBaseline]).criteria[0]?.patternMissing, true);
 });

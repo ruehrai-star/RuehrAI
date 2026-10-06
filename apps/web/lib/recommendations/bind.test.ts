@@ -276,4 +276,5 @@ test("Trefferliste bind is GET-only; start is an explicit button", () => {
   assert.match(karte, /loadRecommendationsForRun/);
   assert.match(karte, /loadPatternForMarkedRegion/);
   assert.equal(karte.includes("getRecommendations()"), false);
+  assert.match(karte, /visibleHits\(set\?\.items/);
 });
