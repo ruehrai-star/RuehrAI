@@ -35,6 +35,30 @@ import {
 } from "./types";
 
 export const MAX_RANKED_ITEMS = 200;
+/** Ranking / analysis accepts at most this many Zielregionen. No silent drop. */
+export const MAX_TARGET_REGIONS = 200;
+/** n ≤ this still gets at least 3 ranked slots per region (66 × 3 = 198 ≤ 200). */
+export const TARGET_REGION_FULL_QUOTA_MAX_N = 66;
+
+export function tooManyTargetRegionsError(regionCount: number): Error {
+  return Object.assign(new Error(`too many target regions: ${regionCount}`), {
+    code: "TOO_MANY_TARGET_REGIONS",
+    regionCount,
+  });
+}
+
+/**
+ * Guaranteed ranked slots per Zielregion inside the 200-item set cap.
+ * n ≤ 66 → at least 3 (`max(3, floor(200/n))`); 67–200 → at least 1
+ * (`floor(200/n)`, min 1). n > 200 throws — callers must reject the run.
+ */
+export function rankedSlotsPerTargetRegion(regionCount: number): number {
+  if (regionCount <= 0) return 0;
+  if (regionCount > MAX_TARGET_REGIONS) throw tooManyTargetRegionsError(regionCount);
+  const share = Math.floor(MAX_RANKED_ITEMS / regionCount);
+  if (regionCount <= TARGET_REGION_FULL_QUOTA_MAX_N) return Math.max(3, share);
+  return Math.max(1, share);
+}
 
 /**
  * Rank Teilflächen against the store-surroundings **dataset** pattern.
@@ -132,14 +156,16 @@ export function compareScoredLocations(left: ScoredLocation, right: ScoredLocati
 }
 
 /**
- * Per-Zielregion cap: quota `max(3, floor(200/n))`, leftover filled by global
- * score. Total ≤ `MAX_RANKED_ITEMS`. Identical in the worker and setImmediate path.
+ * Per-Zielregion cap so every region that has hits stays in the set.
+ * n ≤ 66 → ≥3 slots; 67–200 → ≥1 (`floor(200/n)`). Leftover filled by
+ * global score. Total ≤ `MAX_RANKED_ITEMS`. n > 200 throws.
+ * Identical in the worker and setImmediate path.
  */
 export function capRankedByTargetRegion(scored: ScoredLocation[]): ScoredLocation[] {
-  if (scored.length <= MAX_RANKED_ITEMS) return scored;
   const groups = groupScoredByTargetRegion(scored);
-  const n = Math.max(groups.size, 1);
-  const perRegionCap = Math.max(3, Math.floor(MAX_RANKED_ITEMS / n));
+  if (groups.size > MAX_TARGET_REGIONS) throw tooManyTargetRegionsError(groups.size);
+  if (scored.length <= MAX_RANKED_ITEMS) return scored;
+  const perRegionCap = rankedSlotsPerTargetRegion(groups.size);
   const selected: ScoredLocation[] = [];
   const leftover: ScoredLocation[] = [];
   for (const items of groups.values()) {

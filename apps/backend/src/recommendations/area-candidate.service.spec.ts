@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { AnalysisRegion } from "../analysis/types";
 import { AreaCandidateService } from "./area-candidate.service";
@@ -522,5 +523,31 @@ describe("AreaCandidateService", () => {
     expect(hits.map((item) => item.targetRegionGeoKey).sort()).toEqual(["ortsteil:osm:licht", "ortsteil:osm:steg"]);
     expect(hits[0]?.id).toContain("@");
     expect(hits[0]?.geometry).not.toEqual(hits[1]?.geometry);
+  });
+
+  it("stamps ags:{ags} when geoKey is missing and warns", async () => {
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (emptyOptionalSql(text) && !text.includes("geo.geo_ref_zielregion_teil")) return { rows: [] };
+      return {
+        rows: [
+          {
+            geo_key: "80801",
+            grain: "plz5",
+            kind: "plz",
+            name: "80801",
+            ags: "09162000",
+            plz: "80801",
+            lon: 11.58,
+            lat: 48.16,
+          },
+        ],
+      };
+    });
+    const loaded = await service.load([region({ geoKey: null, ags: "09162000", label: "München" })]);
+    expect(loaded.items.some((item) => item.targetRegionGeoKey === "ags:09162000")).toBe(true);
+    expect(warn.mock.calls.some((call) => String(call[0]).includes("ags:09162000"))).toBe(true);
+    warn.mockRestore();
   });
 });

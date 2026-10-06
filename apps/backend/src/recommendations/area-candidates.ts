@@ -76,8 +76,49 @@ export function stampCandidateTargetRegion(
   };
 }
 
+export type TargetRegionKeySource = "geoKey" | "ags" | "label";
+
+export interface ResolvedTargetRegionKey {
+  key: string;
+  source: TargetRegionKeySource;
+}
+
+/** Trim, collapse whitespace, lowercase — used in `label:{…}` fallback keys. */
+export function normalizeTargetRegionLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+}
+
+/**
+ * Contract key for a Zielregion: `geoKey` → `ags:{ags}` → `label:{normalized label}`.
+ * Always returns a key so the region is never silently dropped.
+ */
+export function resolveTargetRegionKey(
+  region: Pick<AnalysisRegion, "geoKey" | "ags" | "label">,
+): ResolvedTargetRegionKey {
+  const geoKey = region.geoKey?.trim();
+  if (geoKey) return { key: geoKey, source: "geoKey" };
+  const ags = region.ags?.trim();
+  if (ags) return { key: `ags:${ags}`, source: "ags" };
+  return { key: `label:${normalizeTargetRegionLabel(region.label ?? "")}`, source: "label" };
+}
+
 export function targetRegionKeyOf(region: Pick<AnalysisRegion, "geoKey" | "ags" | "label">): string {
-  return region.geoKey?.trim() || region.ags?.trim() || region.label;
+  return resolveTargetRegionKey(region).key;
+}
+
+export interface RecommendationTargetRegionRef {
+  geoKey: string;
+  label: string;
+}
+
+/** Snapshot-order list of keys actually used as `items[].targetRegionGeoKey`. */
+export function targetRegionsFromAnalysis(
+  regions: Array<Pick<AnalysisRegion, "geoKey" | "ags" | "label">>,
+): RecommendationTargetRegionRef[] {
+  return regions.map((region) => ({
+    geoKey: targetRegionKeyOf(region),
+    label: region.label,
+  }));
 }
 
 export interface AreaCandidateSqlRow {

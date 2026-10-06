@@ -150,6 +150,23 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(recommendation.properties.targetRegionGeoKey.type, "string");
   assert.equal(recommendation.required.includes("targetRegionGeoKey"), true);
   assert.ok(recommendation.properties.targetRegionGeoKey.description.includes("geoKey"));
+  assert.ok(recommendation.properties.targetRegionGeoKey.description.includes("ags:{ags}"));
+  assert.ok(recommendation.properties.targetRegionGeoKey.description.includes("label:{normalized label}"));
+  assert.ok(recommendation.properties.targetRegionGeoKey.description.includes("targetRegions"));
+  assert.equal(doc.components.schemas.RecommendationSet.required.includes("targetRegions"), false);
+  assert.equal(
+    doc.components.schemas.RecommendationSet.properties.targetRegions.items.$ref,
+    "#/components/schemas/RecommendationTargetRegion",
+  );
+  assert.equal(doc.components.schemas.RecommendationSet.properties.targetRegions.maxItems, 200);
+  assert.ok(doc.components.schemas.RecommendationSet.properties.targetRegions.description.includes("ags:{ags}"));
+  assert.ok(doc.components.schemas.RecommendationSet.properties.targetRegions.description.includes("floor(200/n)"));
+  assert.ok(doc.components.schemas.RecommendationTargetRegion.required.includes("geoKey"));
+  assert.equal(doc.components.schemas.TargetRegionList.properties.items.maxItems, undefined);
+  assert.ok(doc.components.schemas.TargetRegionList.properties.items.description.includes("No per-user maxItems"));
+  assert.ok(doc.components.schemas.AnalysisInput.properties.regions.description.includes("200"));
+  assert.ok(doc.paths["/analysis/runs"].post.responses["400"].description.includes("200"));
+  assert.ok(doc.info.description.includes("n ≤ 66"));
   assert.equal(recommendation.properties.dataAsOf.type, "string");
   assert.equal(recommendation.properties.dataAsOf.nullable, true);
   assert.equal(recommendation.required.includes("dataAsOf"), false);

@@ -103,6 +103,11 @@ export interface RecommendationPayload {
   patternByLevel?: PatternLevelProfile[];
   /** Store-surroundings Musterprofil je Datensatz (normalized trend). */
   patternByDataset?: PatternDatasetProfile[];
+  /**
+   * Zielregionen of this set in snapshot order. `geoKey` is the key used as
+   * `items[].targetRegionGeoKey` (geoKey → `ags:{ags}` → `label:{normalized}`).
+   */
+  targetRegions?: Array<{ geoKey: string; label: string }>;
   items: RecommendationItem[];
 }
 

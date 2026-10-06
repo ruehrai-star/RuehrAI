@@ -867,7 +867,11 @@ export interface components {
             updatedAt: string;
         };
         TargetRegionList: {
-            /** @description Saved places, newest add first. Empty when none are stored. */
+            /**
+             * @description Saved places, newest add first. Empty when none are stored.
+             *     No per-user maxItems — ranking of an analysis run accepts at
+             *     most 200 Zielregionen (see `AnalysisInput.regions`).
+             */
             items: components["schemas"]["TargetRegion"][];
         };
         TargetRegionWrite: {
@@ -996,6 +1000,11 @@ export interface components {
             /**
              * @description Full target-region list at snapshot time, newest first. Location
              *     search uses this set. Omitted on runs created before the list.
+             *     Ranking accepts at most 200 Zielregionen (`RecommendationSet.items`
+             *     maxItems 200; n ≤ 66 → ≥3 slots each, 67–200 → ≥1). More than
+             *     200 Zielregionen is rejected on `POST /analysis/runs` (400) —
+             *     no region is dropped silently. `POST /target-region` /
+             *     `TargetRegionList` has no separate per-user count limit.
              */
             regions?: components["schemas"]["TargetRegion"][];
             stores: components["schemas"]["AnalysisStore"][];
@@ -1463,14 +1472,30 @@ export interface components {
             runId?: string;
         };
         /**
+         * @description One Zielregion of a recommendation set. `geoKey` is the key
+         *     used as `items[].targetRegionGeoKey` (not necessarily
+         *     `AnalysisRegion.geoKey` — see fallbacks there).
+         */
+        RecommendationTargetRegion: {
+            /**
+             * @description Key used as `Recommendation.targetRegionGeoKey`.
+             *     `AnalysisRegion.geoKey` when non-empty; otherwise `ags:{ags}`;
+             *     otherwise `label:{normalized label}`.
+             */
+            geoKey: string;
+            /** @description Display label of the Zielregion. */
+            label?: string;
+        };
+        /**
          * @description Ranked Teilflächen the web client binds to. `count` is
          *     `items.length`. `reason` is null when at least one sub-area
          *     exists and the catalog read was not truncated. `pattern` is the
          *     flattened store-surroundings snapshot (older clients).
          *     `patternByLevel` is the geography inventory je Ebene.
          *     `patternByDataset` is the Musterprofil used for dataset compare
-         *     (normalized trend per metricId). Empty `items` only when no
-         *     sub-area exists inside the Zielregion. Hit size is the Fläche
+         *     (normalized trend per metricId). `targetRegions` lists the
+         *     used `targetRegionGeoKey` per Zielregion (additive, 0.19.2).
+         *     Empty `items` only when no sub-area exists inside the Zielregion. Hit size is the Fläche
          *     where the dataset lives, not the smallest admin Ebene at all
          *     costs; several datasets yield their intersection.
          */
@@ -1509,6 +1534,19 @@ export interface components {
              *     not duplicated on each Recommendation item.
              */
             patternByDataset?: components["schemas"]["PatternDatasetProfile"][];
+            /**
+             * @description Zielregionen of this set, snapshot order. `geoKey` is the
+             *     key actually used as `items[].targetRegionGeoKey`.
+             *     Resolution (0.19.2): `AnalysisRegion.geoKey` when non-empty;
+             *     otherwise `ags:{ags}` when AGS is present; otherwise
+             *     `label:{normalized label}` (trim, collapse whitespace,
+             *     lowercase). Present on new sets. Older stored sets may omit
+             *     the field. Ranking accepts at most 200 Zielregionen
+             *     (n ≤ 66 → ≥3 ranked slots each; 67–200 → ≥1 via
+             *     `floor(200/n)`). More than 200 is rejected. There is no
+             *     separate per-user cap on `POST /target-region`.
+             */
+            targetRegions?: components["schemas"]["RecommendationTargetRegion"][];
             items: components["schemas"]["Recommendation"][];
         };
         /**
@@ -1586,11 +1624,16 @@ export interface components {
              */
             parentLabel?: string | null;
             /**
-             * @description geoKey of the user Zielregion this item belongs to (the
-             *     region the catalog / `geo_ref_zielregion_teil` query ran
-             *     for). Required on new sets (0.19.2). Rank, geometry clip,
-             *     overlaps, and share are scoped to this key. Older stored
-             *     sets may send an empty string after hydration.
+             * @description Key of the user Zielregion this item belongs to. Required
+             *     on new sets (0.19.2). Rank, geometry clip, overlaps, and
+             *     share are scoped to this key. Resolution:
+             *     `AnalysisRegion.geoKey` when non-empty; otherwise
+             *     `ags:{ags}` when AGS is present; otherwise
+             *     `label:{normalized label}` (trim, collapse whitespace,
+             *     lowercase). The same key is listed on
+             *     `RecommendationSet.targetRegions[].geoKey` so clients can
+             *     join items to Zielregionen. Older stored sets may send an
+             *     empty string after hydration.
              * @example ortsteil:osm:55737
              */
             targetRegionGeoKey: string;
@@ -2665,7 +2708,12 @@ export interface operations {
                     "application/json": components["schemas"]["AnalysisRun"];
                 };
             };
-            /** @description Monthly revenue is not sufficient for a pattern. */
+            /**
+             * @description Monthly revenue is not sufficient for a pattern, or the
+             *     snapshot has more than 200 Zielregionen (ranking quota
+             *     cannot cover every region inside `items` maxItems 200;
+             *     no region is dropped silently).
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2842,6 +2890,12 @@ export interface operations {
                      *       },
                      *       "count": 1,
                      *       "reason": null,
+                     *       "targetRegions": [
+                     *         {
+                     *           "geoKey": "09162000",
+                     *           "label": "München"
+                     *         }
+                     *       ],
                      *       "pattern": {
                      *         "source": "heuristic",
                      *         "summary": "Unfälle fallen in der Filialumgebung im Dreijahresverlauf.",

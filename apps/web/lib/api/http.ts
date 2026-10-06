@@ -760,6 +760,16 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     }
     body.patternByDataset.forEach((profile) => parsePatternDatasetProfile(profile, route));
   }
+  if (body.targetRegions !== undefined) {
+    if (!Array.isArray(body.targetRegions) || body.targetRegions.length > 200) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const region of body.targetRegions) {
+      if (!region || typeof region.geoKey !== "string") {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
   return {
     ...body,
     items: body.items.map((item) => parseRecommendation(item, route)),

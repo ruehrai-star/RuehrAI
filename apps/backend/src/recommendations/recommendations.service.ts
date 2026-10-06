@@ -1,5 +1,5 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
-import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
+import { PATTERN_NOT_FOUND, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS } from "../analysis/messages";
 import { buildPatternByDataset, buildPatternByLevel } from "../analysis/pattern-profile";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
 import { AnalysisInput, AnalysisPattern, analysisRegions } from "../analysis/types";
@@ -7,7 +7,7 @@ import { SeriesRegionInput, YearlySeries, asOfFrom } from "../analysis/yearly-se
 import { YearlySeriesService } from "../analysis/yearly-series.service";
 import { DatabaseService, analysisWriteQuery } from "../database/database.service";
 import { toIso } from "../customer/values";
-import { AreaCandidate } from "./area-candidates";
+import { AreaCandidate, targetRegionKeyOf, targetRegionsFromAnalysis } from "./area-candidates";
 import { AreaCandidateService } from "./area-candidate.service";
 import { capCandidatesForSeries } from "./candidate-cap";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
@@ -20,8 +20,7 @@ import { yieldEventLoop } from "../common/safe-array";
 import { runComputeJob } from "../analysis/compute-host";
 import { readAnalysisSeriesCandidateCap } from "../analysis/analysis-env";
 import { throwIfAborted } from "../analysis/run-abort";
-import { assignRanksByTargetRegion, dataAsOfFromEvidence } from "./score";
-import { targetRegionKeyOf } from "./area-candidates";
+import { assignRanksByTargetRegion, dataAsOfFromEvidence, MAX_TARGET_REGIONS } from "./score";
 
 interface RunRow {
   id: string;
@@ -73,6 +72,9 @@ export class RecommendationsService {
     const captured = asOfFrom(run.input.capturedAt);
     const asOfDate = asOf && !Number.isNaN(asOf.getTime()) ? asOf : captured;
     const regions = analysisRegions(run.input);
+    if (regions.length > MAX_TARGET_REGIONS) {
+      throw new BadRequestException(TOO_MANY_TARGET_REGIONS);
+    }
 
     const surroundings = await this.surroundings.resolve(run.input.stores);
     throwIfAborted(signal);
@@ -138,6 +140,7 @@ export class RecommendationsService {
       pattern,
       patternByLevel,
       patternByDataset,
+      targetRegions: targetRegionsFromAnalysis(regions),
       items: rankedItems,
     };
     if (!persist) {
@@ -308,6 +311,7 @@ export function recommendationPayloadOf(set: RecommendationSet): RecommendationP
     pattern: set.pattern,
     patternByLevel: set.patternByLevel,
     patternByDataset: set.patternByDataset,
+    targetRegions: set.targetRegions,
     items: set.items,
   };
 }

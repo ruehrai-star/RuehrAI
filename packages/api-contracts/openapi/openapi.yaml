@@ -180,7 +180,10 @@ info:
     PLZ, LOR, Ortsteil, Raster, Adresse). Additive / tightening; no DB
     migration.
     `0.19.2` ranks **je Zielregion**. `Recommendation.targetRegionGeoKey`
-    is the Zielregion (`AnalysisRegion.geoKey`) this item was loaded for.
+    is the key used for that item: `AnalysisRegion.geoKey` when present,
+    otherwise `ags:{ags}`, otherwise `label:{normalized label}` (trim,
+    collapse whitespace, lowercase). The set lists that used key per
+    Zielregion in additive `RecommendationSet.targetRegions[].geoKey`.
     `rank` is 1-based and gapless inside that key, all Ebenen together
     by score descending. The same Fläche in two Zielregionen is two items
     (`id` is `{grain}:{geoKey}@{targetRegionGeoKey}`), each with geometry,
@@ -188,7 +191,11 @@ info:
     `criteriaEvidence.points[].period` (`YYYY` or `YYYY-MM`) used for the
     item, or null when no point exists. The Musterverlauf stays on the
     set: clients join `criteriaEvidence[].metricId` to
-    `patternByDataset[].yearlySeries`. Additive; stored as JSON on
+    `patternByDataset[].yearlySeries`. Ranked `items` are capped at 200
+    with a guaranteed quota per Zielregion: n ≤ 66 → at least 3 slots;
+    67–200 → at least 1 (`floor(200/n)`). More than 200 Zielregionen is
+    rejected (`POST /analysis/runs` 400). `POST /target-region` has no
+    separate per-user count limit. Additive; stored as JSON on
     `recommendation_sets.payload` — no DB migration.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
@@ -965,7 +972,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/AnalysisRun"
         "400":
-          description: Monthly revenue is not sufficient for a pattern.
+          description: |
+            Monthly revenue is not sufficient for a pattern, or the
+            snapshot has more than 200 Zielregionen (ranking quota
+            cannot cover every region inside `items` maxItems 200;
+            no region is dropped silently).
           content:
             application/json:
               schema:
@@ -1150,6 +1161,9 @@ paths:
                   to: "2025"
                 count: 1
                 reason: null
+                targetRegions:
+                  - geoKey: "09162000"
+                    label: München
                 pattern:
                   source: heuristic
                   summary: Unfälle fallen in der Filialumgebung im Dreijahresverlauf.
@@ -1679,7 +1693,10 @@ components:
       properties:
         items:
           type: array
-          description: Saved places, newest add first. Empty when none are stored.
+          description: |
+            Saved places, newest add first. Empty when none are stored.
+            No per-user maxItems — ranking of an analysis run accepts at
+            most 200 Zielregionen (see `AnalysisInput.regions`).
           items:
             $ref: "#/components/schemas/TargetRegion"
     TargetRegionWrite:
@@ -1929,6 +1946,11 @@ components:
           description: |
             Full target-region list at snapshot time, newest first. Location
             search uses this set. Omitted on runs created before the list.
+            Ranking accepts at most 200 Zielregionen (`RecommendationSet.items`
+            maxItems 200; n ≤ 66 → ≥3 slots each, 67–200 → ≥1). More than
+            200 Zielregionen is rejected on `POST /analysis/runs` (400) —
+            no region is dropped silently. `POST /target-region` /
+            `TargetRegionList` has no separate per-user count limit.
           items:
             $ref: "#/components/schemas/TargetRegion"
         stores:
@@ -2598,6 +2620,24 @@ components:
           type: string
           pattern: "^[1-9][0-9]{0,18}$"
           description: Analysis run id as a decimal string. Must belong to the token user.
+    RecommendationTargetRegion:
+      type: object
+      additionalProperties: false
+      required: [geoKey]
+      description: |
+        One Zielregion of a recommendation set. `geoKey` is the key
+        used as `items[].targetRegionGeoKey` (not necessarily
+        `AnalysisRegion.geoKey` — see fallbacks there).
+      properties:
+        geoKey:
+          type: string
+          description: |
+            Key used as `Recommendation.targetRegionGeoKey`.
+            `AnalysisRegion.geoKey` when non-empty; otherwise `ags:{ags}`;
+            otherwise `label:{normalized label}`.
+        label:
+          type: string
+          description: Display label of the Zielregion.
     RecommendationSet:
       type: object
       additionalProperties: false
@@ -2609,8 +2649,9 @@ components:
         flattened store-surroundings snapshot (older clients).
         `patternByLevel` is the geography inventory je Ebene.
         `patternByDataset` is the Musterprofil used for dataset compare
-        (normalized trend per metricId). Empty `items` only when no
-        sub-area exists inside the Zielregion. Hit size is the Fläche
+        (normalized trend per metricId). `targetRegions` lists the
+        used `targetRegionGeoKey` per Zielregion (additive, 0.19.2).
+        Empty `items` only when no sub-area exists inside the Zielregion. Hit size is the Fläche
         where the dataset lives, not the smallest admin Ebene at all
         costs; several datasets yield their intersection.
       properties:
@@ -2661,6 +2702,22 @@ components:
             not duplicated on each Recommendation item.
           items:
             $ref: "#/components/schemas/PatternDatasetProfile"
+        targetRegions:
+          type: array
+          description: |
+            Zielregionen of this set, snapshot order. `geoKey` is the
+            key actually used as `items[].targetRegionGeoKey`.
+            Resolution (0.19.2): `AnalysisRegion.geoKey` when non-empty;
+            otherwise `ags:{ags}` when AGS is present; otherwise
+            `label:{normalized label}` (trim, collapse whitespace,
+            lowercase). Present on new sets. Older stored sets may omit
+            the field. Ranking accepts at most 200 Zielregionen
+            (n ≤ 66 → ≥3 ranked slots each; 67–200 → ≥1 via
+            `floor(200/n)`). More than 200 is rejected. There is no
+            separate per-user cap on `POST /target-region`.
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RecommendationTargetRegion"
         items:
           type: array
           maxItems: 200
@@ -2753,11 +2810,16 @@ components:
         targetRegionGeoKey:
           type: string
           description: |
-            geoKey of the user Zielregion this item belongs to (the
-            region the catalog / `geo_ref_zielregion_teil` query ran
-            for). Required on new sets (0.19.2). Rank, geometry clip,
-            overlaps, and share are scoped to this key. Older stored
-            sets may send an empty string after hydration.
+            Key of the user Zielregion this item belongs to. Required
+            on new sets (0.19.2). Rank, geometry clip, overlaps, and
+            share are scoped to this key. Resolution:
+            `AnalysisRegion.geoKey` when non-empty; otherwise
+            `ags:{ags}` when AGS is present; otherwise
+            `label:{normalized label}` (trim, collapse whitespace,
+            lowercase). The same key is listed on
+            `RecommendationSet.targetRegions[].geoKey` so clients can
+            join items to Zielregionen. Older stored sets may send an
+            empty string after hydration.
           example: "ortsteil:osm:55737"
         dataAsOf:
           type: string

@@ -244,6 +244,29 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
   );
 });
 
+test("GET /recommendations accepts additive targetRegions and still parses without it", async () => {
+  const withRegions = {
+    ...set,
+    targetRegions: [
+      { geoKey: "ags:05315000", label: "Innenstadt" },
+      { geoKey: "label:steglitz", label: "Steglitz" },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withRegions),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.targetRegions?.length, 2);
+  assert.equal(latest?.targetRegions?.[0]?.geoKey, "ags:05315000");
+  const without = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(set),
+  });
+  const plain = await without.getRecommendations();
+  assert.equal(plain?.targetRegions, undefined);
+});
+
 test("GET /recommendations accepts 0.18 geometry, series coverage, trend, and baselineMatch", async () => {
   const withHit = {
     ...set,

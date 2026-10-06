@@ -13,3 +13,6 @@ export const PATTERN_FOR_REGION_NOT_FOUND =
   "Für diese Zielregion liegt noch kein Analyselauf vor.";
 
 export const RUN_FAILED = "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.";
+
+export const TOO_MANY_TARGET_REGIONS =
+  "Die Analyse erlaubt höchstens 200 Zielregionen. Keine Region wird still weggelassen — bitte Regionen entfernen.";

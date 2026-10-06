@@ -2,7 +2,8 @@ import { AnalysisRegion, PatternCriterion } from "../analysis/types";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
-import { assignRanksByTargetRegion, dataAsOfFromEvidence, MAX_RANKED_ITEMS, rankTeilflaechen } from "./score";
+import { assignRanksByTargetRegion, capRankedByTargetRegion, dataAsOfFromEvidence, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
+import { ScoredLocation } from "./types";
 
 function candidate(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -848,6 +849,48 @@ describe("rank je Zielregion", () => {
   });
 });
 
+describe("rankedSlotsPerTargetRegion / capRankedByTargetRegion", () => {
+  it("gives at least 3 slots for n=66 and keeps every region", () => {
+    expect(rankedSlotsPerTargetRegion(66)).toBe(3);
+    const capped = capRankedByTargetRegion(poolForRegions(66, 10));
+    expect(capped.length).toBeLessThanOrEqual(MAX_RANKED_ITEMS);
+    expect(capped.length).toBe(MAX_RANKED_ITEMS);
+    const keys = new Set(capped.map((item) => item.targetRegionGeoKey));
+    expect(keys.size).toBe(66);
+    for (const key of keys) {
+      expect(capped.filter((item) => item.targetRegionGeoKey === key).length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("gives at least 1 slot for n=67 and keeps every region", () => {
+    expect(rankedSlotsPerTargetRegion(67)).toBe(Math.floor(200 / 67));
+    expect(rankedSlotsPerTargetRegion(67)).toBeGreaterThanOrEqual(1);
+    const capped = capRankedByTargetRegion(poolForRegions(67, 10));
+    expect(capped.length).toBe(MAX_RANKED_ITEMS);
+    const keys = new Set(capped.map((item) => item.targetRegionGeoKey));
+    expect(keys.size).toBe(67);
+    for (const key of keys) {
+      expect(capped.filter((item) => item.targetRegionGeoKey === key).length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("gives exactly 1 slot for n=200 and keeps every region", () => {
+    expect(rankedSlotsPerTargetRegion(200)).toBe(1);
+    const capped = capRankedByTargetRegion(poolForRegions(200, 5));
+    expect(capped.length).toBe(MAX_RANKED_ITEMS);
+    const keys = new Set(capped.map((item) => item.targetRegionGeoKey));
+    expect(keys.size).toBe(200);
+    for (const key of keys) {
+      expect(capped.filter((item) => item.targetRegionGeoKey === key).length).toBe(1);
+    }
+  });
+
+  it("rejects more than 200 Zielregionen instead of dropping one", () => {
+    expect(() => rankedSlotsPerTargetRegion(MAX_TARGET_REGIONS + 1)).toThrow(/too many target regions/);
+    expect(() => capRankedByTargetRegion(poolForRegions(201, 1))).toThrow(/too many target regions/);
+  });
+});
+
 function localUnfall(geoKey: string, first: number, last: number, level: SeriesLevel = "ortsteil"): YearlySeries {
   return series({
     metricId: "unfallatlas",
@@ -877,6 +920,33 @@ function region(geoKey: string, label: string): AnalysisRegion {
     geometry: null,
     updatedAt: "2026-10-06T00:00:00.000Z",
   };
+}
+
+function scoredItem(regionKey: string, index: number, score: number): ScoredLocation {
+  return {
+    id: `other:hit-${regionKey}-${index}@${regionKey}`,
+    title: `${regionKey}-${index}`,
+    kind: "ortsteil",
+    grain: "other",
+    name: `${regionKey}-${index}`,
+    parentLabel: null,
+    targetRegionGeoKey: regionKey,
+    dataAsOf: "2025",
+    location: { geoKey: `hit-${regionKey}-${index}`, grain: "other", lon: null, lat: null, name: null },
+    score,
+    criteriaEvidence: [],
+  };
+}
+
+function poolForRegions(regionCount: number, perRegion: number): ScoredLocation[] {
+  const items: ScoredLocation[] = [];
+  for (let regionIndex = 0; regionIndex < regionCount; regionIndex += 1) {
+    const key = `r:${regionIndex}`;
+    for (let index = 0; index < perRegion; index += 1) {
+      items.push(scoredItem(key, index, 1 - index / Math.max(perRegion, 1)));
+    }
+  }
+  return items;
 }
 
 describe("recommendationReason", () => {

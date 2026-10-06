@@ -56,6 +56,7 @@ export type AnalysisPatternRegion = Schemas["AnalysisPatternRegion"];
 export type AnalysisPatternResponse = Schemas["AnalysisPatternResponse"];
 export type RecommendationCreate = Schemas["RecommendationCreate"];
 export type RecommendationSet = Schemas["RecommendationSet"];
+export type RecommendationTargetRegion = Schemas["RecommendationTargetRegion"];
 export type RecommendationWindow = Schemas["RecommendationWindow"];
 export type Recommendation = Schemas["Recommendation"];
 export type RecommendationTrend = Schemas["RecommendationTrend"];
