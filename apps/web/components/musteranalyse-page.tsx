@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AnalysisInput, AnalysisPattern, AnalysisRun, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
 import { rememberStartedRun } from "@/lib/analysis/started-runs";
-import { readMarkedKey } from "@/lib/locations/marked-region";
+import { clearMarkedKey, readMarkedKey } from "@/lib/locations/marked-region";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import { markedRegion } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
@@ -20,10 +20,11 @@ import {
   revenueDirectionLabel,
   revenueMonthCount,
 } from "@/lib/analysis/model";
-import { analysisFailureFromHttp, analysisFailureMessage } from "@/lib/analysis/failure";
+import { analysisFailureFromHttp, analysisFailureMessage, ANALYSIS_FAILURE_COPY, isMarkedTargetRegionNotFound } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
 import { RunRegionLabel } from "./run-region-label";
+import { MarkedRegionMissingNotice } from "./marked-region-missing";
 import { useSession } from "./session-provider";
 
 type Phase = "loading" | "idle" | "running" | "failed" | "deadline";
@@ -53,6 +54,8 @@ export function MusteranalysePage() {
   const visibleRun = visible && phase !== "running" ? run : null;
   const visiblePattern = visible && phase !== "running" ? pattern : null;
   const status = statusText(phase, visible, Boolean(visiblePattern));
+  const showMarkedRegionMissing =
+    phase === "failed" && actionError === ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
   const startLocked = analysisStartLocked({
     starting: phase === "loading",
     runStatus: phase === "running" ? "running" : "idle",
@@ -169,10 +172,16 @@ export function MusteranalysePage() {
       setPhase("idle");
     } catch (caught) {
       if (request.current !== token) return;
-      const status = caught instanceof Error && "status" in caught ? Number((caught as { status: number }).status) : 0;
-      setActionError(
-        analysisFailureFromHttp(status, caught instanceof Error ? caught.message : ANALYSIS_COPY.failed),
-      );
+      if (isMarkedTargetRegionNotFound(caught)) {
+        clearMarkedKey();
+        setActionError(ANALYSIS_FAILURE_COPY.markedTargetRegionMissing);
+      } else {
+        const status = caught instanceof Error && "status" in caught ? Number((caught as { status: number }).status) : 0;
+        const code = caught instanceof Error && "code" in caught ? String((caught as { code?: string }).code ?? "") : null;
+        setActionError(
+          analysisFailureFromHttp(status, caught instanceof Error ? caught.message : ANALYSIS_COPY.failed, code),
+        );
+      }
       setPhase("failed");
     } finally {
       startGate.current = false;
@@ -225,7 +234,7 @@ export function MusteranalysePage() {
         ) : null}
       </section>
 
-      {status ? (
+      {status && !showMarkedRegionMissing ? (
         <p
           className={phase === "failed" || phase === "deadline" ? "message message-error" : "message"}
           role={phase === "failed" || phase === "deadline" ? "alert" : "status"}
@@ -234,7 +243,11 @@ export function MusteranalysePage() {
           {status}
         </p>
       ) : null}
-      {phase === "failed" && actionError && actionError !== ANALYSIS_COPY.failed ? (
+      {showMarkedRegionMissing ? <MarkedRegionMissingNotice /> : null}
+      {phase === "failed" &&
+      actionError &&
+      actionError !== ANALYSIS_COPY.failed &&
+      actionError !== ANALYSIS_FAILURE_COPY.markedTargetRegionMissing ? (
         <p className="message message-error">{actionError}</p>
       ) : null}
       {visible && readError ? (
@@ -244,9 +257,11 @@ export function MusteranalysePage() {
       ) : null}
 
       <div className="auth-actions">
-        <button type="button" className="button" onClick={onStart} disabled={startLocked}>
-          {phase === "failed" || phase === "deadline" ? ANALYSIS_COPY.restart : ANALYSIS_COPY.start}
-        </button>
+        {showMarkedRegionMissing ? null : (
+          <button type="button" className="button" onClick={onStart} disabled={startLocked}>
+            {phase === "failed" || phase === "deadline" ? ANALYSIS_COPY.restart : ANALYSIS_COPY.start}
+          </button>
+        )}
         <Link href="/standorte" className="button button-quiet">
           {ANALYSIS_COPY.back}
         </Link>

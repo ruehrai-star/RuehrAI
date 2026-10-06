@@ -1,6 +1,7 @@
 /** Closed OpenAPI `AnalysisRunFailureReason` → German copy. Never show the key. */
 
 import type { AnalysisRun } from "@ruehrai/api-contracts";
+import { ApiError } from "../api/types.ts";
 
 export type AnalysisRunFailureReason = NonNullable<AnalysisRun["failureReason"]>;
 
@@ -26,7 +27,14 @@ export const ANALYSIS_FAILURE_COPY = {
   unexpected: "Es ist ein unerwarteter Fehler aufgetreten.",
   restart: "Erneut starten",
   tooManyTargetRegions: "Bitte wählen Sie höchstens 200 Zielregionen.",
+  markedTargetRegionMissing: "Diese Zielregion ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  chooseTargetRegion: "Zielregion wählen",
 } as const;
+
+/** OpenAPI ErrorResponse.code on POST /analysis/runs for an unknown/foreign mark. */
+export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found";
+
+export const CHOOSE_TARGET_REGION_HREF = "/standorte#zielregion";
 
 const REASON_DETAIL: Record<AnalysisRunFailureReason, string> = {
   timeout: ANALYSIS_FAILURE_COPY.timeout,
@@ -64,8 +72,19 @@ export function analysisFailureMessage(reason: string | null | undefined): strin
  * POST `/analysis/runs` 400 for more than 200 Zielregionen is a user-facing
  * limit, not a run `failureReason` — show the German sentence, not the
  * generic unexpected line.
+ *
+ * POST `/analysis/runs` 404 with `code` `marked_target_region_not_found`
+ * means the marked geoKey is gone from the saved list. Other 404s stay
+ * the generic unexpected line.
  */
-export function analysisFailureFromHttp(status: number, body?: string | null): string {
+export function analysisFailureFromHttp(
+  status: number,
+  body?: string | null,
+  code?: string | null,
+): string {
+  if (status === 404 && isMarkedTargetRegionNotFoundCode(code)) {
+    return ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  }
   if (status === 404) {
     return analysisFailureMessage("internal_error");
   }
@@ -73,6 +92,14 @@ export function analysisFailureFromHttp(status: number, body?: string | null): s
     return ANALYSIS_FAILURE_COPY.tooManyTargetRegions;
   }
   return analysisFailureMessage(body);
+}
+
+export function isMarkedTargetRegionNotFoundCode(code?: string | null): boolean {
+  return typeof code === "string" && code.trim() === MARKED_TARGET_REGION_NOT_FOUND_CODE;
+}
+
+export function isMarkedTargetRegionNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && isMarkedTargetRegionNotFoundCode(error.code);
 }
 
 function isTooManyTargetRegionsMessage(body: string | null | undefined): boolean {

@@ -6,10 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendationSet, TargetRegion } from "@/lib/api";
 import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { analysisFailureFromHttp } from "@/lib/analysis/failure";
+import { analysisFailureFromHttp, ANALYSIS_FAILURE_COPY, isMarkedTargetRegionNotFound } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
 import { rememberStartedRun } from "@/lib/analysis/started-runs";
+import { clearMarkedKey } from "@/lib/locations/marked-region";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
+import { MarkedRegionMissingNotice } from "./marked-region-missing";
 import { markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildTrefferlisteKarte } from "@/lib/map/karte";
@@ -124,7 +126,11 @@ export function EmpfehlungenPage() {
   const showLegacySet = bindPhase === "ready" && !inFlight && legacySet;
   const showEmptyHits =
     bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0 && !legacySet;
-  const showRestart = (runPhase === "failed" || runPhase === "deadline") && !showLegacySet;
+  const showRestart =
+    (runPhase === "failed" || runPhase === "deadline") &&
+    !showLegacySet &&
+    runError !== ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  const showMarkedRegionMissing = runError === ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
 
   function stopPolling() {
     pollAbort.current?.abort();
@@ -370,9 +376,15 @@ export function EmpfehlungenPage() {
       if (bindRequest.current !== token) return;
       setStarting(false);
       setRunPhase("failed");
-      const status = caught instanceof ApiError ? caught.status : 0;
-      const message = caught instanceof ApiError ? caught.message : null;
-      setRunError(analysisFailureFromHttp(status, message));
+      if (isMarkedTargetRegionNotFound(caught)) {
+        clearMarkedKey();
+        setRunError(ANALYSIS_FAILURE_COPY.markedTargetRegionMissing);
+      } else {
+        const status = caught instanceof ApiError ? caught.status : 0;
+        const message = caught instanceof ApiError ? caught.message : null;
+        const code = caught instanceof ApiError ? caught.code : null;
+        setRunError(analysisFailureFromHttp(status, message, code));
+      }
       setBoundKey(key);
     } finally {
       startGate.current = false;
@@ -468,7 +480,8 @@ export function EmpfehlungenPage() {
             </button>
           </div>
         ) : null}
-        {runPhase === "failed" && runError ? (
+        {showMarkedRegionMissing ? <MarkedRegionMissingNotice /> : null}
+        {runPhase === "failed" && runError && !showMarkedRegionMissing ? (
           <p className="message message-error" role="alert">
             {runError}
           </p>

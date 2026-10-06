@@ -47,6 +47,16 @@ export function RegionSection({
   const [patternKey, setPatternKey] = useState<string | null>(null);
 
   useEffect(() => {
+    function focusPicker() {
+      if (typeof window === "undefined") return;
+      if (window.location.hash === "#zielregion") searchRef.current?.focus();
+    }
+    focusPicker();
+    window.addEventListener("hashchange", focusPicker);
+    return () => window.removeEventListener("hashchange", focusPicker);
+  }, []);
+
+  useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 2) return;
 
