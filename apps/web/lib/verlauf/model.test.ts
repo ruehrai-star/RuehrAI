@@ -44,6 +44,7 @@ const item: Recommendation = {
   id: "address:nord-1",
   rank: 1,
   title: "Nordstraße 12",
+  kind: "address",
   location: { geoKey: "nord-1", grain: "address", lon: 13.4, lat: 52.5, name: "Mitte" },
   score: 1,
   rationale: "Die vorliegenden Monate liegen über dem bisherigen Verlauf.",

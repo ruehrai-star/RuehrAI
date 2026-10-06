@@ -154,10 +154,10 @@ test("Top-3 sentences follow the list length", () => {
   assert.equal(recommendationEmptyCopy(0), null);
   assert.equal(recommendationSubtitle(1), "Top 3 in Ihrer Zielregion");
   assert.equal(recommendationEmptyCopy(1), "Keine passenden Standorte in der Zielregion.");
-  assert.equal(recommendationSubtitle(2), "Top 3 in Ihren Zielregionen");
-  assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in den Zielregionen.");
-  assert.equal(recommendationSubtitle(3), "Top 3 in Ihren Zielregionen");
-  assert.equal(recommendationEmptyCopy(3), "Keine passenden Standorte in den Zielregionen.");
+  assert.equal(recommendationSubtitle(2), "Top 3 in Ihrer Zielregion");
+  assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in der Zielregion.");
+  assert.equal(recommendationSubtitle(3), "Top 3 in Ihrer Zielregion");
+  assert.equal(recommendationEmptyCopy(3), "Keine passenden Standorte in der Zielregion.");
 });
 
 test("a non-empty list always has exactly one marked row", () => {

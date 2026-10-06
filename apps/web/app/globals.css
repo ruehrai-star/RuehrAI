@@ -1204,6 +1204,161 @@ input {
   }
 }
 
+.treffer-page {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.15fr) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.treffer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 24px 28px 40px;
+  overflow: auto;
+}
+
+.treffer-list h1 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  font-weight: 560;
+  letter-spacing: -0.03em;
+}
+
+.treffer-region-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.treffer-stand {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.treffer-empty,
+.treffer-pattern-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.treffer-pattern-list,
+.treffer-criteria,
+.treffer-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.treffer-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.treffer-card-head h2 {
+  font-size: 22px;
+}
+
+.treffer-rank {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rec-card.is-selected {
+  border-color: var(--clay);
+  box-shadow: inset 0 0 0 1px var(--clay);
+}
+
+.treffer-criterion {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.treffer-criterion.is-inherited {
+  color: var(--ink-soft);
+  opacity: 0.78;
+}
+
+.treffer-criterion-charts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.treffer-stichtag,
+.treffer-pattern-missing {
+  margin: 0;
+}
+
+.sparkline {
+  width: 72px;
+  height: 28px;
+  color: var(--teal-deep);
+}
+
+.sparkline.is-pattern {
+  color: #8a8074;
+}
+
+.treffer-map {
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+}
+
+.treffer-map .map-canvas,
+.treffer-map .map-status {
+  height: 100%;
+  min-height: 420px;
+}
+
+.empfehlung-punkt.is-selected {
+  outline: 2px solid var(--teal-deep);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .treffer-page {
+    grid-template-columns: 1fr;
+  }
+
+  .treffer-map {
+    min-height: 360px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .treffer-criterion {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;

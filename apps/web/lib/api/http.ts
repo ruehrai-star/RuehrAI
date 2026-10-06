@@ -653,7 +653,20 @@ function trimQueryValue(value: string | null | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-const MONTH_STAMP = /^[0-9]{4}-[0-9]{2}$/;
+const WINDOW_STAMP = /^[0-9]{4}(-[0-9]{2})?$/;
+const AREA_KINDS = new Set([
+  "address",
+  "grid100",
+  "lor",
+  "quartier",
+  "ortsteil",
+  "stadtteil",
+  "plz",
+  "bezirk",
+  "stadtbezirk",
+  "gemeinde",
+] as const);
+const EVIDENCE_KINDS = new Set(["trend", "stichtag", "absent"] as const);
 
 function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
   const route = "/recommendations";
@@ -663,12 +676,12 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     typeof body.runId !== "string" ||
     typeof body.createdAt !== "string" ||
     !body.window ||
-    !MONTH_STAMP.test(body.window.from) ||
-    !MONTH_STAMP.test(body.window.to) ||
+    !WINDOW_STAMP.test(body.window.from) ||
+    !WINDOW_STAMP.test(body.window.to) ||
     typeof body.count !== "number" ||
     !(body.reason === null || typeof body.reason === "string") ||
     !Array.isArray(body.items) ||
-    body.items.length > 3 ||
+    body.items.length > 200 ||
     body.count !== body.items.length
   ) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
@@ -760,7 +773,7 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     typeof body.id !== "string" ||
     typeof body.rank !== "number" ||
     body.rank < 1 ||
-    body.rank > 3 ||
+    body.rank > 200 ||
     typeof body.title !== "string" ||
     typeof body.score !== "number" ||
     typeof body.rationale !== "string" ||
@@ -773,6 +786,9 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     !isNullableNumber(body.location.lat) ||
     !(body.location.name === null || typeof body.location.name === "string")
   ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.kind !== undefined && !AREA_KINDS.has(body.kind)) {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   for (const evidence of body.criteriaEvidence) parseRecommendationEvidence(evidence, route);
@@ -815,6 +831,34 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
   }
   if (body.baselineMatch !== undefined && typeof body.baselineMatch !== "boolean") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.coverage !== undefined && !SERIES_COVERAGES.has(body.coverage)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.scope !== undefined && !EVIDENCE_SCOPES.has(body.scope)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.kind !== undefined && !EVIDENCE_KINDS.has(body.kind)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.sourceLevel !== undefined && !isSeriesLevel(body.sourceLevel)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.points !== undefined) {
+    if (!Array.isArray(body.points)) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const point of body.points) {
+      if (!point || typeof point.period !== "string" || !SERIES_POINT_STATUSES.has(point.status)) {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+      if (point.status === "present" && point.value !== undefined && typeof point.value !== "number") {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+      if (point.normalizedValue !== undefined && typeof point.normalizedValue !== "number") {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
   }
   parseCriterionDatasetFields(body, route);
 }
