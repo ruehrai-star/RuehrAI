@@ -1,4 +1,5 @@
 import { AnalysisRegion } from "../analysis/types";
+import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
 import { catalogLevelFromGeoKey, officialAgsKey } from "../geo/geo-catalog";
 import { Grain } from "../target-region/dto";
@@ -32,6 +33,9 @@ export interface AreaCandidate {
   plz: string | null;
   lon: number | null;
   lat: number | null;
+  /** Clipped hit outline (EPSG:4326), when Brain geom ∩ Zielregion is available. */
+  geometry?: RegionGeometry | null;
+  geometryUnavailableReason?: string | null;
 }
 
 export interface AreaCandidateSqlRow {
@@ -43,6 +47,8 @@ export interface AreaCandidateSqlRow {
   plz: string | null;
   lon: number | string | null;
   lat: number | string | null;
+  /** GeoJSON text from ST_AsGeoJSON of clipped outline. */
+  geometry_geojson?: string | null;
 }
 
 export interface ParentMembership {
@@ -240,7 +246,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULLIF(btrim(o.geo_ags::text), '') AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("o")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     JOIN geo.geo_ref_ortsteil o
       ON o.geo_ortsteil_id::text = c.child_id
@@ -266,7 +273,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS ags,
       NULL::text AS plz,
       NULL::float8 AS lon,
-      NULL::float8 AS lat
+      NULL::float8 AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     WHERE lower(btrim(c.child_grain)) = 'lor'
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
@@ -285,7 +293,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS ags,
       NULL::text AS plz,
       NULL::float8 AS lon,
-      NULL::float8 AS lat
+      NULL::float8 AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     WHERE lower(btrim(c.child_grain)) IN ('quartier', 'koeln_quartier')
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
@@ -303,7 +312,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULL::text AS ags,
       NULL::text AS plz,
       NULL::float8 AS lon,
-      NULL::float8 AS lat
+      NULL::float8 AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     WHERE lower(btrim(c.child_grain)) = 'address'
       AND NULLIF(btrim(c.child_id), '') IS NOT NULL
@@ -330,7 +340,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       ) AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("b")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     JOIN geo.geo_ref_bezirk b
       ON b.geo_bezirk_id::text = c.child_id
@@ -350,7 +361,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       NULLIF(btrim(p.geo_ags::text), '') AS ags,
       p.geo_plz5::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("p")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     JOIN geo.geo_ref_plz p
       ON p.geo_plz5::text = c.child_id
@@ -369,7 +381,8 @@ export function buildTeilCatalogSql(adminMode: "prefer" | "legacy" = "prefer"): 
       a.geo_ags::text AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${adminGeom})) AS lon,
-      ST_Y(ST_PointOnSurface(${adminGeom})) AS lat
+      ST_Y(ST_PointOnSurface(${adminGeom})) AS lat,
+      NULL::text AS geometry_geojson
     FROM children c
     JOIN geo.geo_ref_admin a
       ON a.geo_ags::text = c.child_id
@@ -414,7 +427,8 @@ export function buildGrid100CandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULLIF(btrim(COALESCE(d.metadata->>'plz', d.metadata->>'geo_plz5')), '') AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d, region_geom g
   WHERE d.grain = 'grid100'
     AND d.source_theme = 'breitband_gitter'
@@ -464,7 +478,8 @@ export function buildGeoAddressCandidateSql(): string {
     NULLIF(btrim(a.geo_ags::text), '') AS ags,
     NULLIF(btrim(a.geo_plz5::text), '') AS plz,
     ST_X(ST_PointOnSurface(${geom})) AS lon,
-    ST_Y(ST_PointOnSurface(${geom})) AS lat
+    ST_Y(ST_PointOnSurface(${geom})) AS lat,
+    ${clippedHitGeoJsonSql(geom)} AS geometry_geojson
   FROM geo.geo_ref_address a, region_geom g
   WHERE NULLIF(btrim(a.geo_key::text), '') IS NOT NULL
     AND NOT (a.geo_key::text = ANY($4::text[]))
@@ -504,7 +519,8 @@ export function buildAddressCandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULLIF(btrim(COALESCE(d.metadata->>'plz', d.metadata->>'geo_plz5')), '') AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d, region_geom g
   WHERE d.grain = 'address'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -560,7 +576,8 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
       NULLIF(btrim(o.geo_ags::text), '') AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("o")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("o")})) AS lat,
+      ${clippedHitGeoJsonSql(geom4326("o"))} AS geometry_geojson
     FROM geo.geo_ref_ortsteil o, region_geom g
     WHERE ${hasArea("o")}
       AND lower(btrim(o.kind)) IN ('stadtteil', 'ortsteil')
@@ -589,7 +606,8 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
       ) AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("b")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("b")})) AS lat,
+      ${clippedHitGeoJsonSql(geom4326("b"))} AS geometry_geojson
     FROM geo.geo_ref_bezirk b, region_geom g
     WHERE ${hasArea("b")}
       AND NULLIF(btrim(b.name), '') IS NOT NULL
@@ -605,7 +623,8 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
       NULLIF(btrim(p.geo_ags::text), '') AS ags,
       p.geo_plz5::text AS plz,
       ST_X(ST_PointOnSurface(${geom4326("p")})) AS lon,
-      ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat
+      ST_Y(ST_PointOnSurface(${geom4326("p")})) AS lat,
+      ${clippedHitGeoJsonSql(geom4326("p"))} AS geometry_geojson
     FROM geo.geo_ref_plz p, region_geom g
     WHERE ${hasArea("p")}
       AND NULLIF(btrim(p.geo_plz5::text), '') IS NOT NULL
@@ -621,7 +640,8 @@ export function buildAreaCandidateSql(adminMode: "prefer" | "legacy" = "prefer")
       a.geo_ags::text AS ags,
       NULL::text AS plz,
       ST_X(ST_PointOnSurface(${adminGeom})) AS lon,
-      ST_Y(ST_PointOnSurface(${adminGeom})) AS lat
+      ST_Y(ST_PointOnSurface(${adminGeom})) AS lat,
+      ${clippedHitGeoJsonSql(adminGeom)} AS geometry_geojson
     FROM geo.geo_ref_admin a
     WHERE $6::boolean
       AND NULLIF(btrim(a.geo_ags::text), '') IS NOT NULL
@@ -712,7 +732,8 @@ export function buildLorPlrCatalogSql(): string {
     NULLIF(btrim(l.geo_ags::text), '') AS ags,
     NULL::text AS plz,
     ST_X(ST_PointOnSurface(${geom})) AS lon,
-    ST_Y(ST_PointOnSurface(${geom})) AS lat
+    ST_Y(ST_PointOnSurface(${geom})) AS lat,
+      NULL::text AS geometry_geojson
   FROM geo.geo_ref_lor l
   WHERE l.geo_key LIKE 'lor:plr:%'
     AND NOT (l.geo_key = ANY($2::text[]))
@@ -754,7 +775,8 @@ export function buildLorPlrFeatureCandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULL::text AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -784,7 +806,8 @@ export function buildLorFeatureCandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULL::text AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -815,7 +838,8 @@ export function buildKoelnQuartierCandidateSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULL::text AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d
   WHERE d.source_theme = 'koeln_statistischer_datenkatalog'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -851,7 +875,8 @@ export function buildHamburgStadtteilFallbackSql(): string {
     NULLIF(btrim(COALESCE(d.metadata->>'ags', d.metadata->>'geo_ags')), '') AS ags,
     NULL::text AS plz,
     d.lon::float8 AS lon,
-    d.lat::float8 AS lat
+    d.lat::float8 AS lat,
+      NULL::text AS geometry_geojson
   FROM features.location_feature_docs d
   WHERE d.source_theme = 'hamburg_stadtteil_regionalstatistik'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
@@ -893,6 +918,19 @@ function bezirkIdVariants(region: AnalysisRegion): string[] {
   const ags = region.ags?.trim();
   if (ags && /^110000(0[1-9]|1[0-2])$/.test(ags)) values.push(ags, `bezirk:${ags}`);
   return unique(values);
+}
+
+
+/**
+ * GeoJSON (EPSG:4326) of hit geom clipped to region_geom CTE `g.geom`.
+ * Empty intersection → NULL (caller sets geometryUnavailableReason).
+ */
+export function clippedHitGeoJsonSql(hitGeomExpr: string): string {
+  return `CASE
+      WHEN g.geom IS NULL OR ${hitGeomExpr} IS NULL THEN NULL::text
+      WHEN ST_IsEmpty(ST_Intersection(${hitGeomExpr}, g.geom)) THEN NULL::text
+      ELSE ST_AsGeoJSON(ST_MakeValid(ST_Intersection(${hitGeomExpr}, g.geom)))
+    END`;
 }
 
 function geom4326(alias: string): string {

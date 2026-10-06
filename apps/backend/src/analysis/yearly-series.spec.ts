@@ -216,7 +216,7 @@ describe("yearly-series helpers", () => {
         { period: "2024", status: "present", value: 1 },
         { period: "2025", status: "present", value: 2 },
       ]),
-    ).toBe("multi");
+    ).toBe("series");
   });
 
   it("reads the last three UTC calendar years from the snapshot time", () => {
@@ -388,7 +388,7 @@ describe("buildMetricSeries", () => {
       asOf,
     });
     expect(series.granularity).toBe("month");
-    expect(series.coverage).toBe("multi");
+    expect(series.coverage).toBe("series");
     expect(series.points).toHaveLength(36);
     expect(series.points.find((point) => point.period === "2026-01")).toEqual({
       period: "2026-01",
@@ -535,7 +535,7 @@ describe("kleinräumige first3 yearly series", () => {
       status: "present",
       value: 1200,
     });
-    expect(series.coverage).toBe("multi");
+    expect(series.coverage).toBe("series");
     expect(JSON.stringify(series.points)).not.toMatch(/"value":0/);
   });
 
@@ -578,7 +578,7 @@ describe("kleinräumige first3 yearly series", () => {
     });
     expect(series.sourceLevel).toBe("ortsteil");
     expect(series.sourceGeoKey).toBe("hamburg_stadtteil:42");
-    expect(series.coverage).toBe("multi");
+    expect(series.coverage).toBe("series");
     expect(series.points.find((point) => point.period === "2025")?.value).toBe(120);
   });
 
@@ -621,7 +621,7 @@ describe("kleinräumige first3 yearly series", () => {
     });
     expect(local.sourceLevel).toBe("bezirk");
     expect(local.sourceGeoKey).toBe("bezirk:1");
-    expect(local.coverage).toBe("multi");
+    expect(local.coverage).toBe("series");
     expect(local.points.find((point) => point.period === "2025")?.value).toBe(55);
 
     const inherited = buildMetricSeries({
@@ -648,7 +648,7 @@ describe("kleinräumige first3 yearly series", () => {
     });
     expect(inherited.sourceLevel).toBe("gemeinde");
     expect(inherited.sourceGeoKey).toBe("09162000");
-    expect(inherited.coverage).toBe("multi");
+    expect(inherited.coverage).toBe("series");
   });
 });
 
@@ -801,7 +801,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
       requestedGeoKey: "ortsteil:osm:162894",
       sourceLevel: "gemeinde",
       sourceGeoKey: "11007007",
-      coverage: "multi",
+      coverage: "series",
       granularity: "year",
       valueKey: "insgesamt",
     });
@@ -819,7 +819,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
       asOf,
     });
     expect(wanderungen.sourceGeoKey).toBe("11007007");
-    expect(wanderungen.coverage).toBe("multi");
+    expect(wanderungen.coverage).toBe("series");
     expect(wanderungen.points).toEqual([
       { period: "2022", status: "present", value: 2008 },
       { period: "2023", status: "present", value: 1500 },
@@ -838,7 +838,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(wohnungen).toMatchObject({
       sourceLevel: "kreis",
       sourceGeoKey: "11000",
-      coverage: "multi",
+      coverage: "series",
       valueKey: "wohnungen",
     });
     expect(wohnungen.points.every((point) => point.status === "present" || !("value" in point))).toBe(true);
@@ -853,7 +853,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(elektro).toMatchObject({
       sourceLevel: "gemeinde",
       sourceGeoKey: "11000000",
-      coverage: "multi",
+      coverage: "series",
       granularity: "month",
     });
 
@@ -881,7 +881,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
       requestedGeoKey: "ortsteil:osm:162894",
       sourceLevel: "kreis",
       sourceGeoKey: "11000",
-      coverage: "multi",
+      coverage: "series",
       granularity: "month",
       valueKey: "bg",
     });
@@ -917,7 +917,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(local).toMatchObject({
       sourceLevel: "ortsteil",
       sourceGeoKey: "ortsteil:osm:162894",
-      coverage: "multi",
+      coverage: "series",
       valueKey: "unfaelle_gesamt",
     });
 
@@ -947,7 +947,7 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     });
     expect(gemeindeOnly.sourceLevel).toBe("gemeinde");
     expect(gemeindeOnly.sourceGeoKey).toBe("11000000");
-    expect(gemeindeOnly.coverage).toBe("multi");
+    expect(gemeindeOnly.coverage).toBe("series");
   });
 });
 

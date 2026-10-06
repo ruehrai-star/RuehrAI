@@ -252,7 +252,7 @@ describe("analysis yearlySeries HTTP", () => {
     const bevoelkerung = response.body.pattern.yearlySeries.find(
       (item: { metricId: string }) => item.metricId === "bevoelkerung",
     );
-    expect(bevoelkerung.coverage).toBe("multi");
+    expect(bevoelkerung.coverage).toBe("series");
     expect(bevoelkerung.sourceGeoKey).toBe("11007007");
     expect(bevoelkerung.points.filter((point: { status: string }) => point.status === "present")).toHaveLength(3);
   });
@@ -354,10 +354,10 @@ describe("analysis yearlySeries HTTP", () => {
       requestedGeoKey: "ortsteil:osm:162894",
       sourceLevel: "gemeinde",
       sourceGeoKey: "11000000",
-      coverage: "multi",
+      coverage: "series",
     });
     const sgb2 = response.body.pattern.yearlySeries.find((item: { metricId: string }) => item.metricId === "ba_sgb2");
-    expect(sgb2.coverage).toBe("multi");
+    expect(sgb2.coverage).toBe("series");
     expect(sgb2.sourceGeoKey).toBe("11000");
   });
 
@@ -449,14 +449,14 @@ describe("analysis yearlySeries HTTP", () => {
       requestedGeoKey: "05315",
       sourceLevel: "kreis",
       sourceGeoKey: "05315",
-      coverage: "multi",
+      coverage: "series",
     });
     const sgb2 = response.body.pattern.yearlySeries.find((item: { metricId: string }) => item.metricId === "ba_sgb2");
     expect(sgb2).toMatchObject({
       requestedLevel: "kreis",
       sourceLevel: "kreis",
       sourceGeoKey: "05315",
-      coverage: "multi",
+      coverage: "series",
     });
   });
 });

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: RuehrAI API
-  version: 0.17.0
+  version: 0.18.0
   description: |
     Dev-Team slice (v0). The backend issues its own JWTs and reads a local
     Postgres database via `DATABASE_URL`. Clients call this API; they do not
@@ -128,6 +128,20 @@ info:
     counts stay `estimate_address` only as fallback; `attrs.preferred_ew`
     selects the Zensus row. `dwd1km` is Fläche-only (`missing` EW).
     Additive.
+    `0.18.0` answers the UX Trefferliste contract gaps (Confluence 31227905,
+    PO Variante A). `Recommendation.geometry` is the hit outline as GeoJSON
+    Polygon/MultiPolygon (EPSG:4326): dataset Fläche(n) clipped to the
+    Zielregion (`ST_Intersection`), never a bbox or circle. When the
+    outline cannot be computed, `geometry` is null and
+    `geometryUnavailableReason` explains why (German). `Recommendation.trend`
+    carries `direction` (`up`|`down`|`flat`|`unknown`) and `summary` (German
+    Entwicklungssatz) from the backend only — clients must not invent them;
+    omit/empty when coverage is `single` or `none`. `SeriesCoverage` adds
+    `series` as the preferred label for a multi-period Verlauf (`multi`
+    remains valid for older stored sets). Pattern vs candidate Bezugsgröße:
+    `baselineMatch` on `RecommendationEvidence` / `PatternDatasetProfile`
+    is false when baselines differ — then Muster compares as absent
+    („liegt nicht vor“). Additive; no DB migration.
 
     Analysis (0.3.0) snapshots that input, reads kleinräumige Brain facts for
     the target region, and persists a pattern (criteria and direction).
@@ -2075,10 +2089,13 @@ components:
       type: string
       description: |
         How many stored Brain periods exist in the three-year window.
-        `none` — every period liegt nicht vor.
-        `single` — exactly one present point; do not draw a trend line.
-        `multi` — two or more present points (a change can be shown).
-      enum: [none, single, multi]
+        `none` — every period liegt nicht vor; no line, no Entwicklungssatz.
+        `single` — exactly one present point (Stichtag); do not draw a trend
+        line and do not invent a direction sentence.
+        `series` — two or more present points (Dreijahresverlauf). Preferred
+        on new responses from 0.18.0.
+        `multi` — same meaning as `series`; kept for older stored sets.
+      enum: [none, single, multi, series]
     SeriesPointStatus:
       type: string
       description: |
@@ -2386,6 +2403,12 @@ components:
           $ref: "#/components/schemas/BaselineMethod"
           description: |
             Method of the Bezugsgröße on this dataset profile. Additive.
+        baselineMatch:
+          type: boolean
+          description: |
+            True when this Musterprofil baseline matches the candidate
+            evidence baseline for the same metricId. False → show
+            „liegt nicht vor“ on the Musterlinie. Additive.
     AnalysisPatternRegion:
       type: object
       additionalProperties: false
@@ -2578,6 +2601,44 @@ components:
             `llm` when `rationale` was taken from the local model and checked
             against `criteriaEvidence`. `heuristic` when the model was unset,
             failed, or its text was discarded.
+        geometry:
+          nullable: true
+          description: |
+            True outline of this hit for the map (EPSG:4326). Dataset Fläche
+            clipped to the Zielregion (`ST_Intersection`). Never a bounding
+            box or circle. Null only when the outline cannot be computed.
+          oneOf:
+            - $ref: "#/components/schemas/RegionGeometry"
+            - type: "null"
+        geometryUnavailableReason:
+          type: string
+          nullable: true
+          description: |
+            German reason when `geometry` is null (e.g. Schnittfläche leer
+            oder Brain-Geometrie fehlt). Null when `geometry` is set.
+        trend:
+          $ref: "#/components/schemas/RecommendationTrend"
+          description: |
+            Backend-only Entwicklungssatz und Richtung für diesen Treffer.
+            Omitted or `direction: unknown` with empty/absent summary when
+            coverage is `single` or `none`. Clients must not derive this
+            from `criteriaEvidence.points`.
+    RecommendationTrend:
+      type: object
+      additionalProperties: false
+      required: [direction, summary]
+      description: |
+        Aggregated three-year development for one hit, computed by the
+        backend from local normalized trend criteria. One source of truth
+        for Web/iOS/Android.
+      properties:
+        direction:
+          $ref: "#/components/schemas/CriterionDirection"
+        summary:
+          type: string
+          description: |
+            German Entwicklungssatz (e.g. Datensatz steigt seit drei Jahren,
+            je 1.000 Einwohner). Empty string when no local trend exists.
     RecommendationLocation:
       type: object
       additionalProperties: false
@@ -2662,6 +2723,13 @@ components:
           $ref: "#/components/schemas/BaselineMethod"
           description: |
             Method of the divisor used on this Teilfläche. Additive.
+        baselineMatch:
+          type: boolean
+          description: |
+            True when this criterion uses the same `baseline` Bezugsgröße as
+            the Muster `patternByDataset` entry for this metricId. False when
+            they differ — then the Musterlinie is treated as absent
+            („liegt nicht vor“) and does not drive compare. Additive.
     AddressPairRequest:
       type: object
       additionalProperties: false

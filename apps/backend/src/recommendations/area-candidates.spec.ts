@@ -17,7 +17,7 @@ import {
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
-} from "./area-candidates";
+  clippedHitGeoJsonSql } from "./area-candidates";
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
   return {
@@ -408,5 +408,15 @@ describe("selectCatalogHits", () => {
       [region()],
     );
     expect(hits.map((item) => item.kind)).toEqual(["plz", "ortsteil"]);
+  });
+});
+
+
+describe("clippedHitGeoJsonSql", () => {
+  it("emits ST_Intersection and ST_AsGeoJSON for map outlines", () => {
+    const sql = clippedHitGeoJsonSql("hit.geom");
+    expect(sql).toContain("ST_Intersection");
+    expect(sql).toContain("ST_AsGeoJSON");
+    expect(sql).toContain("g.geom");
   });
 });

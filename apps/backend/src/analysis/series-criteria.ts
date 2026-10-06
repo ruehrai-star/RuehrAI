@@ -168,7 +168,7 @@ function directionBetween(first: number, last: number): CriterionDirection {
 }
 
 export function kindFromCoverage(coverage: SeriesCoverage): CriterionKind | null {
-  if (coverage === "multi") return "trend";
+  if (coverage === "multi" || coverage === "series") return "trend";
   if (coverage === "single") return "stichtag";
   return null;
 }
@@ -259,11 +259,12 @@ function pickSeriesForPattern(series: YearlySeries[]): YearlySeries[] {
     }
   };
 
+  take(TREND_METRIC_ORDER, "series");
   take(TREND_METRIC_ORDER, "multi");
   if (chosen.length < MAX_CRITERIA) {
     for (const item of [...finest.values()].sort(compareSeries)) {
       if (chosen.length >= MAX_CRITERIA) break;
-      if (item.coverage !== "multi") continue;
+      if (item.coverage !== "multi" && item.coverage !== "series") continue;
       if (chosen.some((entry) => entry.metricId === item.metricId)) continue;
       chosen.push(item);
     }

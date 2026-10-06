@@ -19,9 +19,9 @@ import {
   presentNormalizedPoints,
   SeriesBaseline,
 } from "../analysis/series-baseline";
-import { SeriesPoint, YearlySeries } from "../analysis/yearly-series";
+import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-series";
 import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
-import { EvidenceScope, RecommendationEvidence, ScoredLocation } from "./types";
+import { EvidenceScope, RecommendationEvidence, RecommendationTrend, ScoredLocation } from "./types";
 
 /**
  * Rank Teilflächen against the store-surroundings **dataset** pattern.
@@ -49,6 +49,10 @@ export function rankTeilflaechen(
     );
     const matched = localTrend.filter((entry) => entry.match).length;
     const score = localTrend.length === 0 ? 0 : roundScore(matched / localTrend.length);
+    const withBaseline = evidence.map((entry) => ({
+      ...entry,
+      baselineMatch: entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline),
+    }));
     scored.push({
       id: candidate.id,
       title: candidate.title,
@@ -61,7 +65,13 @@ export function rankTeilflaechen(
         name: candidate.name,
       },
       score,
-      criteriaEvidence: evidence,
+      criteriaEvidence: withBaseline,
+      geometry: candidate.geometry ?? null,
+      geometryUnavailableReason:
+        candidate.geometry
+          ? null
+          : candidate.geometryUnavailableReason ?? "Die Fläche kann noch nicht gezeichnet werden.",
+      trend: buildHitTrend(withBaseline),
     });
   }
 
@@ -191,6 +201,7 @@ function evidenceForCandidate(
     rawValue: latestRawValue(series.points),
     normalizedValue: latestNormalizedValue(series.points),
     baselineMethod: latestBaselineMethod(series.points) ?? criterion.baselineMethod,
+    baselineMatch: baselinesMatch(baseline, criterion.baseline ?? baselineForMetric(criterion.key)),
     points: withoutInventedZero(series.points),
   };
 }
@@ -214,6 +225,7 @@ function absentEvidenceRow(
     coverage: "none",
     scope,
     baseline,
+    baselineMatch: true,
     points: [],
   };
 }
@@ -277,4 +289,31 @@ function presentEvidenceCount(evidence: RecommendationEvidence[]): number {
 
 function roundScore(value: number): number {
   return Math.round(value * 10_000) / 10_000;
+}
+
+function baselinesMatch(
+  left: SeriesBaseline | undefined,
+  right: SeriesBaseline | undefined,
+): boolean {
+  if (!left || !right) return true;
+  return left === right;
+}
+
+/** Backend-only Entwicklungssatz; empty when no local series trend. */
+export function buildHitTrend(evidence: RecommendationEvidence[]): RecommendationTrend {
+  const localTrends = evidence.filter(
+    (entry) =>
+      entry.scope !== "inherited" &&
+      entry.kind === "trend" &&
+      isSeriesCoverage(entry.coverage) &&
+      entry.direction !== "unknown",
+  );
+  if (localTrends.length === 0) {
+    return { direction: "unknown", summary: "" };
+  }
+  const primary = localTrends.find((entry) => entry.match) ?? localTrends[0]!;
+  return {
+    direction: primary.direction,
+    summary: primary.evidence,
+  };
 }

@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.17.0");
+  assert.equal(doc.info.version, "0.18.0");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -90,7 +90,7 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.14.0"));
   assert.ok(doc.info.description.includes("0.15.0"));
   assert.ok(doc.info.description.includes("0.16.0"));
-  assert.ok(doc.info.description.includes("0.17.0"));
+  assert.ok(doc.info.description.includes("0.18.0"));
   assert.ok(doc.info.description.includes("official_zensus2022_grid"));
   assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
   assert.ok(doc.info.description.includes("geo.area_baseline"));
@@ -245,7 +245,17 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
     "coverage",
     "points",
   ]);
-  assert.deepEqual(doc.components.schemas.SeriesCoverage.enum, ["none", "single", "multi"]);
+  assert.deepEqual(doc.components.schemas.SeriesCoverage.enum, ["none", "single", "multi", "series"]);
+  assert.equal(doc.components.schemas.Recommendation.properties.geometry.nullable, true);
+  assert.ok(doc.components.schemas.Recommendation.properties.geometryUnavailableReason);
+  assert.equal(
+    doc.components.schemas.Recommendation.properties.trend.$ref,
+    "#/components/schemas/RecommendationTrend",
+  );
+  assert.deepEqual(doc.components.schemas.RecommendationTrend.required, ["direction", "summary"]);
+  assert.equal(doc.components.schemas.RecommendationEvidence.properties.baselineMatch.type, "boolean");
+  assert.equal(doc.components.schemas.PatternDatasetProfile.properties.baselineMatch.type, "boolean");
+
   assert.deepEqual(doc.components.schemas.SeriesGranularity.enum, ["month", "year"]);
   assert.deepEqual(doc.components.schemas.SeriesPointStatus.enum, ["present", "absent"]);
   assert.equal(doc.components.schemas.SeriesPoint.required.includes("value"), false);

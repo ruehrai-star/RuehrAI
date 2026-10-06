@@ -224,22 +224,22 @@ describe("YearlySeriesService", () => {
       requestedGeoKey: "ortsteil:osm:162894",
       sourceLevel: "gemeinde",
       sourceGeoKey: "11007007",
-      coverage: "multi",
+      coverage: "series",
     });
     const elektro = series.find((item) => item.metricId === "kba_elektro_pkw");
-    expect(elektro?.coverage).toBe("multi");
+    expect(elektro?.coverage).toBe("series");
     expect(elektro?.sourceGeoKey).toBe("11000000");
     const unfallatlas = series.find((item) => item.metricId === "unfallatlas");
     expect(unfallatlas).toMatchObject({
       sourceLevel: "ortsteil",
       sourceGeoKey: "ortsteil:osm:162894",
-      coverage: "multi",
+      coverage: "series",
     });
     const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
     expect(sgb2).toMatchObject({
       sourceLevel: "kreis",
       sourceGeoKey: "11000",
-      coverage: "multi",
+      coverage: "series",
       granularity: "month",
     });
     expect(sgb2?.points).toHaveLength(36);
@@ -357,13 +357,13 @@ describe("YearlySeriesService", () => {
       requestedGeoKey: "ortsteil:osm:162894",
       sourceLevel: "gemeinde",
       sourceGeoKey: "11000000",
-      coverage: "multi",
+      coverage: "series",
     });
     const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
     expect(sgb2).toMatchObject({
       sourceLevel: "kreis",
       sourceGeoKey: "11000",
-      coverage: "multi",
+      coverage: "series",
       granularity: "month",
     });
     expect(sgb2?.points.find((point) => point.period === "2026-09")).toEqual({
@@ -494,7 +494,7 @@ describe("YearlySeriesService", () => {
       requestedLevel: "kreis",
       sourceLevel: "kreis",
       sourceGeoKey: "05315",
-      coverage: "multi",
+      coverage: "series",
     });
     const sgb2 = series.find((item) => item.metricId === "ba_sgb2");
     expect(sgb2).toMatchObject({
