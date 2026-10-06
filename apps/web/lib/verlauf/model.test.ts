@@ -125,6 +125,21 @@ test("multi coverage draws a trend from present points only", () => {
   assert.doesNotMatch(JSON.stringify(hero), banned);
 });
 
+test("Verlauf Begründung strips catalog keys from the heuristic sentence", () => {
+  const keyed: Recommendation = {
+    ...item,
+    rationale:
+      "Die Teilfläche Alexanderplatzviertel (lor:plr:01100310) im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.",
+  };
+  const hero = buildVerlaufHero({ pattern, recommendations: setWith([keyed]) });
+  assert.ok(hero);
+  assert.equal(
+    hero.nextSentence,
+    "Die Teilfläche Alexanderplatzviertel im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.",
+  );
+  assert.equal(hero.top3[0]?.rationale.includes("lor:plr"), false);
+});
+
 test("series coverage is the 0.18 alias of multi and still draws a trend", () => {
   const yearlySeries: YearlySeries[] = [
     series({
@@ -319,6 +334,7 @@ test("Verlauf copy keeps Frequenz, Miete, München and demo layers out", () => {
   assert.doesNotMatch(JSON.stringify(VERLAUF_COPY), banned);
   assert.match(VERLAUF_COPY.revenueOptional, /optional/);
   assert.match(VERLAUF_COPY.levels, /Ortsteil/);
+  assert.equal(VERLAUF_COPY.bindFailed, "Der Verlauf konnte nicht geladen werden.");
   assert.equal(ABSENT_LABEL, "liegt nicht vor");
 });
 
@@ -334,7 +350,8 @@ test("Verlauf page and proof map do not load demo-gemeinden", () => {
   assert.match(standorte, />\s*Verlauf\s*</);
   assert.match(page, /VERLAUF_COPY\.missingRun/);
   assert.match(page, /VERLAUF_COPY\.startAnalysis/);
-  assert.match(page, /VERLAUF_COPY\.loadFailed/);
-  assert.match(page, /loadPatternForMarkedRegion/);
+  assert.match(page, /VERLAUF_COPY\.bindFailed/);
+  assert.match(page, /VERLAUF_BIND_TIMEOUT_MS/);
+  assert.match(page, /loadVerlaufPatternForMarkedRegion/);
   assert.equal(page.includes("createAnalysisRun"), false);
 });

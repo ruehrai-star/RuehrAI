@@ -5,13 +5,16 @@ import { ApiError, type AnalysisPatternResponse, type TargetRegion } from "../ap
 import {
   bindPatternToMarkedRegion,
   formatStandLine,
+  isVerlaufBindTimeout,
   loadPatternForMarkedRegion,
+  loadVerlaufPatternForMarkedRegion,
   markedStandRegions,
   patternMatchesMarkedRegion,
   patternQueryGeoKey,
   runIsForMarkedRegion,
   runMatchesMarkedRegion,
   standRegionLabel,
+  VERLAUF_BIND_TIMEOUT_MS,
   yearlySeriesForRegion,
 } from "./bind.ts";
 import { VERLAUF_COPY } from "./model.ts";
@@ -114,6 +117,7 @@ test("empty and start copy stay exact Variante A strings", () => {
   assert.equal(VERLAUF_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(VERLAUF_COPY.analysisFailed, "Analyse fehlgeschlagen.");
   assert.equal(VERLAUF_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(VERLAUF_COPY.bindFailed, "Der Verlauf konnte nicht geladen werden.");
   assert.equal(VERLAUF_COPY.retryLoad, "Erneut versuchen");
 });
 
@@ -274,25 +278,42 @@ test("a run with six Zielregionen labels all of them on the Stand line", async (
   assert.match(formatStandLine(bound.createdAt, bound.regions), /Innenstadt \(Köln\) \+ 5 weitere$/);
 });
 
-test("a rewritten pattern.region does not bind another region's run", async () => {
+test("a sibling snapshot binds the marked region without startedRunId", async () => {
   const tempelhof = { ...lankwitz, label: "Tempelhof", geoKey: "ortsteil:osm:162894" };
+  const lichterfelde = { ...lankwitz, label: "Lichterfelde", geoKey: "ortsteil:osm:55737" };
+  const snapshot = runFor(lichterfelde, [lichterfelde, tempelhof]);
   const bound = await loadPatternForMarkedRegion(
     {
       getAnalysisPattern: async () => ({
-        runId: "47",
+        runId: "54",
+        createdAt: "2026-10-06T10:48:34.255Z",
+        region: { label: "Lichterfelde", geoKey: "ortsteil:osm:55737", parentLabel: "Berlin" },
+        pattern,
+      }),
+      getAnalysisRun: async () => ({ ...snapshot, id: "54" }),
+    },
+    tempelhof,
+  );
+  assert.ok(bound);
+  assert.equal(bound.runId, "54");
+  assert.equal(bound.region.label, "Tempelhof");
+  assert.equal(runIsForMarkedRegion(snapshot, tempelhof), true);
+  assert.equal(runMatchesMarkedRegion(snapshot, tempelhof), true);
+  assert.equal(runIsForMarkedRegion(runFor(munich, [munich]), tempelhof), false);
+
+  const foreign = await loadPatternForMarkedRegion(
+    {
+      getAnalysisPattern: async () => ({
+        runId: "7",
         createdAt: "2026-10-06T10:48:34.255Z",
         region: { label: "Tempelhof", geoKey: "ortsteil:osm:162894", parentLabel: "Berlin" },
         pattern,
       }),
-      getAnalysisRun: async () => runFor(munich, [munich, tempelhof]),
+      getAnalysisRun: async () => runFor(munich, [munich]),
     },
     tempelhof,
   );
-  assert.equal(bound, null);
-  assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), false);
-  assert.equal(runMatchesMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), true);
-  assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof, "47"), false);
-  assert.equal(runIsForMarkedRegion({ ...runFor(munich, [munich, tempelhof]), id: "47" }, tempelhof, "47"), false);
+  assert.equal(foreign, null);
 });
 
 test("Stand for the marked region stays singular and does not use another name", async () => {
@@ -332,4 +353,44 @@ test("a 500 from the run lookup is not turned into another region's series", asy
     ),
     (error: unknown) => error instanceof ApiError && error.status === 500,
   );
+});
+
+test("Verlauf binds from GET /analysis/pattern without waiting for the run", async () => {
+  const bound = await loadVerlaufPatternForMarkedRegion(
+    {
+      getAnalysisPattern: async (query) => {
+        assert.equal(query?.geoKey, "ortsteil:osm:5712247");
+        return {
+          runId: "7",
+          createdAt: "2026-10-05T16:37:00.000Z",
+          region: { label: "Lankwitz", geoKey: "ortsteil:osm:5712247", parentLabel: "Berlin" },
+          pattern: { ...pattern, yearlySeries: [seriesFor("ortsteil:osm:5712247")] },
+        };
+      },
+    },
+    lankwitz,
+  );
+  assert.ok(bound);
+  assert.equal(bound.runId, "7");
+  assert.equal(bound.region.label, "Lankwitz");
+  assert.equal(VERLAUF_BIND_TIMEOUT_MS, 30_000);
+});
+
+test("Verlauf pattern bind times out instead of hanging", async () => {
+  let release: ((value: null) => void) | undefined;
+  const hang = new Promise<null>((resolve) => {
+    release = resolve;
+  });
+  await assert.rejects(
+    loadVerlaufPatternForMarkedRegion(
+      {
+        getAnalysisPattern: async () => hang,
+      },
+      lankwitz,
+      { timeoutMs: 20 },
+    ),
+    (error: unknown) => isVerlaufBindTimeout(error),
+  );
+  release?.(null);
+  await hang;
 });

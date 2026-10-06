@@ -13,7 +13,6 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
-import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
 import { readMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
 import { ensureMarkedKey, markedRegion } from "@/lib/locations/regions";
 import {
@@ -152,9 +151,7 @@ export function MapPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const bound = await loadPatternForMarkedRegion(getApi(), marked, {
-          startedRunId: marked?.geoKey ? startedRunIdForRegion(marked.geoKey) : null,
-        });
+        const bound = await loadPatternForMarkedRegion(getApi(), marked);
         const set = bound ? await loadRecommendationsForRun(getApi(), bound.runId) : null;
         if (cancelled) return;
         setSnapshot((current) =>

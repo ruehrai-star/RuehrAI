@@ -12,7 +12,7 @@ import type {
 } from "@ruehrai/api-contracts";
 import { ADDRESS_COPY, topicName } from "../addresses/model.ts";
 import { criterionDirectionLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogPlaceName, grainLabel, visiblePlaceText } from "../format.ts";
+import { catalogBadge, catalogPlaceName, grainLabel, visiblePlaceText, visibleRationale } from "../format.ts";
 import { formatAddress, RECOMMENDATION_COPY } from "../recommendations/model.ts";
 
 /** After Standorte the product opens Verlauf. Vorschlag 1 (Karte zuerst) does not apply. */
@@ -74,6 +74,7 @@ export const VERLAUF_COPY = {
   analysisRunning: "Analyse läuft …",
   analysisFailed: "Analyse fehlgeschlagen.",
   loadFailed: "Der Stand konnte gerade nicht geladen werden.",
+  bindFailed: "Der Verlauf konnte nicht geladen werden.",
   retryLoad: "Erneut versuchen",
   noneYet: RECOMMENDATION_COPY.noneYet,
   empty: RECOMMENDATION_COPY.empty,
@@ -215,13 +216,13 @@ export function buildVerlaufHero(input: {
     })),
     months: monthRow(input.recommendations?.window),
     nextHeading: VERLAUF_COPY.nextHeading,
-    nextSentence: first?.rationale.trim() || null,
+    nextSentence: visibleRationale(first?.rationale) || null,
     nextAddress: first ? streetAddress(first) : null,
     top3: (input.recommendations?.items ?? []).map((item) => ({
       id: item.id,
       rank: item.rank,
       address: streetAddress(item),
-      rationale: item.rationale,
+      rationale: visibleRationale(item.rationale),
     })),
     engine: Array.isArray(input.pattern.yearlySeries) ? "yearlySeries" : "pattern",
   };

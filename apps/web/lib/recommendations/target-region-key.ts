@@ -4,6 +4,8 @@
  * Used to match `items[].targetRegionGeoKey` when the marked region has no geoKey.
  */
 
+import { catalogKeyVariants, samePlace, type PlaceRef } from "../locations/regions.ts";
+
 export type TargetRegionKeySource = "geoKey" | "ags" | "label";
 
 export interface TargetRegionKeyInput {
@@ -51,6 +53,83 @@ export function itemMatchesMarkedRegion(
   const itemKey = itemTargetRegionKey(item);
   if (!itemKey || !marked) return false;
   return itemKey === targetRegionKeyOf(marked);
+}
+
+/**
+ * Last `:` segment of a catalog key (`ortsteil:osm:162894` → `162894`).
+ * STAGE `targetRegions[].geoKey` may store that OSM id without the prefix.
+ */
+export function catalogIdTail(value: string | null | undefined): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  const parts = trimmed.split(":");
+  const tail = parts[parts.length - 1]?.trim() ?? "";
+  return tail.length > 0 ? tail : null;
+}
+
+/**
+ * Whether `geoKey` (run snapshot, set `targetRegions[].geoKey`) is the marked
+ * Zielregion. Uses `samePlace` / catalog variants / `targetRegionKeyOf`, plus
+ * a suffix match for `ortsteil:osm:162894` vs `162894`. Does not treat a
+ * parent AGS as the same place as a finer catalog key.
+ */
+export function geoKeyCoversMarkedRegion(
+  geoKey: string | null | undefined,
+  marked: TargetRegionKeyInput | null | undefined,
+): boolean {
+  if (!marked) return false;
+  const raw = typeof geoKey === "string" ? geoKey.trim() : "";
+  if (!raw) return false;
+  return raw
+    .split("|")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .some((token) => tokenCoversMarkedRegion(token, marked));
+}
+
+function tokenCoversMarkedRegion(token: string, marked: TargetRegionKeyInput): boolean {
+  const markedKey = targetRegionKeyOf(marked);
+  if (!markedKey) return false;
+  if (token === markedKey) return true;
+  if (samePlace({ geoKey: token }, { geoKey: marked.geoKey ?? markedKey })) return true;
+
+  const left = new Set(catalogKeyVariants(token));
+  for (const variant of catalogKeyVariants(markedKey)) {
+    if (left.has(variant)) return true;
+  }
+
+  const leftTail = catalogIdTail(token);
+  const rightTail = catalogIdTail(markedKey);
+  if (!leftTail || leftTail !== rightTail) return false;
+  // Last-segment match is only for a bare OSM/AGS id vs a prefixed catalog key
+  // (`162894` ↔ `ortsteil:osm:162894`). Two prefixed keys with different
+  // prefixes must not match (`plz5:12207` ≠ `ortsteil:osm:12207`).
+  return isBareGeoKey(token) || isBareGeoKey(markedKey);
+}
+
+function isBareGeoKey(value: string): boolean {
+  return !value.includes(":");
+}
+
+export function placeCoversMarkedRegion(
+  place: (PlaceRef & TargetRegionKeyInput) | null | undefined,
+  marked: (PlaceRef & TargetRegionKeyInput) | null | undefined,
+): boolean {
+  if (!place || !marked) return false;
+  if (samePlace(place, marked)) return true;
+  if (geoKeyCoversMarkedRegion(place.geoKey, marked)) return true;
+  return targetRegionKeyOf(place) === targetRegionKeyOf(marked);
+}
+
+/** Stored set lists the marked Zielregion in `targetRegions[].geoKey`. */
+export function recommendationSetCoversMarkedRegion(
+  set: { targetRegions?: Array<{ geoKey: string }> | null } | null | undefined,
+  marked: TargetRegionKeyInput | null | undefined,
+): boolean {
+  if (!set || !marked) return false;
+  const listed = set.targetRegions;
+  if (!Array.isArray(listed) || listed.length === 0) return false;
+  return listed.some((region) => geoKeyCoversMarkedRegion(region.geoKey, marked));
 }
 
 /** Every item is missing `targetRegionGeoKey` or it is `""` — stored pre-0.19.2 set. */

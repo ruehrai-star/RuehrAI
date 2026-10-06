@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  catalogIdTail,
+  geoKeyCoversMarkedRegion,
   isLegacyTargetRegionSet,
   itemMatchesMarkedRegion,
   itemTargetRegionKey,
   normalizeTargetRegionLabel,
+  placeCoversMarkedRegion,
+  recommendationSetCoversMarkedRegion,
   resolveTargetRegionKey,
   targetRegionKeyOf,
 } from "./target-region-key.ts";
@@ -74,4 +78,43 @@ test("mixed set: only the matching targetRegionGeoKey is kept; empty keys are no
     mixed.filter((item) => itemMatchesMarkedRegion(item, marked)).map((item) => item.targetRegionGeoKey),
     ["ortsteil:osm:162894"],
   );
+});
+
+test("set targetRegions and run snapshots cover Tempelhof via bare OSM ids", () => {
+  const marked = { geoKey: "ortsteil:osm:162894", ags: "11000000", label: "Tempelhof" };
+  assert.equal(catalogIdTail("ortsteil:osm:162894"), "162894");
+  assert.equal(geoKeyCoversMarkedRegion("162894", marked), true);
+  assert.equal(geoKeyCoversMarkedRegion("ortsteil:osm:162894", marked), true);
+  assert.equal(geoKeyCoversMarkedRegion("55737|162894|162900|55736|55735", marked), true);
+  assert.equal(geoKeyCoversMarkedRegion("55737", marked), false);
+  assert.equal(geoKeyCoversMarkedRegion("ags:11000000", marked), false);
+  assert.equal(geoKeyCoversMarkedRegion("11000000", marked), false);
+  assert.equal(
+    recommendationSetCoversMarkedRegion(
+      {
+        targetRegions: [
+          { geoKey: "55737", label: "Lichterfelde" },
+          { geoKey: "162894", label: "Tempelhof" },
+        ],
+      },
+      marked,
+    ),
+    true,
+  );
+  assert.equal(
+    recommendationSetCoversMarkedRegion({ targetRegions: [{ geoKey: "55737", label: "Lichterfelde" }] }, marked),
+    false,
+  );
+  assert.equal(placeCoversMarkedRegion({ geoKey: "ortsteil:osm:55737", label: "Lichterfelde" }, marked), false);
+  assert.equal(placeCoversMarkedRegion({ geoKey: "162894", label: "Tempelhof" }, marked), true);
+});
+
+test("last-segment key match only applies when at least one key is bare", () => {
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "ortsteil:osm:12207" }), false);
+  assert.equal(geoKeyCoversMarkedRegion("ortsteil:osm:12207", { geoKey: "plz5:12207" }), false);
+  assert.equal(placeCoversMarkedRegion({ geoKey: "plz5:12207" }, { geoKey: "ortsteil:osm:12207" }), false);
+  assert.equal(geoKeyCoversMarkedRegion("12207", { geoKey: "plz5:12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("plz5:12207", { geoKey: "plz5:12207" }), true);
+  assert.equal(geoKeyCoversMarkedRegion("ortsteil:osm:12207", { geoKey: "ortsteil:osm:12207" }), true);
 });

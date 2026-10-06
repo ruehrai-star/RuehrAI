@@ -9,6 +9,8 @@ import {
   grainLabel,
   isCatalogKey,
   isSubAreaLevel,
+  stripInternalKeys,
+  visibleRationale,
   visibleSavedRegions,
   visibleSearchHits,
 } from "./format.ts";
@@ -326,4 +328,25 @@ test("parent name renders only from parentLabel when it is a non-empty string", 
   assert.equal(catalogParentName({ municipalityName: "Leipzig", gemeinde: "Leipzig" }), null);
   assert.equal(catalogParentName({ parentMunicipality: "Leipzig", gemeindeName: "Leipzig" }), null);
   assert.equal(catalogParentName({ parent: "Leipzig", municipality: "Leipzig" }), null);
+});
+
+test("visibleRationale strips parenthesized catalog keys from the heuristic Begründung", () => {
+  const raw =
+    "Die Teilfläche Alexanderplatzviertel (lor:plr:01100310) im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.";
+  assert.equal(
+    visibleRationale(raw),
+    "Die Teilfläche Alexanderplatzviertel im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.",
+  );
+  assert.equal(visibleRationale(raw).includes("lor:plr"), false);
+  const mixed = stripInternalKeys(
+    "Ortsteil (ortsteil:osm:162894) und Bezirk (bezirk:osm:1) plus label:tempelhof und grid100:cell-1 weiter.",
+  );
+  assert.equal(mixed.includes("ortsteil:osm"), false);
+  assert.equal(mixed.includes("bezirk:osm"), false);
+  assert.equal(mixed.includes("label:"), false);
+  assert.equal(mixed.includes("grid100:"), false);
+  assert.match(mixed, /Ortsteil und Bezirk plus und weiter/);
+  assert.equal(stripInternalKeys("Treffer (ags:11000000) ( ) weiter").includes("ags:"), false);
+  assert.equal(visibleRationale("Die Fläche (koeln:sq:12) und stadtteil:osm:2613711.").includes("koeln:sq"), false);
+  assert.equal(visibleRationale(null), "");
 });

@@ -1,12 +1,17 @@
 import type { AnalysisRun } from "@ruehrai/api-contracts";
 import type { RuehrApi } from "../api/client.ts";
-import { ApiError } from "../api/types.ts";
-import type { RecommendationSet } from "../api/types.ts";
 import { analysisFailureFromHttp, analysisFailureMessage } from "../analysis/failure.ts";
 import { isInFlightStatus, isTransientPollError, pollAnalysisRun, type InFlightRunStatus, type PollAnalysisOptions } from "../analysis/poll.ts";
-import { loadPatternForMarkedRegion } from "../verlauf/bind.ts";
+import {
+  bindPatternToMarkedRegion,
+  patternQueryGeoKey,
+  runIsForMarkedRegion,
+  withRunSnapshot,
+} from "../verlauf/bind.ts";
 import type { BoundVerlauf } from "../verlauf/bind.ts";
 import type { PlaceRef } from "../locations/regions.ts";
+import { recommendationSetCoversMarkedRegion } from "./target-region-key.ts";
+import { ApiError, type RecommendationSet } from "../api/types.ts";
 
 /**
  * Load a stored recommendation set for a completed analysis run.
@@ -51,7 +56,6 @@ export async function bindTrefferlisteForRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   marked: MarkedRegion,
   inflightRunId?: string | null,
-  options?: { startedRunId?: string | null },
 ): Promise<TrefferlisteBind> {
   const inflight = typeof inflightRunId === "string" ? inflightRunId.trim() : "";
   if (inflight) {
@@ -59,10 +63,9 @@ export async function bindTrefferlisteForRegion(
     if (live.kind === "in_flight" || live.kind === "failed") return live;
   }
 
-  const bound = await loadPatternForMarkedRegion(api, marked, { startedRunId: options?.startedRunId });
+  const bound = await bindCompletedSetForMarkedRegion(api, marked);
   if (!bound) return { kind: "empty" };
-  const set = await loadRecommendationsForRun(api, bound.runId);
-  return { kind: "ready", bound, set };
+  return { kind: "ready", bound: bound.bound, set: bound.set };
 }
 
 async function readKnownRun(
@@ -90,16 +93,56 @@ async function readKnownRun(
   return { kind: "other" };
 }
 
+/**
+ * Bind a stored set when the marked region is on the run snapshot or on
+ * `set.targetRegions`.
+ */
+async function bindCompletedSetForMarkedRegion(
+  api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
+  marked: MarkedRegion,
+): Promise<{ bound: BoundVerlauf; set: RecommendationSet | null } | null> {
+  const geoKey = patternQueryGeoKey(marked);
+  if (!marked || !geoKey) return null;
+
+  const latest = await api.getAnalysisPattern({ geoKey });
+  if (!latest) return null;
+
+  let run: AnalysisRun | null = null;
+  try {
+    run = await api.getAnalysisRun(latest.runId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+
+  const set = await loadRecommendationsForRun(api, latest.runId);
+  const runOk = Boolean(run && runIsForMarkedRegion(run, marked));
+  const setOk = recommendationSetCoversMarkedRegion(set, marked);
+  if (!runOk && !setOk) return null;
+
+  const bound = bindPatternToMarkedRegion({
+    latest,
+    run,
+    marked,
+    allowMarkedFallback: setOk,
+  });
+  if (!bound) return null;
+  return { bound: run ? withRunSnapshot(bound, run) : bound, set };
+}
+
 /** Load the set only after the run is completed. GET /recommendations?runId= is 404 until then. */
 export async function loadTrefferlisteAfterCompletedRun(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   runId: string,
   marked: MarkedRegion,
 ): Promise<Extract<TrefferlisteBind, { kind: "ready" | "empty" }>> {
-  const bound = await loadPatternForMarkedRegion(api, marked, { startedRunId: runId });
-  const set = await loadRecommendationsForRun(api, runId);
-  if (!bound) return { kind: "empty" };
-  return { kind: "ready", bound, set: set && set.runId === bound.runId ? set : await loadRecommendationsForRun(api, bound.runId) };
+  const next = await bindCompletedSetForMarkedRegion(api, marked);
+  if (!next) return { kind: "empty" };
+  const set =
+    next.set && next.set.runId === next.bound.runId
+      ? next.set
+      : await loadRecommendationsForRun(api, next.bound.runId);
+  return { kind: "ready", bound: next.bound, set };
 }
 
 export async function pollTrefferlisteRun(
