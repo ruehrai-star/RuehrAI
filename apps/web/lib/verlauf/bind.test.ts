@@ -278,30 +278,33 @@ test("a run with six Zielregionen labels all of them on the Stand line", async (
   assert.match(formatStandLine(bound.createdAt, bound.regions), /Innenstadt \(Köln\) \+ 5 weitere$/);
 });
 
-test("a rewritten pattern.region does not bind another region's run unless startedRunId matches", async () => {
+test("a sibling snapshot binds the marked region without startedRunId", async () => {
   const tempelhof = { ...lankwitz, label: "Tempelhof", geoKey: "ortsteil:osm:162894" };
-  const snapshot = runFor(munich, [munich, tempelhof]);
+  const lichterfelde = { ...lankwitz, label: "Lichterfelde", geoKey: "ortsteil:osm:55737" };
+  const snapshot = runFor(lichterfelde, [lichterfelde, tempelhof]);
   const bound = await loadPatternForMarkedRegion(
     {
       getAnalysisPattern: async () => ({
-        runId: "47",
+        runId: "54",
         createdAt: "2026-10-06T10:48:34.255Z",
-        region: { label: "Tempelhof", geoKey: "ortsteil:osm:162894", parentLabel: "Berlin" },
+        region: { label: "Lichterfelde", geoKey: "ortsteil:osm:55737", parentLabel: "Berlin" },
         pattern,
       }),
-      getAnalysisRun: async () => snapshot,
+      getAnalysisRun: async () => ({ ...snapshot, id: "54" }),
     },
     tempelhof,
   );
-  assert.equal(bound, null);
-  assert.equal(runIsForMarkedRegion(snapshot, tempelhof), false);
+  assert.ok(bound);
+  assert.equal(bound.runId, "54");
+  assert.equal(bound.region.label, "Tempelhof");
+  assert.equal(runIsForMarkedRegion(snapshot, tempelhof), true);
   assert.equal(runMatchesMarkedRegion(snapshot, tempelhof), true);
-  assert.equal(runIsForMarkedRegion(snapshot, tempelhof, "47"), false);
-  assert.equal(runIsForMarkedRegion(snapshot, tempelhof, snapshot.id), true);
-  assert.equal(runIsForMarkedRegion({ ...snapshot, id: "47" }, tempelhof, "47"), true);
+  assert.equal(runIsForMarkedRegion(snapshot, tempelhof, "47"), true);
+  assert.equal(runIsForMarkedRegion({ ...snapshot, id: "54" }, tempelhof, "54"), true);
+  assert.equal(runIsForMarkedRegion(runFor(munich, [munich]), tempelhof), false);
   assert.equal(runIsForMarkedRegion(runFor(munich, [munich]), tempelhof, "7"), false);
 
-  const started = await loadPatternForMarkedRegion(
+  const foreign = await loadPatternForMarkedRegion(
     {
       getAnalysisPattern: async () => ({
         runId: "7",
@@ -309,13 +312,11 @@ test("a rewritten pattern.region does not bind another region's run unless start
         region: { label: "Tempelhof", geoKey: "ortsteil:osm:162894", parentLabel: "Berlin" },
         pattern,
       }),
-      getAnalysisRun: async () => snapshot,
+      getAnalysisRun: async () => runFor(munich, [munich]),
     },
     tempelhof,
-    { startedRunId: snapshot.id },
   );
-  assert.ok(started);
-  assert.equal(started.runId, "7");
+  assert.equal(foreign, null);
 });
 
 test("Stand for the marked region stays singular and does not use another name", async () => {

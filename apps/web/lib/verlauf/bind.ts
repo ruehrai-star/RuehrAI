@@ -9,15 +9,15 @@ import {
 } from "../analysis/run-label.ts";
 import { catalogLevelOf, catalogParentName, catalogPlaceName, visiblePlaceText } from "../format.ts";
 import { catalogKeyVariants, placeKeySet, samePlace, type PlaceRef } from "../locations/regions.ts";
+import { placeCoversMarkedRegion } from "../recommendations/target-region-key.ts";
 
 /**
  * Bind Verlauf to the marked Zielregion.
  *
- * GET `/analysis/pattern?geoKey=` plus the run snapshot. A run that only
- * lists the marked key among several Zielregionen is not this region's own
- * run unless it was started for that key (`startedRunId`) or the primary
- * `input.region` is the marked one. Stand never relabels another region's
- * timestamp with the marked name.
+ * GET `/analysis/pattern?geoKey=` plus the run snapshot. A run or set that
+ * lists the marked key in `input.regions` (or `set.targetRegions`) belongs
+ * to that mark even when `input.region` is a sibling. Stand never relabels
+ * another region's timestamp with the marked name.
  */
 
 export interface BoundVerlauf {
@@ -90,15 +90,14 @@ export function patternMatchesMarkedRegion(
 
 export function runMatchesMarkedRegion(run: Pick<AnalysisRun, "input">, marked: PlaceRef): boolean {
   const candidates = [run.input.region, ...(run.input.regions ?? [])];
-  return candidates.some((item) => item != null && samePlace(item, marked));
+  return candidates.some((item) => item != null && placeCoversMarkedRegion(item, marked));
 }
 
 /**
- * Variante A: this run belongs to the marked Zielregion.
- * Presence in `input.regions` alone is not enough — POST still snapshots
- * every saved region, so Innenstadt's run would otherwise fill Tempelhof.
- * Exception: the run the user just started for this mark (`startedRunId`)
- * when the marked place is on the snapshot (`samePlace` in region/regions).
+ * This run belongs to the marked Zielregion when that place is on the
+ * snapshot (`input.region` or `input.regions`), regardless of which entry
+ * is primary. `startedRunId === run.id` remains accepted when the mark is
+ * already on the snapshot; it is not required after reload or a region switch.
  */
 export function runIsForMarkedRegion(
   run: Pick<AnalysisRun, "id" | "input">,
@@ -106,14 +105,9 @@ export function runIsForMarkedRegion(
   startedRunId?: string | null,
 ): boolean {
   if (!runMatchesMarkedRegion(run, marked)) return false;
-  const listed = regionsFromRunInput(run.input);
-  if (listed.length > 0 && listed.every((item) => samePlace(item, marked))) return true;
-  // Primary `input.region` is the run's Zielregion. Presence in
-  // `input.regions` is not enough: POST still snapshots every saved row
-  // (newest first), so an Innenstadt run also lists Tempelhof.
-  if (run.input.region && samePlace(run.input.region, marked)) return true;
   const started = typeof startedRunId === "string" ? startedRunId.trim() : "";
-  return Boolean(started && started === run.id.trim());
+  if (started && started === run.id.trim()) return true;
+  return true;
 }
 
 /** Stand line for the marked region only — never another region's name. */
@@ -124,9 +118,9 @@ export function markedStandRegions(
   if (!bound) return [];
   const listed = bound.regions.length > 0 ? bound.regions : bound.region ? [bound.region] : [];
   if (!marked) return listed.slice(0, 1);
-  const match = listed.find((item) => samePlace(item, marked));
+  const match = listed.find((item) => placeCoversMarkedRegion(item, marked));
   if (match) return [match];
-  return bound.region && samePlace(bound.region, marked) ? [bound.region] : [];
+  return bound.region && placeCoversMarkedRegion(bound.region, marked) ? [bound.region] : [];
 }
 
 export function yearlySeriesForRegion(
@@ -142,17 +136,25 @@ export function bindPatternToMarkedRegion(input: {
   latest: AnalysisPatternResponse | null;
   run?: Pick<AnalysisRun, "input"> | null;
   marked: PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null };
+  allowMarkedFallback?: boolean;
 }): BoundVerlauf | null {
   const latest = input.latest;
   if (!latest) return null;
 
-  if (latest.region) {
-    if (!patternMatchesMarkedRegion(latest.region, input.marked)) return null;
+  if (latest.region && patternMatchesMarkedRegion(latest.region, input.marked)) {
     return toBound(latest, latest.region, input.marked);
   }
 
-  if (!input.run || !runMatchesMarkedRegion(input.run, input.marked)) return null;
-  return toBound(latest, input.run.input.region, input.marked);
+  if (input.run && runMatchesMarkedRegion(input.run, input.marked)) {
+    const match = regionsFromRunInput(input.run.input).find((item) => placeCoversMarkedRegion(item, input.marked));
+    return toBound(latest, match ?? input.marked, input.marked);
+  }
+
+  if (input.allowMarkedFallback) {
+    return toBound(latest, input.marked, input.marked);
+  }
+
+  return null;
 }
 
 /**

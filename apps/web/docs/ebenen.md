@@ -35,4 +35,4 @@ Verlauf binds from `GET /analysis/pattern?geoKey=` first (`loadVerlaufPatternFor
 
 If the pattern GET does not return within `VERLAUF_BIND_TIMEOUT_MS` (**30 s**), Verlauf leaves **Verlauf wird geladen …** and shows **Der Verlauf konnte nicht geladen werden.** with **Erneut versuchen**.
 
-A run the user started for the marked Zielregion (`startedRunId === run.id`) binds even when Nest snapshotted every saved region and `input.region` is a sibling, as long as the marked place is on `input.regions` (`runIsForMarkedRegion`).
+A run belongs to the marked Zielregion when that place is on `input.regions` or `input.region` (`runIsForMarkedRegion` / `samePlace` / catalog-key helpers), even if `input.region` is a sibling (STAGE: Lichterfelde primary, Tempelhof also on the snapshot). `startedRunId === run.id` is still accepted and is not required after reload. A run that does not list the mark stays excluded. Trefferliste also binds when `set.targetRegions[].geoKey` covers the mark (including bare OSM ids such as `162894` vs `ortsteil:osm:162894`). Hits stay filtered by `items[].targetRegionGeoKey`.
