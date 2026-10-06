@@ -90,9 +90,9 @@ export function analysisFailureFromHttp(
   body?: string | null,
   code?: string | null,
 ): string {
-  const known = messageForKnownApiCode(code);
-  if (known) return known;
   if (status === 404) {
+    const known = messageForKnownApiCode(code);
+    if (known) return known;
     return analysisFailureMessage("internal_error");
   }
   if (status === 400 && isTooManyTargetRegionsMessage(body)) {
