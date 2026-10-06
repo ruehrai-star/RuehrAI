@@ -406,7 +406,7 @@ export function buildTeilCatalogSql(
   const adminGeom = adminGeom4326("a", adminMode);
   const includeQuartierGeom = options.includeQuartierGeom !== false;
   const minOverlapShare = options.minOverlapShare ?? readAnalysisMinOverlapShare();
-  return {
+  return `
   WITH parents AS (
     SELECT parent_grain, parent_id
       FROM unnest($1::text[], $2::text[]) AS t(parent_grain, parent_id)
