@@ -2,7 +2,7 @@ import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { PatternCriterion } from "../analysis/types";
 import { YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate } from "./area-candidates";
-import { rankTeilflaechen } from "./score";
+import { localDatasetCountOf, rankTeilflaechen } from "./score";
 import { leaveOneOutTopN } from "./score-formula";
 
 export const LOO_MIN_STORES = 3;
@@ -71,7 +71,7 @@ export function evaluateLeaveOneOut(input: {
       topN,
       passed: index >= 0 && index < topN,
       score: hit?.score ?? null,
-      nAktiv: hit?.criteriaEvidence.filter((entry) => typeof entry.proximity === "number").length ?? 0,
+      nAktiv: hit ? localDatasetCountOf(hit.criteriaEvidence) : 0,
     });
   }
   return {

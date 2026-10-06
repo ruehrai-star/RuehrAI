@@ -579,8 +579,18 @@ function withoutInventedZero(points: SeriesPoint[]): SeriesPoint[] {
   });
 }
 
+/**
+ * nAktiv: datasets with an own local closeness on this item.
+ * Inherited values never count. Numeric `proximity` `0` ("gering") counts;
+ * omitted / non-finite `proximity` does not.
+ */
 export function localDatasetCountOf(evidence: RecommendationEvidence[]): number {
-  return evidence.filter((entry) => typeof entry.proximity === "number").length;
+  return evidence.filter(
+    (entry) =>
+      entry.scope !== "inherited" &&
+      typeof entry.proximity === "number" &&
+      Number.isFinite(entry.proximity),
+  ).length;
 }
 
 function targetRegionOverlapShare(

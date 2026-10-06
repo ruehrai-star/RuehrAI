@@ -97,8 +97,9 @@ export interface ScoredLocation {
   location: RecommendationLocation;
   score: number;
   /**
-   * nAktiv: local datasets with numeric `proximity` (`0` counts).
-   * Additive 0.19.6. Always set on new rankings, including `0`.
+   * nAktiv: datasets with an own local `proximity` (`0` counts, inherited
+   * and missing proximity do not). Additive 0.19.6. Always set on new
+   * rankings, including `0`. Omitted when hydrating older stored sets.
    */
   localDatasetCount?: number;
   /**

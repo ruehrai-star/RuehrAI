@@ -123,10 +123,16 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   );
   assert.ok(doc.paths["/recommendations"].post.description.includes("inherited or Stichtag"));
   assert.ok(doc.paths["/recommendations"].post.description.includes("localDatasetCount"));
+  assert.ok(doc.paths["/recommendations"].post.description.includes("own local"));
+  assert.ok(doc.paths["/recommendations"].get.description.includes("localDatasetCount"));
   assert.equal(doc.components.schemas.Recommendation.properties.localDatasetCount.type, "integer");
   assert.equal(doc.components.schemas.Recommendation.properties.localDatasetCount.minimum, 0);
   assert.equal(doc.components.schemas.Recommendation.required.includes("localDatasetCount"), false);
   assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("nAktiv"));
+  assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("gering"));
+  assert.ok(doc.components.schemas.Recommendation.properties.localDatasetCount.description.includes("liegt nicht vor"));
+  assert.ok(doc.info.description.includes("own local value"));
+  assert.ok(doc.info.description.includes("Inherited"));
   assert.ok(doc.components.schemas.RecommendationEvidence.properties.proximity.description.includes("0.19.4"));
   assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
     doc.paths["/recommendations"].get.description.includes("Never ranks"));

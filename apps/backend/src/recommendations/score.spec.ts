@@ -5,7 +5,7 @@ import { AreaCandidate, stampCandidateTargetRegion } from "./area-candidates";
 import { recommendationReason } from "./messages";
 import { assignRanksByTargetRegion, capRankedByTargetRegion, compareScoredLocations, dataAsOfFromEvidence, localDatasetCountOf, MAX_RANKED_ITEMS, MAX_TARGET_REGIONS, rankTeilflaechen, rankedSlotsPerTargetRegion } from "./score";
 import { SCORE_FORMULA_DEFAULTS } from "./score-formula";
-import { ScoredLocation } from "./types";
+import { RecommendationEvidence, ScoredLocation } from "./types";
 
 function candidate(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -1280,7 +1280,7 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked.every((item) => item.localDatasetCount === 1)).toBe(true);
   });
 
-  it("exposes localDatasetCount as nAktiv (numeric proximity, including 0)", () => {
+  it("sets localDatasetCount 0 on Stichtag-only hits (missing proximity does not count)", () => {
     const ranked = rankTeilflaechen(
       [
         candidate({ geoKey: "ortsteil:osm:a", kind: "ortsteil", title: "Alpha" }),
@@ -1306,10 +1306,56 @@ describe("score formula on rankTeilflaechen", () => {
     );
     expect(ranked).toHaveLength(1);
     expect(ranked[0]?.title).toBe("Alpha");
+    expect(ranked[0]?.score).toBe(0);
     expect(ranked[0]?.localDatasetCount).toBe(0);
     expect(ranked[0]?.criteriaEvidence.every((entry) => typeof entry.proximity !== "number")).toBe(true);
-    expect(localDatasetCountOf([{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x", proximity: 0 }])).toBe(1);
-    expect(localDatasetCountOf([{ key: "unfallatlas", label: "Unfälle", direction: "down", patternDirection: "down", evidence: "x" }])).toBe(0);
+    expect(JSON.parse(JSON.stringify(ranked[0])).localDatasetCount).toBe(0);
+  });
+
+  it("counts proximity 0 as nAktiv 1 (gültige Nähe gering) and ignores inherited values", () => {
+    const ranked = rankTeilflaechen(
+      [
+        candidate({ geoKey: "ortsteil:osm:match", kind: "ortsteil", title: "Match" }),
+        candidate({ geoKey: "ortsteil:osm:mid", kind: "ortsteil", title: "Mid" }),
+        candidate({ geoKey: "ortsteil:osm:far", kind: "ortsteil", title: "Far" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:match",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:match"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:mid",
+          points: [
+            { period: "2023", status: "present", value: 18 },
+            { period: "2025", status: "present", value: 10 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:mid"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:far",
+          points: [
+            { period: "2023", status: "present", value: 1 },
+            { period: "2025", status: "present", value: 200 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:far"),
+      ],
+      [trendUp],
+      [],
+      { patternByDataset: fallingPattern },
+    );
+    const far = ranked.find((item) => item.title === "Far");
+    expect(far?.criteriaEvidence[0]?.proximity).toBe(0);
+    expect(far?.localDatasetCount).toBe(1);
+    expect(ranked.every((item) => item.localDatasetCount === 1)).toBe(true);
   });
 
   it("weights a local LOR dataset above an inherited parent and a coarser local Ebene", () => {
@@ -1431,6 +1477,7 @@ describe("score formula on rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "unfallatlas")?.proximity).toBeGreaterThan(0);
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.proximity).toBeUndefined();
     expect(ranked[0]?.criteriaEvidence.find((entry) => entry.key === "wanderungen")?.scope).toBe("inherited");
+    expect(ranked[0]?.localDatasetCount).toBe(1);
   });
 
   it("breaks ties by coverage, then overlaps-share, then stable id, never the visible name", () => {
@@ -1527,6 +1574,32 @@ describe("score formula on rankTeilflaechen", () => {
     const laterId: ScoredLocation = { ...lowShare, id: "other:b-second", targetOverlapShare: 0.5, overlaps: [{ ...lowShare.overlaps![0], share: 0.5 }] };
     const earlierId: ScoredLocation = { ...highShare, id: "other:a-first", targetOverlapShare: 0.5, overlaps: [{ ...highShare.overlaps![0], share: 0.5 }] };
     expect(compareScoredLocations(laterId, earlierId)).toBeGreaterThan(0);
+  });
+});
+
+describe("localDatasetCountOf", () => {
+  const row = (overrides: Partial<RecommendationEvidence> = {}): RecommendationEvidence => ({
+    key: "unfallatlas",
+    label: "Unfälle",
+    direction: "down",
+    patternDirection: "down",
+    evidence: "x",
+    ...overrides,
+  });
+
+  it("counts own local numeric proximity including 0 and ignores inherited or missing", () => {
+    expect(localDatasetCountOf([row({ proximity: 0 })])).toBe(1);
+    expect(localDatasetCountOf([row({ scope: "local", proximity: 0 })])).toBe(1);
+    expect(localDatasetCountOf([row({ scope: "local", proximity: 0.4 }), row({ scope: "local", proximity: 0 })])).toBe(2);
+    expect(localDatasetCountOf([row()])).toBe(0);
+    expect(localDatasetCountOf([row({ scope: "inherited", proximity: 0.9 })])).toBe(0);
+    expect(localDatasetCountOf([row({ proximity: Number.NaN })])).toBe(0);
+    expect(
+      localDatasetCountOf([
+        row({ scope: "local", proximity: 0 }),
+        row({ key: "wanderungen", scope: "inherited", proximity: 1 }),
+      ]),
+    ).toBe(1);
   });
 });
 
