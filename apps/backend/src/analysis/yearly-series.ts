@@ -32,7 +32,7 @@ export interface SeriesRegionInput {
 
 export type SeriesLevel = CatalogLevel | "kreis" | "land" | "grid100" | "address" | "lor" | "quartier";
 export type SeriesGranularity = "month" | "year";
-export type SeriesCoverage = "none" | "single" | "multi";
+export type SeriesCoverage = "none" | "single" | "multi" | "series";
 export type SeriesPointStatus = "present" | "absent";
 
 export interface SeriesPoint {
@@ -327,7 +327,13 @@ export function coverageOf(points: SeriesPoint[]): SeriesCoverage {
   const present = points.filter((point) => point.status === "present").length;
   if (present === 0) return "none";
   if (present === 1) return "single";
-  return "multi";
+  // 0.18.0 prefers `series`; `multi` remains valid for older stored payloads.
+  return "series";
+}
+
+/** True when coverage denotes a multi-period Verlauf (`series` or legacy `multi`). */
+export function isSeriesCoverage(coverage: SeriesCoverage | null | undefined): boolean {
+  return coverage === "series" || coverage === "multi";
 }
 
 /**

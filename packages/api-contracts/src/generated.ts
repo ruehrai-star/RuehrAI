@@ -1128,12 +1128,15 @@ export interface components {
         SeriesGranularity: "month" | "year";
         /**
          * @description How many stored Brain periods exist in the three-year window.
-         *     `none` — every period liegt nicht vor.
-         *     `single` — exactly one present point; do not draw a trend line.
-         *     `multi` — two or more present points (a change can be shown).
+         *     `none` — every period liegt nicht vor; no line, no Entwicklungssatz.
+         *     `single` — exactly one present point (Stichtag); do not draw a trend
+         *     line and do not invent a direction sentence.
+         *     `series` — two or more present points (Dreijahresverlauf). Preferred
+         *     on new responses from 0.18.0.
+         *     `multi` — same meaning as `series`; kept for older stored sets.
          * @enum {string}
          */
-        SeriesCoverage: "none" | "single" | "multi";
+        SeriesCoverage: "none" | "single" | "multi" | "series";
         /**
          * @description `absent` means the period liegt nicht vor. `value` is omitted.
          *     Never 0, null, or {} as a stand-in. A real stored 0 is `present`.
@@ -1356,6 +1359,12 @@ export interface components {
             criterion: components["schemas"]["PatternCriterion"];
             /** @description Method of the Bezugsgröße on this dataset profile. Additive. */
             baselineMethod?: components["schemas"]["BaselineMethod"];
+            /**
+             * @description True when this Musterprofil baseline matches the candidate
+             *     evidence baseline for the same metricId. False → show
+             *     „liegt nicht vor“ on the Musterlinie. Additive.
+             */
+            baselineMatch?: boolean;
         };
         /**
          * @description Snapshot place this pattern belongs to, for the Stand line
@@ -1489,6 +1498,37 @@ export interface components {
              * @enum {string}
              */
             source: "llm" | "heuristic";
+            /**
+             * @description True outline of this hit for the map (EPSG:4326). Dataset Fläche
+             *     clipped to the Zielregion (`ST_Intersection`). Never a bounding
+             *     box or circle. Null only when the outline cannot be computed.
+             */
+            geometry?: components["schemas"]["RegionGeometry"] | null;
+            /**
+             * @description German reason when `geometry` is null (e.g. Schnittfläche leer
+             *     oder Brain-Geometrie fehlt). Null when `geometry` is set.
+             */
+            geometryUnavailableReason?: string | null;
+            /**
+             * @description Backend-only Entwicklungssatz und Richtung für diesen Treffer.
+             *     Omitted or `direction: unknown` with empty/absent summary when
+             *     coverage is `single` or `none`. Clients must not derive this
+             *     from `criteriaEvidence.points`.
+             */
+            trend?: components["schemas"]["RecommendationTrend"];
+        };
+        /**
+         * @description Aggregated three-year development for one hit, computed by the
+         *     backend from local normalized trend criteria. One source of truth
+         *     for Web/iOS/Android.
+         */
+        RecommendationTrend: {
+            direction: components["schemas"]["CriterionDirection"];
+            /**
+             * @description German Entwicklungssatz (e.g. Datensatz steigt seit drei Jahren,
+             *     je 1.000 Einwohner). Empty string when no local trend exists.
+             */
+            summary: string;
         };
         RecommendationLocation: {
             geoKey: string;
@@ -1542,6 +1582,13 @@ export interface components {
             normalizedValue?: number;
             /** @description Method of the divisor used on this Teilfläche. Additive. */
             baselineMethod?: components["schemas"]["BaselineMethod"];
+            /**
+             * @description True when this criterion uses the same `baseline` Bezugsgröße as
+             *     the Muster `patternByDataset` entry for this metricId. False when
+             *     they differ — then the Musterlinie is treated as absent
+             *     („liegt nicht vor“) and does not drive compare. Additive.
+             */
+            baselineMatch?: boolean;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

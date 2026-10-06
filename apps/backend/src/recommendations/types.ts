@@ -1,4 +1,5 @@
 import { Grain } from "../target-region/dto";
+import { RegionGeometry } from "../geo/region-geometry";
 import { PatternLevelProfile, PatternDatasetProfile } from "../analysis/pattern-profile";
 import type { BaselineMethod } from "../analysis/area-baseline";
 import { SeriesBaseline } from "../analysis/series-baseline";
@@ -11,6 +12,11 @@ export interface RecommendationWindow {
   to: string;
 }
 
+
+export interface RecommendationTrend {
+  direction: CriterionDirection;
+  summary: string;
+}
 export interface RecommendationLocation {
   geoKey: string;
   grain: Grain;
@@ -41,6 +47,8 @@ export interface RecommendationEvidence {
   rawValue?: number;
   normalizedValue?: number;
   baselineMethod?: BaselineMethod;
+  /** Same Bezugsgröße as Muster patternByDataset for this metric. */
+  baselineMatch?: boolean;
 }
 
 export interface ScoredLocation {
@@ -50,6 +58,9 @@ export interface ScoredLocation {
   location: RecommendationLocation;
   score: number;
   criteriaEvidence: RecommendationEvidence[];
+  geometry?: RegionGeometry | null;
+  geometryUnavailableReason?: string | null;
+  trend?: RecommendationTrend;
 }
 
 export interface RecommendationItem extends ScoredLocation {

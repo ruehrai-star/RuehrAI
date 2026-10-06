@@ -47,6 +47,8 @@ export interface PatternDatasetProfile {
   yearlySeries: YearlySeries;
   criterion: PatternCriterion;
   baselineMethod?: BaselineMethod;
+  /** False when Muster Bezugsgröße ≠ Kandidat — then show „liegt nicht vor“. */
+  baselineMatch?: boolean;
 }
 
 const LEVEL_ALIASES: Record<string, PatternLevel> = {
@@ -136,6 +138,7 @@ export function buildPatternByDataset(series: YearlySeries[]): PatternDatasetPro
       yearlySeries,
       criterion: { ...criterion, metricId: criterion.metricId ?? criterion.key, baseline, baselineMethod },
       baselineMethod,
+      baselineMatch: true,
     };
   });
 }

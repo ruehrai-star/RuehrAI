@@ -8,7 +8,7 @@ function series(overrides: Partial<YearlySeries> & Pick<YearlySeries, "metricId"
     sourceLevel: "gemeinde",
     sourceGeoKey: "09162000",
     granularity: "year",
-    coverage: "multi",
+    coverage: "series",
     points: [
       { period: "2023", status: "present", value: 10 },
       { period: "2024", status: "present", value: 11 },

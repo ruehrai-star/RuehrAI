@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { AnalysisRegion } from "../analysis/types";
 import { toCoord } from "../customer/values";
+import { parseRegionGeometry, RegionGeometry } from "../geo/region-geometry";
 import { DatabaseService } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
@@ -31,6 +32,7 @@ import {
   isLorPlrKey,
   lorCandidateParams,
   parentMemberships,
+  regionGeometryParam,
   selectCatalogHits,
 } from "./area-candidates";
 
@@ -145,11 +147,21 @@ export class AreaCandidateService {
       region.plz?.trim(),
     ].filter((value): value is string => Boolean(value));
     try {
-      return await this.readSql(buildTeilCatalogSql("prefer"), [grains, ids, exclude]);
+      return await this.readSql(buildTeilCatalogSql("prefer"), [
+        grains,
+        ids,
+        exclude,
+        regionGeometryParam(region),
+      ]);
     } catch (error) {
       if (isUndefinedColumn(error)) {
         try {
-          return await this.readSql(buildTeilCatalogSql("legacy"), [grains, ids, exclude]);
+          return await this.readSql(buildTeilCatalogSql("legacy"), [
+            grains,
+            ids,
+            exclude,
+            regionGeometryParam(region),
+          ]);
         } catch (legacyError) {
           if (isMissingTeilCatalog(legacyError)) return null;
           throw legacyError;
@@ -205,6 +217,7 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
   const kind = asKind(row.kind);
   if (!geoKey || !grain || !kind) return null;
   const name = row.name?.trim() || null;
+  const geometry = parseOptionalGeometry(row.geometry_geojson);
   return {
     id: `${grain}:${geoKey}`,
     geoKey,
@@ -216,7 +229,18 @@ function toCandidate(row: AreaCandidateSqlRow): AreaCandidate | null {
     plz: row.plz?.trim() || null,
     lon: toCoord(row.lon),
     lat: toCoord(row.lat),
+    geometry: geometry,
+    geometryUnavailableReason: geometry ? null : "Die Fläche kann noch nicht gezeichnet werden.",
   };
+}
+
+function parseOptionalGeometry(raw: string | null | undefined): RegionGeometry | null {
+  if (!raw || !raw.trim()) return null;
+  try {
+    return parseRegionGeometry(JSON.parse(raw) as unknown);
+  } catch {
+    return null;
+  }
 }
 
 function asGrain(value: string | null): Grain | null {

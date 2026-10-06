@@ -51,6 +51,7 @@ export type {
   RecommendationEvidence,
   RecommendationLocation,
   RecommendationSet,
+  RecommendationTrend,
   RecommendationWindow,
   RegionGeometry,
   RevenueDirection,

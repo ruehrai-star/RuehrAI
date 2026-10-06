@@ -114,6 +114,7 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.match).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.scope).toBe("local");
     expect(ranked[0]?.criteriaEvidence[0]?.baseline).toBe("per_1000_inhabitants");
+    expect(ranked[0]?.criteriaEvidence[0]?.baselineMatch).toBe(true);
     expect(ranked[0]?.criteriaEvidence[0]?.rawValue).toBe(8);
     expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBe(0.8);
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toContain("Dreijahresverlauf");
@@ -437,6 +438,94 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toMatch(/Bezugsgröße/);
     expect(JSON.stringify(ranked[0]?.criteriaEvidence)).not.toMatch(/"normalizedValue":0/);
     expect(ranked[0]?.score).toBe(0);
+  });
+
+  it("passes clipped geometry through and explains when the outline is missing", () => {
+    const polygon = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [11.4, 48.0],
+          [11.7, 48.0],
+          [11.7, 48.3],
+          [11.4, 48.3],
+          [11.4, 48.0],
+        ],
+      ],
+    };
+    const ranked = rankTeilflaechen(
+      [
+        candidate({
+          geoKey: "ortsteil:osm:down",
+          kind: "ortsteil",
+          title: "Falling",
+          ags: "09162000",
+          geometry: polygon,
+          geometryUnavailableReason: null,
+        }),
+        candidate({ geoKey: "ortsteil:osm:up", kind: "ortsteil", title: "Rising", ags: "09162000" }),
+      ],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:down",
+          points: [
+            { period: "2023", status: "present", value: 20 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:down"),
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:up",
+          points: [
+            { period: "2023", status: "present", value: 8 },
+            { period: "2025", status: "present", value: 20 },
+          ],
+        }),
+        inhabitants("ortsteil:osm:up"),
+      ],
+      [trendUp],
+    );
+
+    expect(ranked[0]?.geometry).toEqual(polygon);
+    expect(ranked[0]?.geometryUnavailableReason).toBeNull();
+    expect(ranked[0]?.trend?.direction).toBe("down");
+    expect(ranked[0]?.trend?.summary).toContain("Dreijahresverlauf");
+    expect(ranked[1]?.geometry).toBeNull();
+    expect(ranked[1]?.geometryUnavailableReason).toMatch(/gezeichnet/);
+  });
+
+  it("treats a baseline mismatch as absent and omits normalizedValue", () => {
+    const ranked = rankTeilflaechen(
+      [candidate({ geoKey: "ortsteil:osm:down", kind: "ortsteil", title: "Falling", ags: "09162000" })],
+      [
+        series({
+          metricId: "unfallatlas",
+          requestedGeoKey: "ortsteil:osm:down",
+          points: [
+            { period: "2023", status: "present", value: 20, baselineMethod: "estimate_address" },
+            { period: "2025", status: "present", value: 8, baselineMethod: "estimate_address" },
+          ],
+        }),
+        inhabitants("ortsteil:osm:down"),
+      ],
+      [
+        {
+          ...trendUp,
+          baseline: "per_km2",
+          baselineMethod: "official",
+        },
+      ],
+    );
+
+    expect(ranked[0]?.criteriaEvidence[0]?.baselineMatch).toBe(false);
+    expect(ranked[0]?.criteriaEvidence[0]?.kind).toBe("absent");
+    expect(ranked[0]?.criteriaEvidence[0]?.status).toBe("absent");
+    expect(ranked[0]?.criteriaEvidence[0]?.normalizedValue).toBeUndefined();
+    expect(ranked[0]?.criteriaEvidence[0]?.evidence).toMatch(/liegt nicht vor/);
+    expect(ranked[0]?.score).toBe(0);
+    expect(ranked[0]?.trend).toEqual({ direction: "unknown", summary: "" });
   });
 });
 

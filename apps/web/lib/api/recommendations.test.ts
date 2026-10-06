@@ -233,6 +233,77 @@ test("GET /recommendations accepts additive patternByDataset and still parses wi
   );
 });
 
+test("GET /recommendations accepts 0.18 geometry, series coverage, trend, and baselineMatch", async () => {
+  const withHit = {
+    ...set,
+    patternByDataset: [
+      {
+        metricId: "unfallatlas",
+        baseline: "per_1000_inhabitants",
+        sourceLevel: "plz",
+        sourceGeoKey: "80801",
+        baselineMatch: true,
+        yearlySeries: {
+          metricId: "unfallatlas",
+          requestedLevel: "plz",
+          requestedGeoKey: "80801",
+          sourceLevel: "plz",
+          sourceGeoKey: "80801",
+          granularity: "year",
+          coverage: "series",
+          points: [
+            { period: "2023", status: "present", value: 10 },
+            { period: "2025", status: "present", value: 8 },
+          ],
+        },
+        criterion: {
+          key: "unfallatlas",
+          label: "Unfälle",
+          direction: "down",
+          evidence: "fällt",
+        },
+      },
+    ],
+    items: [
+      {
+        ...set.items[0],
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [11.5, 48.1],
+              [11.6, 48.1],
+              [11.6, 48.2],
+              [11.5, 48.2],
+              [11.5, 48.1],
+            ],
+          ],
+        },
+        geometryUnavailableReason: null,
+        trend: { direction: "down", summary: "Unfälle fallen seit drei Jahren." },
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            baselineMatch: false,
+            evidence: "Unfälle liegt nicht vor.",
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withHit),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.geometry?.type, "Polygon");
+  assert.equal(latest?.items[0]?.geometryUnavailableReason, null);
+  assert.equal(latest?.items[0]?.trend?.direction, "down");
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.baselineMatch, false);
+  assert.equal(latest?.patternByDataset?.[0]?.yearlySeries.coverage, "series");
+  assert.equal(latest?.patternByDataset?.[0]?.baselineMatch, true);
+});
+
 test("GET /recommendations maps 404 to no set", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
