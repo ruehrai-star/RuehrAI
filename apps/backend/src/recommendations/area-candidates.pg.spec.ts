@@ -163,7 +163,8 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         ('06200311', 'Alt-Lankwitz', '11000000', '11000006', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($11), 4326)),
         ('02200211', 'Chamissokiez', '11000000', '11000002', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($12), 4326)),
         ('07300619', 'Grazer Platz', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($13), 4326)),
-        ('07501031', 'Eisenacher Straße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($14), 4326))`,
+        ('07501031', 'Eisenacher Straße', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($14), 4326)),
+        ('07501032', 'Grenzweg', '11000000', '11000007', 'planungsraum', NULL, ST_SetSRID(ST_GeomFromGeoJSON($15), 4326))`,
       [
         box(13.355, 52.452, 13.37, 52.462),
         box(13.37, 52.452, 13.385, 52.462),
@@ -179,6 +180,7 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         box(13.38, 52.4, 13.4, 52.450025),
         box(13.4, 52.4, 13.415, 52.4500005),
         box(13.355, 52.4, 13.375, 52.45035),
+        box(13.36, 52.406, 13.38, 52.456),
       ],
     );
     await client.query(
@@ -199,6 +201,8 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400722'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400824'),
         ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07400926'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07501031'),
+        ('ortsteil', 'ortsteil:osm:162894', 'lor_plr', 'lor:plr:07501032'),
         ('ortsteil', 'ortsteil:osm:55737', 'lor_plr', 'lor:plr:06200420')
     `);
   }, 60_000);
@@ -261,6 +265,36 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     expect(lor[0]?.name).not.toMatch(/^lor:/);
     expect(lor[0]?.geometry_geojson).toContain("Polygon");
     await assertRowsIntersectRegion(lor, LICHTERFELDE.geometry!);
+  });
+
+  it("teil-catalog Tempelhof LOR drops Eisenacher (~0.7%) at default 0.1 and keeps ≥10%", async () => {
+    const query = teilCatalogQuery(TEMPELHOF);
+    expect(query.sql).toBe(buildTeilCatalogSql("prefer"));
+    const result = await client.query<{
+      geo_key: string;
+      kind: string;
+      name: string | null;
+      target_overlap_share: number | string | null;
+    }>(query.sql, query.params);
+    const lor = result.rows.filter((row) => row.kind === "lor");
+    const names = lor.map((row) => row.name);
+    expect(names).not.toContain("Eisenacher Straße");
+    expect(names).toContain("Grenzweg");
+    expect(names).toContain("Germaniagarten");
+    const grenz = lor.find((row) => row.name === "Grenzweg");
+    expect(Number(grenz?.target_overlap_share)).toBeGreaterThanOrEqual(0.1);
+    expect(Number(grenz?.target_overlap_share)).toBeLessThan(0.5);
+    const inner = lor.find((row) => row.name === "Germaniagarten");
+    expect(Number(inner?.target_overlap_share)).toBeGreaterThanOrEqual(0.9);
+
+    const strict = await client.query<{ name: string | null; kind: string }>(
+      buildTeilCatalogSql("prefer", 0.5),
+      query.params,
+    );
+    const strictLor = strict.rows.filter((row) => row.kind === "lor").map((row) => row.name);
+    expect(strictLor).not.toContain("Grenzweg");
+    expect(strictLor).not.toContain("Eisenacher Straße");
+    expect(strictLor).toContain("Germaniagarten");
   });
 
   it("drops Tempelhof edge fragments such as Alt-Lankwitz and keeps inner Teilflächen", async () => {

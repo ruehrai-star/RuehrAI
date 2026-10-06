@@ -72,8 +72,9 @@ export function readAnalysisUseWorkerThreads(
 /**
  * Minimum share of a polygon candidate that must lie inside the Zielregion
  * (`ST_Area(intersection) / ST_Area(candidate)` in EPSG:3035). Points,
- * addresses, raster cells, and `geo_ref_zielregion_teil` children are not
- * filtered. Default 0.10.
+ * addresses, and raster cells are not filtered. Teil-catalog polygons
+ * (Berlin LOR Planungsräume from `geo_ref_zielregion_teil`, Ortsteile)
+ * are filtered when Zielregion geometry is present. Default 0.10.
  */
 export function readAnalysisMinOverlapShare(
   read: (name: string) => string | undefined = (name) => process.env[name],

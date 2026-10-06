@@ -24,7 +24,7 @@ import {
   SeriesBaseline,
 } from "../analysis/series-baseline";
 import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-series";
-import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
+import { AreaCandidate, AreaKind, areaKindRank, filterByMinOverlapShare } from "./area-candidates";
 import { areaGroupKey, displayAreaName, hitParentLabel } from "./hit-display";
 import {
   canonicalScoreLevel,
@@ -94,10 +94,11 @@ export function rankTeilflaechen(
 ): ScoredLocation[] {
   const config = options.config ?? readScoreFormulaConfig();
   const patternByDataset = options.patternByDataset ?? [];
+  const eligible = filterByMinOverlapShare(candidates);
   const normalized = attachNormalizedValues(series);
-  const hits = selectDatasetHits(candidates, normalized, criteria);
+  const hits = selectDatasetHits(eligible, normalized, criteria);
   const byGeoKey = groupSeries(normalized);
-  const byGroup = indexByGroup(candidates);
+  const byGroup = indexByGroup(eligible);
   const patternRefs = new Map(
     criteria.map((criterion) => [criterion.key, patternRefForCriterion(criterion, patternByDataset)] as const),
   );
@@ -152,7 +153,7 @@ export function rankTeilflaechen(
     });
     const combined = combineCandidateScore(parts, config);
     const name = displayAreaName(item.candidate);
-    const parentLabel = hitParentLabel(item.candidate, candidates, regions, byGroup);
+    const parentLabel = hitParentLabel(item.candidate, eligible, regions, byGroup);
     const intersectionOf = intersectionParts(item.candidate, byGroup, byGeoKey, criteria);
     const targetRegionGeoKey = item.candidate.targetRegionGeoKey?.trim() ?? "";
     scored.push({
