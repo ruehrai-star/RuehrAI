@@ -8,13 +8,15 @@ import {
   ANALYSIS_COPY,
   brainStatusText,
   criterionDirectionLabel,
-  formatAnalysisSummary,
   patternSourceLabel,
   revenueDirectionLabel,
+  revenueMonthCount,
 } from "@/lib/analysis/model";
+import { regionsFromRunInput } from "@/lib/analysis/run-label";
 import { analysisFailureFromHttp, analysisFailureMessage } from "@/lib/analysis/failure";
 import { isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
+import { RunRegionLabel } from "./run-region-label";
 import { useSession } from "./session-provider";
 
 type Phase = "loading" | "idle" | "running" | "failed" | "deadline";
@@ -174,7 +176,10 @@ export function MusteranalysePage() {
         <p className="summary-caption">{ANALYSIS_COPY.summary}</p>
         {visibleInput ? (
           <>
-            <p className="summary-line">{formatAnalysisSummary(visibleInput)}</p>
+            <p className="summary-line">
+              Zielregion: <RunRegionLabel regions={regionsFromRunInput(visibleInput)} />
+              {` · Filialen: ${visibleInput.stores.length} · Monate Umsatz: ${revenueMonthCount(visibleInput)}`}
+            </p>
             <p className="hint">Umsatzrichtung: {revenueDirectionLabel(visibleInput.revenueDirection)}</p>
           </>
         ) : null}

@@ -1,7 +1,13 @@
 import type { AnalysisPattern, AnalysisRun, YearlySeries } from "@ruehrai/api-contracts";
 import { ApiError, isGrain, type AnalysisPatternRegion, type AnalysisPatternResponse } from "../api/types.ts";
 import type { RuehrApi } from "../api/client.ts";
-import { catalogBadge, catalogLevelOf, catalogParentName, catalogPlaceName } from "../format.ts";
+import {
+  formatRunRegionLabel,
+  regionsFromRunInput,
+  runRegionEntryLabel,
+  type RunRegionSource,
+} from "../analysis/run-label.ts";
+import { catalogLevelOf, catalogParentName, catalogPlaceName } from "../format.ts";
 import { catalogKeyVariants, placeKeySet, samePlace, type PlaceRef } from "../locations/regions.ts";
 
 /**
@@ -17,6 +23,8 @@ export interface BoundVerlauf {
   runId: string;
   createdAt: string;
   region: AnalysisPatternRegion;
+  /** All Zielregionen on the run snapshot, newest first. */
+  regions: AnalysisPatternRegion[];
   pattern: AnalysisPattern;
 }
 
@@ -27,23 +35,13 @@ export function patternQueryGeoKey(region: PlaceRef | null | undefined): string 
 }
 
 /**
- * Visible region name for the Stand line.
- * With parentLabel: name and parent. Without: name and level.
+ * Visible region name for the Stand line and header.
+ * `Name (Gemeinde)` from parentLabel, or the name alone. Never a key or level code.
  */
 export function standRegionLabel(
-  region: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
+  region: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null }) | null | undefined,
 ): string {
-  if (!region) return "";
-  const name = catalogPlaceName(region) ?? trimLabel(region.label);
-  const parent = catalogParentName(region);
-  if (parent) return [name, parent].filter((part) => part.length > 0).join(", ");
-  const level = catalogBadge({
-    level: region.level,
-    grain: isGrain(region.grain) ? region.grain : undefined,
-    geoKey: region.geoKey,
-    ags: typeof region.ags === "string" ? region.ags : undefined,
-  });
-  return [name, level].filter((part) => part.length > 0).join(", ");
+  return runRegionEntryLabel(region);
 }
 
 export function formatStandDate(createdAt: string): string {
@@ -59,12 +57,26 @@ export function formatStandDate(createdAt: string): string {
   }).format(date);
 }
 
-/** `Stand: Lauf vom [Datum, Uhrzeit] für [Name der Region].` */
+export function formatStandPrefix(createdAt: string): string {
+  return `Stand: Lauf vom ${formatStandDate(createdAt)} für `;
+}
+
+/** `Stand: Lauf vom [Datum, Uhrzeit] für [run label].` Uses the collapsed summary when many. */
 export function formatStandLine(
   createdAt: string,
-  region: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
+  region:
+    | RunRegionSource
+    | readonly RunRegionSource[]
+    | null
+    | undefined,
 ): string {
-  return `Stand: Lauf vom ${formatStandDate(createdAt)} für ${standRegionLabel(region)}`;
+  const regions = Array.isArray(region) ? region : region ? [region] : [];
+  return `${formatStandPrefix(createdAt)}${formatRunRegionLabel(regions).summary}`;
+}
+
+export function standRegionsOf(bound: BoundVerlauf | null | undefined): AnalysisPatternRegion[] {
+  if (!bound) return [];
+  return bound.regions.length > 0 ? bound.regions : bound.region ? [bound.region] : [];
 }
 
 export function patternMatchesMarkedRegion(
@@ -131,7 +143,9 @@ export async function loadPatternForMarkedRegion(
     }
   }
 
-  return bindPatternToMarkedRegion({ latest, run, marked });
+  const bound = bindPatternToMarkedRegion({ latest, run, marked });
+  if (!bound) return null;
+  return withRunRegions(bound, run ?? (await readRunRegions(api, bound.runId)));
 }
 
 function toBound(
@@ -139,17 +153,48 @@ function toBound(
   region: AnalysisPatternRegion | PlaceRef,
   marked: PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null },
 ): BoundVerlauf {
+  const merged = mergeStandRegion(region, marked);
   return {
     runId: latest.runId,
     createdAt: latest.createdAt,
-    region: mergeStandRegion(region, marked),
+    region: merged,
+    regions: [merged],
     pattern: withRegionSeries(latest.pattern, marked),
   };
+}
+
+async function readRunRegions(
+  api: Pick<RuehrApi, "getAnalysisRun">,
+  runId: string,
+): Promise<AnalysisRun | null> {
+  try {
+    return await api.getAnalysisRun(runId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    return null;
+  }
+}
+
+function withRunRegions(bound: BoundVerlauf, run: AnalysisRun | null): BoundVerlauf {
+  if (!run) return bound;
+  const fromRun = regionsFromRunInput(run.input).map(snapshotRegion).filter((region) => region.label.length > 0);
+  return { ...bound, regions: fromRun.length > 0 ? fromRun : bound.regions };
 }
 
 function withRegionSeries(pattern: AnalysisPattern, marked: PlaceRef): AnalysisPattern {
   if (!pattern.yearlySeries) return pattern;
   return { ...pattern, yearlySeries: yearlySeriesForRegion(pattern.yearlySeries, marked) };
+}
+
+function snapshotRegion(region: AnalysisPatternRegion | PlaceRef): AnalysisPatternRegion {
+  const grain = "grain" in region && isGrain(region.grain) ? region.grain : undefined;
+  return {
+    label: trimLabel(region.label) || catalogPlaceName(region) || "",
+    geoKey: typeof region.geoKey === "string" ? region.geoKey : null,
+    level: catalogLevelOf("level" in region ? region.level : undefined),
+    parentLabel: catalogParentName(region),
+    grain,
+  };
 }
 
 function mergeStandRegion(

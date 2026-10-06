@@ -10,7 +10,7 @@ import { buildKarte } from "@/lib/map/karte";
 import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { formatStandLine, loadPatternForMarkedRegion, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { formatStandPrefix, loadPatternForMarkedRegion, standRegionsOf, type BoundVerlauf } from "@/lib/verlauf/bind";
 import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
 import {
   POST_STANDORTE_HREF,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/verlauf/model";
 import { CatalogHitLabel } from "./catalog-hit-label";
 import { ProofMap } from "./proof-map";
+import { RunRegionLabel } from "./run-region-label";
 import { useSession } from "./session-provider";
 
 type PagePhase = "loading" | "idle" | "failed";
@@ -44,6 +45,7 @@ export function VerlaufPage() {
   const [revenue, setRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [bindNonce, setBindNonce] = useState(0);
   const request = useRef(0);
   const bindRequest = useRef(0);
 
@@ -70,7 +72,8 @@ export function VerlaufPage() {
       ? recommendationStatus(boundRecommendations)
       : null;
   const revenueCount = optionalRevenueCount(revenue);
-  const standLine = bindPhase === "ready" && bound ? formatStandLine(bound.createdAt, bound.region) : null;
+  const runRegions = bindPhase === "ready" && bound ? standRegionsOf(bound) : [];
+  const standPrefix = bindPhase === "ready" && bound ? formatStandPrefix(bound.createdAt) : null;
   const showEmpty =
     visible &&
     pagePhase === "idle" &&
@@ -153,7 +156,7 @@ export function VerlaufPage() {
         setBindFailed(true);
       }
     })();
-  }, [session, pagePhase, regions, markedKey, analysisApi, recommendationApi]);
+  }, [session, pagePhase, regions, markedKey, analysisApi, recommendationApi, bindNonce]);
 
   async function onCreate() {
     if (!bound || bindPhase !== "ready") return;
@@ -246,10 +249,11 @@ export function VerlaufPage() {
           ))}
         </ol>
 
-        {standLine ? (
-          <p className="verlauf-stand" role="status">
-            {standLine}
-          </p>
+        {standPrefix ? (
+          <div className="verlauf-stand" role="status">
+            {standPrefix}
+            <RunRegionLabel regions={runRegions} />
+          </div>
         ) : null}
 
         {pagePhase === "loading" || bindPhase === "loading" ? <p className="message">Verlauf wird geladen …</p> : null}
@@ -264,9 +268,14 @@ export function VerlaufPage() {
           </p>
         ) : null}
         {bindPhase === "failed" ? (
-          <p className="message message-error" role="alert">
-            {VERLAUF_COPY.analysisFailed}
-          </p>
+          <div className="verlauf-load-error">
+            <p className="message" role="status">
+              {VERLAUF_COPY.loadFailed}
+            </p>
+            <button type="button" className="button" onClick={() => setBindNonce((value) => value + 1)}>
+              {VERLAUF_COPY.retryLoad}
+            </button>
+          </div>
         ) : null}
         {recPhase === "failed" && actionError ? (
           <p className="message message-error" role="alert">

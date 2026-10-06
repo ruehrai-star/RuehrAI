@@ -6,8 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendationSet, TargetRegion } from "@/lib/api";
 import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
+import { formatRunRegionLabel } from "@/lib/analysis/run-label";
 import { analysisFailureFromHttp } from "@/lib/analysis/failure";
-import { isInFlightStatus } from "@/lib/analysis/poll";
+import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
 import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildTrefferlisteKarte } from "@/lib/map/karte";
@@ -23,9 +24,10 @@ import {
   type TrefferCriterionRow,
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { formatStandLine, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { formatStandPrefix, standRegionsOf, type BoundVerlauf } from "@/lib/verlauf/bind";
 import { bindTrefferlisteForRegion, loadTrefferlisteAfterCompletedRun, pollTrefferlisteRun } from "@/lib/recommendations/bind";
 import { CatalogHitLabel } from "./catalog-hit-label";
+import { RunRegionLabel } from "./run-region-label";
 import { useSession } from "./session-provider";
 
 const MapView = dynamic(() => import("./map-view").then((mod) => mod.MapView), {
@@ -52,6 +54,8 @@ export function EmpfehlungenPage() {
   const [runPhase, setRunPhase] = useState<RunPhase>("idle");
   const [runError, setRunError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [runLock, setRunLock] = useState(false);
+  const [bindNonce, setBindNonce] = useState(0);
   const [showPattern, setShowPattern] = useState(false);
   const [selectedHitId, setSelectedHitId] = useState<string | null>(null);
   const bindRequest = useRef(0);
@@ -76,6 +80,11 @@ export function EmpfehlungenPage() {
     runStatus: runPhase,
   });
   const inFlight = runPhase === "queued" || runPhase === "running";
+  const startLocked = analysisStartLocked({
+    starting,
+    runStatus: runPhase,
+    otherInFlight: runLock,
+  });
   const boundRecommendations =
     bindPhase === "ready" &&
     !inFlight &&
@@ -93,9 +102,10 @@ export function EmpfehlungenPage() {
       bindPhase === "ready" && !inFlight ? buildPatternProfile(boundRecommendations?.patternByDataset) : [],
     [bindPhase, boundRecommendations, inFlight],
   );
-  const standLine =
-    bindPhase === "ready" && !inFlight && bound ? formatStandLine(bound.createdAt, bound.region) : null;
-  const heading = headingForMarkedRegion(marked);
+  const runRegions = bindPhase === "ready" && !inFlight && bound ? standRegionsOf(bound) : [];
+  const standPrefix =
+    bindPhase === "ready" && !inFlight && bound ? formatStandPrefix(bound.createdAt) : null;
+  const heading = headingForMarkedRegion(marked, runRegions);
   const showEmptyRun =
     visible &&
     pagePhase === "idle" &&
@@ -111,6 +121,13 @@ export function EmpfehlungenPage() {
   function stopPolling() {
     pollAbort.current?.abort();
     pollAbort.current = null;
+  }
+
+  function rememberInflight(key: string | null, id: string | null) {
+    if (!key) return;
+    if (id) inflightByKey.current.set(key, id);
+    else inflightByKey.current.delete(key);
+    setRunLock(inflightByKey.current.size > 0);
   }
 
   useEffect(() => {
@@ -173,6 +190,7 @@ export function EmpfehlungenPage() {
           setBindFailed(false);
           setSelectedHitId(null);
           setRunPhase(next.status);
+          rememberInflight(key, next.runId);
           const controller = new AbortController();
           pollAbort.current = controller;
           const settled = await pollTrefferlisteRun(analysisApi, next.runId, current, {
@@ -183,7 +201,7 @@ export function EmpfehlungenPage() {
             },
           });
           if (bindRequest.current !== token || settled.kind === "aborted") return;
-          if (key) inflightByKey.current.delete(key);
+          rememberInflight(key, null);
           if (settled.kind === "deadline") {
             setRunPhase("deadline");
             setRunError(RECOMMENDATION_COPY.analysisDeadline);
@@ -218,7 +236,7 @@ export function EmpfehlungenPage() {
           setSelectedHitId(null);
           setRunPhase("failed");
           setRunError(next.message);
-          if (key) inflightByKey.current.delete(key);
+          rememberInflight(key, null);
           return;
         }
         if (next.kind === "ready") {
@@ -228,7 +246,7 @@ export function EmpfehlungenPage() {
           setBindFailed(false);
           setSelectedHitId(null);
           setRunPhase("idle");
-          if (key) inflightByKey.current.delete(key);
+          if (key) rememberInflight(key, null);
           return;
         }
         setBound(null);
@@ -248,12 +266,13 @@ export function EmpfehlungenPage() {
         setRunPhase("idle");
       }
     })();
-  }, [session, pagePhase, regions, markedKey, analysisApi]);
+  }, [session, pagePhase, regions, markedKey, analysisApi, bindNonce]);
 
   async function onStartAnalysis() {
     const current = markedRegion(regions, markedKey);
     const key = current ? regionListKey(current) : null;
     if (!current || !key) return;
+    if (starting || inflightByKey.current.size > 0 || runPhase === "queued" || runPhase === "running") return;
     const token = bindRequest.current + 1;
     bindRequest.current = token;
     stopPolling();
@@ -263,10 +282,12 @@ export function EmpfehlungenPage() {
     setRunPhase("idle");
     try {
       const created = await analysisApi.createAnalysisRun();
+      if (isInFlightStatus(created.status)) {
+        rememberInflight(key, created.id);
+      }
       setStarting(false);
       if (bindRequest.current !== token) return;
       if (isInFlightStatus(created.status)) {
-        inflightByKey.current.set(key, created.id);
         setRunPhase(created.status);
         setBound(null);
         setRecommendationSet(null);
@@ -281,7 +302,7 @@ export function EmpfehlungenPage() {
           },
         });
         if (bindRequest.current !== token || settled.kind === "aborted") return;
-        if (key) inflightByKey.current.delete(key);
+        rememberInflight(key, null);
         if (settled.kind === "deadline") {
           setRunPhase("deadline");
           setRunError(RECOMMENDATION_COPY.analysisDeadline);
@@ -307,13 +328,13 @@ export function EmpfehlungenPage() {
         return;
       }
       if (created.status === "failed") {
-        if (key) inflightByKey.current.delete(key);
+        rememberInflight(key, null);
         setRunPhase("failed");
         setRunError(analysisFailureFromHttp(0, created.failureReason));
         setBoundKey(key);
         return;
       }
-      if (key) inflightByKey.current.delete(key);
+      rememberInflight(key, null);
       const loaded = await loadTrefferlisteAfterCompletedRun(analysisApi, created.id, current);
       if (bindRequest.current !== token) return;
       if (loaded.kind === "ready") {
@@ -397,12 +418,24 @@ export function EmpfehlungenPage() {
           <p className="message">Noch keine Zielregion gespeichert.</p>
         )}
 
-        {standLine ? (
-          <p className="treffer-stand" role="status">
-            {standLine}
-          </p>
+        {standPrefix ? (
+          <div className="treffer-stand" role="status">
+            {standPrefix}
+            <RunRegionLabel regions={runRegions} />
+          </div>
         ) : null}
-        {heading && bindPhase === "ready" && !inFlight ? <h1>{heading}</h1> : <h1>{RECOMMENDATION_COPY.title}</h1>}
+        {bindPhase === "ready" && !inFlight && runRegions.length > 0 ? (
+          <h1>
+            {formatRunRegionLabel(runRegions).expandable
+              ? RECOMMENDATION_COPY.subtitlePlural
+              : RECOMMENDATION_COPY.subtitle}{" "}
+            <RunRegionLabel regions={runRegions} />
+          </h1>
+        ) : heading && bindPhase === "ready" && !inFlight ? (
+          <h1>{heading}</h1>
+        ) : (
+          <h1>{RECOMMENDATION_COPY.title}</h1>
+        )}
 
         {status.text ? (
           <p
@@ -418,9 +451,14 @@ export function EmpfehlungenPage() {
           </p>
         ) : null}
         {bindPhase === "failed" && !inFlight ? (
-          <p className="message message-error" role="alert">
-            {RECOMMENDATION_COPY.analysisFailed}
-          </p>
+          <div className="treffer-load-error">
+            <p className="message" role="status">
+              {RECOMMENDATION_COPY.loadFailed}
+            </p>
+            <button type="button" className="button" onClick={() => setBindNonce((value) => value + 1)}>
+              {RECOMMENDATION_COPY.retryLoad}
+            </button>
+          </div>
         ) : null}
         {runPhase === "failed" && runError ? (
           <p className="message message-error" role="alert">
@@ -434,7 +472,12 @@ export function EmpfehlungenPage() {
               {RECOMMENDATION_COPY.missingRun}
             </p>
             <div className="auth-actions">
-              <button type="button" className="button" onClick={() => void onStartAnalysis()}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => void onStartAnalysis()}
+                disabled={startLocked}
+              >
                 {RECOMMENDATION_COPY.startAnalysis}
               </button>
             </div>
@@ -443,7 +486,12 @@ export function EmpfehlungenPage() {
 
         {showRestart ? (
           <div className="auth-actions">
-            <button type="button" className="button" onClick={() => void onStartAnalysis()}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => void onStartAnalysis()}
+              disabled={startLocked}
+            >
               {RECOMMENDATION_COPY.restartAnalysis}
             </button>
           </div>

@@ -55,17 +55,19 @@ export function analysisFailureMessage(reason: string | null | undefined): strin
   return withPrefix(ANALYSIS_FAILURE_COPY.unexpected);
 }
 
+/**
+ * HTTP mapping for a *final* failure. Gateway 502/504 on GET are not final
+ * (see `isTransientPollError`). Timeout copy is never derived from a status
+ * code — only from `failureReason=timeout` or the 180 s client deadline.
+ */
 export function analysisFailureFromHttp(status: number, body?: string | null): string {
-  if (status === 408 || status === 504 || status === 524) {
-    return analysisFailureMessage("timeout");
-  }
   if (status === 404) {
     return analysisFailureMessage("internal_error");
   }
   return analysisFailureMessage(body);
 }
 
-/** Client 3-minute safety net: same copy as a server `timeout`. */
+/** Client 180 s safety net: same copy as a server `timeout`. */
 export function clientDeadlineMessage(): string {
   return analysisFailureMessage("timeout");
 }

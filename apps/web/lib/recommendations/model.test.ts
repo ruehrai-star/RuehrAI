@@ -155,6 +155,8 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
+  assert.equal(RECOMMENDATION_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(RECOMMENDATION_COPY.retryLoad, "Erneut versuchen");
   assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
   assert.equal(RECOMMENDATION_COPY.analysisDeadline, "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.");
   assert.equal(RECOMMENDATION_COPY.missingGeometry, "Die Fläche kann noch nicht gezeichnet werden.");
@@ -167,7 +169,18 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(recommendationSubtitle(2), "Top 3 in Ihrer Zielregion");
   assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in der Zielregion.");
   assert.equal(recommendationSubtitle("Berlin, Gemeinde"), "Top 3 in Ihrer Zielregion Berlin, Gemeinde");
-  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin, Gemeinde");
+  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin");
+  assert.equal(
+    headingForMarkedRegion(null, [
+      { label: "Innenstadt", geoKey: "a", parentLabel: "Köln" },
+      { label: "Rodenkirchen", geoKey: "b", parentLabel: "Köln" },
+      { label: "Lindenthal", geoKey: "c", parentLabel: "Köln" },
+      { label: "Ehrenfeld", geoKey: "d", parentLabel: "Köln" },
+      { label: "Nippes", geoKey: "e", parentLabel: "Köln" },
+      { label: "Chorweiler", geoKey: "f", parentLabel: "Köln" },
+    ]),
+    "Top 3 in Ihren Zielregionen Innenstadt (Köln) + 5 weitere",
+  );
 });
 
 test("a card address, score, window, and short criteria stay in German", () => {
@@ -580,6 +593,25 @@ test("loading copy stays neutral; Analyse läuft is only the in-flight line", ()
     text: "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.",
     tone: "error",
   });
+});
+
+test("bindFailed uses a neutral load sentence and Erneut versuchen, not Analyse fehlgeschlagen", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.equal(RECOMMENDATION_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(RECOMMENDATION_COPY.retryLoad, "Erneut versuchen");
+  assert.match(page, /RECOMMENDATION_COPY\.loadFailed/);
+  assert.match(page, /RECOMMENDATION_COPY\.retryLoad/);
+  const failedBlock = page.slice(page.indexOf("bindPhase === \"failed\""));
+  assert.match(failedBlock, /loadFailed/);
+  assert.equal(failedBlock.slice(0, 400).includes("analysisFailed"), false);
+});
+
+test("Musteranalyse starten and Erneut starten stay disabled while a run is in flight", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /analysisStartLocked/);
+  assert.match(page, /disabled=\{startLocked\}/);
+  assert.match(page, /RECOMMENDATION_COPY\.startAnalysis/);
+  assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
 });
 
 test("pattern profile lists datasets without ids or method codes", () => {

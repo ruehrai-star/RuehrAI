@@ -333,6 +333,7 @@ test("Verlauf page and proof map do not load demo-gemeinden", () => {
   assert.match(standorte, />\s*Verlauf\s*</);
   assert.match(page, /VERLAUF_COPY\.missingRun/);
   assert.match(page, /VERLAUF_COPY\.startAnalysis/);
+  assert.match(page, /VERLAUF_COPY\.loadFailed/);
   assert.match(page, /loadPatternForMarkedRegion/);
   assert.equal(page.includes("createAnalysisRun"), false);
 });

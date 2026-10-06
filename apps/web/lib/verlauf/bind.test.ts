@@ -88,22 +88,22 @@ function runFor(region: TargetRegion, regions?: TargetRegion[]): AnalysisRun {
   };
 }
 
-test("Stand line uses de-DE date and parentLabel when present", () => {
+test("Stand line uses de-DE date and Name (Gemeinde) when parentLabel is present", () => {
   const line = formatStandLine("2026-10-05T16:37:00.000Z", lankwitz);
   assert.match(line, /^Stand: Lauf vom /);
-  assert.match(line, / für Lankwitz, Berlin$/);
+  assert.match(line, / für Lankwitz \(Berlin\)$/);
   assert.match(line, /05\.10\.2026/);
   assert.match(line, /18:37/);
-  assert.equal(standRegionLabel(lankwitz), "Lankwitz, Berlin");
+  assert.equal(standRegionLabel(lankwitz), "Lankwitz (Berlin)");
 });
 
-test("Stand line uses name and level when parentLabel is missing", () => {
-  assert.equal(standRegionLabel(munich), "München, Gemeinde");
+test("Stand line uses the name alone when parentLabel is missing", () => {
+  assert.equal(standRegionLabel(munich), "München");
   const line = formatStandLine("2026-10-05T16:37:00.000Z", munich);
   assert.match(line, /^Stand: Lauf vom /);
-  assert.match(line, / für München, Gemeinde$/);
+  assert.match(line, / für München$/);
   assert.match(line, /05\.10\.2026/);
-  assert.doesNotMatch(line, /parentLabel|09162000/);
+  assert.doesNotMatch(line, /parentLabel|09162000|Gemeinde/);
 });
 
 test("empty and start copy stay exact Variante A strings", () => {
@@ -111,6 +111,8 @@ test("empty and start copy stay exact Variante A strings", () => {
   assert.equal(VERLAUF_COPY.startAnalysis, "Musteranalyse starten");
   assert.equal(VERLAUF_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(VERLAUF_COPY.analysisFailed, "Analyse fehlgeschlagen.");
+  assert.equal(VERLAUF_COPY.loadFailed, "Der Stand konnte gerade nicht geladen werden.");
+  assert.equal(VERLAUF_COPY.retryLoad, "Erneut versuchen");
 });
 
 test("query geoKey is the stored catalog key and missing keys stay empty", () => {
@@ -240,6 +242,34 @@ test("loadPatternForMarkedRegion verifies the run when region is omitted", async
   assert.ok(bound);
   assert.equal(bound.region.label, "Lankwitz");
   assert.equal(formatStandLine(bound.createdAt, bound.region), formatStandLine(bound.createdAt, lankwitz));
+  assert.equal(bound.regions.length, 1);
+});
+
+test("a run with six Zielregionen labels all of them on the Stand line", async () => {
+  const six = [
+    { ...lankwitz, label: "Innenstadt", geoKey: "stadtbezirk:koeln:innenstadt", level: "bezirk" as const, parentLabel: "Köln" },
+    { ...lankwitz, label: "Rodenkirchen", geoKey: "stadtbezirk:koeln:rodenkirchen", parentLabel: "Köln" },
+    { ...lankwitz, label: "Lindenthal", geoKey: "stadtbezirk:koeln:lindenthal", parentLabel: "Köln" },
+    { ...lankwitz, label: "Ehrenfeld", geoKey: "stadtbezirk:koeln:ehrenfeld", parentLabel: "Köln" },
+    { ...lankwitz, label: "Nippes", geoKey: "stadtbezirk:koeln:nippes", parentLabel: "Köln" },
+    { ...lankwitz, label: "Chorweiler", geoKey: "stadtbezirk:koeln:chorweiler", parentLabel: "Köln" },
+  ];
+  const bound = await loadPatternForMarkedRegion(
+    {
+      getAnalysisPattern: async () => ({
+        runId: "41",
+        createdAt: "2026-10-05T16:37:00.000Z",
+        region: six[0],
+        pattern,
+      }),
+      getAnalysisRun: async () => runFor(six[0]!, six),
+    },
+    six[0]!,
+  );
+  assert.ok(bound);
+  assert.equal(bound.regions.length, 6);
+  assert.equal(formatStandLine(bound.createdAt, bound.regions), formatStandLine(bound.createdAt, six));
+  assert.match(formatStandLine(bound.createdAt, bound.regions), /Innenstadt \(Köln\) \+ 5 weitere$/);
 });
 
 test("a 500 from the run lookup is not turned into another region's series", async () => {

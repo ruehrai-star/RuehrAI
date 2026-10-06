@@ -73,6 +73,8 @@ export const VERLAUF_COPY = {
   running: RECOMMENDATION_COPY.running,
   analysisRunning: "Analyse läuft …",
   analysisFailed: "Analyse fehlgeschlagen.",
+  loadFailed: "Der Stand konnte gerade nicht geladen werden.",
+  retryLoad: "Erneut versuchen",
   noneYet: RECOMMENDATION_COPY.noneYet,
   empty: RECOMMENDATION_COPY.empty,
   thin: RECOMMENDATION_COPY.thin,

@@ -62,6 +62,7 @@ export function catalogBadge(source: CatalogBadgeSource): string {
   if (level) return CATALOG_LEVEL_LABELS[level];
   const geoKey = source.geoKey || source.id || "";
   if (/^lor:/i.test(geoKey) || source.level === "lor") return "LOR";
+  // Köln Stadtquartier. Berlin LOR Planungsraum is `lor:plr` (Treffer badge Quartier).
   if (/^koeln:sq:/i.test(geoKey) || source.level === "quartier" || source.level === "koeln_quartier") {
     return "Quartier";
   }

@@ -3,7 +3,7 @@ import type { RuehrApi } from "../api/client.ts";
 import { ApiError } from "../api/types.ts";
 import type { RecommendationSet } from "../api/types.ts";
 import { analysisFailureFromHttp, analysisFailureMessage } from "../analysis/failure.ts";
-import { isInFlightStatus, pollAnalysisRun, type InFlightRunStatus, type PollAnalysisOptions } from "../analysis/poll.ts";
+import { isInFlightStatus, isTransientPollError, pollAnalysisRun, type InFlightRunStatus, type PollAnalysisOptions } from "../analysis/poll.ts";
 import { loadPatternForMarkedRegion } from "../verlauf/bind.ts";
 import type { BoundVerlauf } from "../verlauf/bind.ts";
 import type { PlaceRef } from "../locations/regions.ts";
@@ -72,6 +72,9 @@ async function readKnownRun(
   try {
     run = await api.getAnalysisRun(runId);
   } catch (error) {
+    if (isTransientPollError(error)) {
+      return { kind: "in_flight", runId, status: "running" };
+    }
     if (error instanceof ApiError) {
       return { kind: "failed", runId, message: analysisFailureFromHttp(error.status, error.message) };
     }

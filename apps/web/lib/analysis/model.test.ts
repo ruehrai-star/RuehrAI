@@ -71,6 +71,23 @@ test("summary counts stores and months that have a revenue, including zero", () 
     formatAnalysisSummary(input),
     "Zielregion: München · Filialen: 2 · Monate Umsatz: 3",
   );
+  const six = {
+    ...input,
+    region: { ...input.region, label: "Innenstadt", parentLabel: "Köln", geoKey: "stadtbezirk:koeln:innenstadt" },
+    regions: [
+      { ...input.region, label: "Innenstadt", parentLabel: "Köln", geoKey: "a" },
+      { ...input.region, label: "Rodenkirchen", parentLabel: "Köln", geoKey: "b" },
+      { ...input.region, label: "Lindenthal", parentLabel: "Köln", geoKey: "c" },
+      { ...input.region, label: "Ehrenfeld", parentLabel: "Köln", geoKey: "d" },
+      { ...input.region, label: "Nippes", parentLabel: "Köln", geoKey: "e" },
+      { ...input.region, label: "Chorweiler", parentLabel: "Köln", geoKey: "f" },
+    ],
+  };
+  assert.equal(
+    formatAnalysisSummary(six),
+    "Zielregion: Innenstadt (Köln) + 5 weitere · Filialen: 2 · Monate Umsatz: 3",
+  );
+  assert.equal(formatAnalysisSummary(six).includes("geoKey"), false);
   assert.equal(revenueDirectionLabel("up"), "steigend");
   assert.equal(revenueDirectionLabel("down"), "fallend");
   assert.equal(revenueDirectionLabel("flat"), "unverändert");
