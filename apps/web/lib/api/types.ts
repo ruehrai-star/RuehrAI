@@ -78,9 +78,26 @@ export type RecommendationLocation = ContractRecommendationLocation & {
   level?: CatalogLevel | null;
   parentLabel?: string | null;
 };
+
+/**
+ * OpenAPI 0.19.2 item fields. `targetRegionGeoKey` is required on new sets;
+ * older stored rows hydrate to `""`. `dataAsOf` is year/month or null.
+ */
+export type RecommendationV192Fields = {
+  targetRegionGeoKey: string;
+  dataAsOf?: string | null;
+};
+
 export type Recommendation = Omit<ContractRecommendation, "location"> & {
   location: RecommendationLocation;
 };
+
+/** Snapshot of keys actually used as `items[].targetRegionGeoKey`. */
+export type RecommendationTargetRegionRef = {
+  geoKey: string;
+  label?: string;
+};
+
 export type RecommendationSet = Omit<ContractRecommendationSet, "items"> & {
   items: Recommendation[];
 };
@@ -118,7 +135,7 @@ export type AnalysisPatternResponse = Omit<ContractAnalysisPatternResponse, "reg
 /**
  * Browser session derived from `POST /auth/login` or `POST /auth/register`
  * (`TokenResponse`). Abmelden calls `POST /auth/logout` and then deletes
- * this record from sessionStorage.
+ * this record from localStorage.
  */
 export interface Session {
   accessToken: string;

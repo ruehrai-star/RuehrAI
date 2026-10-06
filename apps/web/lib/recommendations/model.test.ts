@@ -20,6 +20,7 @@ import {
   hitName,
   inheritedLabel,
   intersectionLine,
+  isLegacyTargetRegionSet,
   mapDisplayName,
   overlapDetailLines,
   overlapLageSentence,
@@ -30,6 +31,7 @@ import {
   seriesLevelBadge,
   shortCriteria,
   stichtagCopy,
+  stichtagFromDataAsOf,
   topHits,
   trefferStatusCopy,
   trendSummary,
@@ -81,7 +83,7 @@ function item(partial: Partial<Recommendation> & Pick<Recommendation, "id" | "ra
     source: "heuristic",
     geometry: polygon,
     trend: { direction: "up", summary: "Einwohner steigt seit drei Jahren, je 1.000 Einwohner." },
-    targetRegionGeoKey: "ortsteil:osm:5712247",
+    targetRegionGeoKey: "11000000",
     ...partial,
     location: {
       geoKey: "ortsteil:osm:5712247",
@@ -157,6 +159,8 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(RECOMMENDATION_COPY.empty, "Keine passenden Standorte in der Zielregion.");
   assert.equal(RECOMMENDATION_COPY.missingRun, "Für diese Zielregion liegt noch kein Analyselauf vor.");
   assert.equal(RECOMMENDATION_COPY.startAnalysis, "Musteranalyse starten");
+  assert.equal(RECOMMENDATION_COPY.restartAnalysis, "Erneut starten");
+  assert.equal(RECOMMENDATION_COPY.legacySet, "Diese Analyse stammt aus einer älteren Version. Bitte neu berechnen.");
   assert.equal(RECOMMENDATION_COPY.loading, "Wird geladen …");
   assert.equal(RECOMMENDATION_COPY.analysisRunning, "Analyse läuft …");
   assert.equal(RECOMMENDATION_COPY.analysisFailed, "Analyse fehlgeschlagen.");
@@ -199,7 +203,7 @@ test("Trefferliste heading is always singular for the currently marked Zielregio
   assert.equal(page.includes("subtitlePlural"), false);
   assert.equal(page.includes("formatRunRegionLabel"), false);
   assert.match(page, /<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
-  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
+  assert.match(page, /\{standPrefix \?[\s\S]*<RunRegionLabel regions=\{runRegions\} catalog=\{visibleRegions\} \/>[\s\S]*<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
   assert.match(page, /RECOMMENDATION_COPY\.empty/);
   assert.equal(page.includes("emptyPlural"), false);
 });
@@ -398,6 +402,26 @@ test("backend Quartier plus digits maps to Quartier ohne Namen", () => {
   assert.equal(hitName(numbered).includes("101"), false);
   assert.equal(buildTrefferCard(numbered, undefined).name, "Quartier ohne Namen");
   assert.equal(hitName(named), "Belgisches Viertel");
+});
+
+test("a LOR hit without a name stays visible as Planungsraum ohne Namen", () => {
+  const lor = item({
+    id: "other:lor:plr:07400823",
+    rank: 1,
+    kind: "lor",
+    name: null,
+    title: "lor:plr:07400823",
+    location: { geoKey: "lor:plr:07400823", grain: "other", lon: null, lat: null, name: null },
+    trend: { direction: "up", summary: "Unfälle steigen je km²." },
+  });
+  assert.equal(hitName(lor), "Planungsraum ohne Namen");
+  const card = buildTrefferCard(lor, [patternDataset]);
+  assert.equal(card.name, "Planungsraum ohne Namen");
+  assert.equal(card.trendSummary, "Unfälle steigen je km².");
+  assert.equal(card.criteria[0]?.coverage, "series");
+  assert.equal(card.name.includes("lor:plr"), false);
+  assert.equal((card.trendSummary ?? "").includes("lor:plr"), false);
+  assert.equal(visibleHits([lor], markedGemeinde).length, 1);
 });
 
 test("recommendation copy never shows the catalog key", () => {
@@ -795,6 +819,7 @@ test("Musteranalyse starten and Erneut starten stay disabled while a run is in f
   assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
   assert.match(page, /startGate\.current/);
   assert.match(page, /\{showEmptyRun \?[\s\S]*RECOMMENDATION_COPY\.startAnalysis[\s\S]*disabled=\{startLocked\}/);
+  assert.match(page, /\{showLegacySet \?[\s\S]*RECOMMENDATION_COPY\.restartAnalysis[\s\S]*disabled=\{startLocked\}/);
   assert.match(page, /async function onStartAnalysis\(\) \{[\s\S]*startGate\.current[\s\S]*analysisStartLocked/);
 });
 
@@ -1082,6 +1107,30 @@ test("overlap labels use the same name mapping as hits", () => {
   assert.equal(/\d{8}/.test(visible), false);
 });
 
+test("a PLZ overlap whose label is only digits is PLZ 12207, not PLZ ohne Namen", () => {
+  const digits = [{ geoKey: "plz5:12207", label: "12207", kind: "plz" as const, share: 1 }];
+  const empty = [{ geoKey: "plz5:12207", label: "", kind: "plz" as const, share: 1 }];
+  const already = [{ geoKey: "plz5:12207", label: "PLZ 12207", kind: "plz" as const, share: 1 }];
+  assert.equal(overlapLageSentence(digits), "Liegt in PLZ 12207.");
+  assert.equal(overlapDetailLines(digits)[0], "PLZ 12207: 100 %");
+  assert.equal(overlapLageSentence(empty), "Liegt in PLZ ohne Namen.");
+  assert.equal(overlapLageSentence(already), "Liegt in PLZ 12207.");
+  assert.equal(overlapLageSentence(digits)?.includes("ohne Namen"), false);
+  assert.equal(mapDisplayName({ name: "12207", kind: "plz", geoKey: "plz5:12207" }), "PLZ 12207");
+  assert.equal(
+    hitName(
+      item({
+        id: "plz5:12207",
+        rank: 1,
+        kind: "plz",
+        name: "12207",
+        location: { geoKey: "plz5:12207", grain: "plz5", lon: null, lat: null, name: "12207" },
+      }),
+    ),
+    "PLZ 12207",
+  );
+});
+
 test("Lage-Satz sits in the card header and Details, not in the Begründung", () => {
   const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
   const head = page.slice(page.indexOf("function TrefferCard"), page.indexOf("card.trendSummary"));
@@ -1089,4 +1138,254 @@ test("Lage-Satz sits in the card header and Details, not in the Begründung", ()
   assert.match(head, /treffer-lage/);
   assert.match(page, /card\.overlapDetails/);
   assert.equal(page.includes("card.lage ? <p className=\"message\">"), false);
+});
+
+const markedTempelhof = {
+  label: "Tempelhof",
+  geoKey: "ortsteil:osm:162894",
+  grain: "other" as const,
+  level: "ortsteil" as const,
+  parentLabel: "Berlin",
+};
+
+const markedInnenstadt = {
+  label: "Innenstadt",
+  geoKey: "bezirk:osm:2613798",
+  grain: "other" as const,
+  level: "bezirk" as const,
+  parentLabel: "Köln",
+};
+
+test("visibleHits keeps only items whose targetRegionGeoKey is the marked geoKey", () => {
+  const templehofHit = item({
+    id: "lor:plr:tempelhof-1",
+    rank: 1,
+    kind: "lor",
+    title: "Lichtenrade",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    location: { geoKey: "lor:plr:tempelhof-1", grain: "other", lon: null, lat: null, name: "Lichtenrade" },
+  });
+  const innenstadtHit = item({
+    id: "ortsteil:osm:2613711",
+    rank: 1,
+    kind: "ortsteil",
+    title: "Altstadt-Nord",
+    targetRegionGeoKey: "bezirk:osm:2613798",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  const mixed = [innenstadtHit, templehofHit];
+  assert.deepEqual(
+    visibleHits(mixed, markedTempelhof).map((hit) => hit.location.name),
+    ["Lichtenrade"],
+  );
+  assert.deepEqual(
+    visibleHits(mixed, markedInnenstadt).map((hit) => hit.location.name),
+    ["Altstadt-Nord"],
+  );
+  assert.equal(visibleHits(mixed, markedTempelhof)[0]?.rank, 1);
+});
+
+test("an old set without targetRegionGeoKey is legacy and not the normal empty state", () => {
+  const altstadt = item({
+    id: "ortsteil:osm:2613711",
+    rank: 122,
+    kind: "ortsteil",
+    title: "Altstadt-Nord",
+    targetRegionGeoKey: "",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  const missing = item({
+    id: "ortsteil:osm:2613712",
+    rank: 123,
+    kind: "ortsteil",
+    title: "Altstadt-Süd",
+    targetRegionGeoKey: undefined,
+    location: { geoKey: "ortsteil:osm:2613712", grain: "other", lon: null, lat: null, name: "Altstadt-Süd" },
+  });
+  const oldSet = setWith([altstadt, missing]);
+  assert.equal(isLegacyTargetRegionSet(oldSet.items), true);
+  assert.equal(visibleHits(oldSet.items, markedTempelhof).length, 0);
+  assert.equal(buildTrefferlisteCards(oldSet, markedTempelhof).length, 0);
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /RECOMMENDATION_COPY\.legacySet/);
+  assert.match(page, /showLegacySet/);
+  assert.match(
+    page,
+    /\{showLegacySet \?[\s\S]*RECOMMENDATION_COPY\.restartAnalysis[\s\S]*disabled=\{startLocked\}/,
+  );
+  assert.equal(page.includes("showEmptyHits") && page.includes("!legacySet"), true);
+  assert.match(page, /onStartAnalysis/);
+});
+
+test("visibleHits matches ags and label fallbacks when the marked region has no geoKey", () => {
+  const byAgs = item({
+    id: "lor:plr:ags-1",
+    rank: 1,
+    kind: "lor",
+    title: "Planungsraum A",
+    targetRegionGeoKey: "ags:11000000",
+    location: { geoKey: "lor:plr:ags-1", grain: "other", lon: null, lat: null, name: "Planungsraum A" },
+  });
+  const byLabel = item({
+    id: "lor:plr:label-1",
+    rank: 1,
+    kind: "lor",
+    title: "Planungsraum B",
+    targetRegionGeoKey: "label:tempelhof",
+    location: { geoKey: "lor:plr:label-1", grain: "other", lon: null, lat: null, name: "Planungsraum B" },
+  });
+  const markedByAgs = { label: "Berlin", geoKey: "", ags: "11000000" };
+  const markedByLabel = { label: "Tempelhof", geoKey: null, ags: null };
+  assert.deepEqual(
+    visibleHits([byAgs, byLabel], markedByAgs).map((hit) => hit.location.name),
+    ["Planungsraum A"],
+  );
+  assert.deepEqual(
+    visibleHits([byAgs, byLabel], markedByLabel).map((hit) => hit.location.name),
+    ["Planungsraum B"],
+  );
+});
+
+test("backend rank is shown unchanged; 0.19.2 ranks start at 1 per region", () => {
+  const ranked = item({
+    id: "lor:plr:tempelhof-1",
+    rank: 1,
+    kind: "lor",
+    title: "Lichtenrade",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    location: { geoKey: "lor:plr:tempelhof-1", grain: "other", lon: null, lat: null, name: "Lichtenrade" },
+  });
+  const cards = buildTrefferlisteCards(setWith([ranked]), markedTempelhof);
+  assert.equal(cards[0]?.rank, 1);
+  assert.equal(rankLabel(cards[0]!.rank), "Rang 1");
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /rankLabel\(card\.rank\)/);
+  assert.equal(page.includes("Rang ${index"), false);
+});
+
+test("a 0.19.2 set runs through v6 name mapping: Planungsraum, no keys, rank 1", () => {
+  const hit = item({
+    id: "lor:plr:07400720",
+    rank: 1,
+    kind: "lor",
+    name: "Planungsraum 07400720",
+    targetRegionGeoKey: "ortsteil:osm:162894",
+    dataAsOf: "2022-12-31",
+    trend: { direction: "up", summary: "Einwohner steigt je 1.000 Einwohner." },
+    location: { geoKey: "lor:plr:07400720", grain: "other", lon: null, lat: null, name: "Planungsraum 07400720" },
+    overlaps: [
+      { geoKey: "plz5:12207", label: "12207", kind: "plz", share: 0.7 },
+      { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.3 },
+    ],
+  });
+  const otherRegion = item({
+    id: "ortsteil:osm:2613711",
+    rank: 1,
+    kind: "ortsteil",
+    name: "Altstadt-Nord",
+    targetRegionGeoKey: "bezirk:osm:2613798",
+    location: { geoKey: "ortsteil:osm:2613711", grain: "other", lon: null, lat: null, name: "Altstadt-Nord" },
+  });
+  const cards = buildTrefferlisteCards(setWith([otherRegion, hit]), markedTempelhof);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0]?.rank, 1);
+  assert.equal(cards[0]?.name, "Planungsraum ohne Namen");
+  assert.equal(cards[0]?.badge, "Planungsraum");
+  assert.equal(cards[0]?.stichtagLabel, "Stichtag 2022");
+  assert.equal(cards[0]?.trendSummary, "Einwohner steigt je 1.000 Einwohner.");
+  assert.equal(cards[0]?.lage, "Liegt zu 70 % in PLZ 12207 und zu 30 % in Quartier ohne Namen.");
+  assert.equal(
+    hitName(hit),
+    mapDisplayName({ name: "Planungsraum 07400720", kind: "lor", geoKey: "lor:plr:07400720" }),
+  );
+  const visible = `${cards[0]?.name} ${cards[0]?.badge} ${cards[0]?.lage ?? ""} ${cards[0]?.stichtagLabel ?? ""}`;
+  assert.equal(visible.includes("lor:plr"), false);
+  assert.equal(visible.includes("koeln:sq"), false);
+  assert.equal(visible.includes("stadtteil:osm"), false);
+  assert.equal(visible.includes("07400720"), false);
+  assert.equal(visible.includes("101"), false);
+});
+
+test("Stichtag comes from dataAsOf; Entwicklungssatz from trend.summary when direction is known", () => {
+  assert.equal(stichtagFromDataAsOf("2022-12-31"), "Stichtag 2022");
+  assert.equal(stichtagFromDataAsOf("2022"), "Stichtag 2022");
+  assert.equal(stichtagFromDataAsOf(undefined), null);
+  const withAsOf = item({
+    id: "lor:plr:1",
+    rank: 1,
+    dataAsOf: "2022-12-31T00:00:00.000Z",
+    trend: { direction: "up", summary: "Einwohner steigt je 1.000 Einwohner." },
+  });
+  const unknown = item({
+    id: "lor:plr:2",
+    rank: 2,
+    dataAsOf: "2022",
+    trend: { direction: "unknown", summary: "sollte nicht erscheinen" },
+  });
+  const card = buildTrefferCard(withAsOf, [patternDataset]);
+  assert.equal(card.stichtagLabel, "Stichtag 2022");
+  assert.equal(card.trendSummary, "Einwohner steigt je 1.000 Einwohner.");
+  assert.equal(buildTrefferCard(unknown, undefined).trendSummary, null);
+  assert.equal(buildTrefferCard(unknown, undefined).stichtagLabel, "Stichtag 2022");
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /card\.stichtagLabel/);
+  assert.match(page, /card\.trendSummary/);
+});
+
+test("pattern yearlySeries links to the criterion by metricId at the same level and baseline", () => {
+  const hit = item({
+    id: "lor:plr:1",
+    rank: 1,
+    kind: "lor",
+    criteriaEvidence: [
+      {
+        key: "einwohner",
+        metricId: "einwohner",
+        label: "Einwohner",
+        direction: "up",
+        patternDirection: "up",
+        evidence: "steigt",
+        coverage: "series",
+        scope: "local",
+        sourceLevel: "lor",
+        baseline: "per_1000_inhabitants",
+        baselineMatch: true,
+        normalizedValue: 2,
+        points: [{ period: "2025", status: "present", value: 2, normalizedValue: 2 }],
+      },
+    ],
+  });
+  const matching: PatternDatasetProfile = {
+    ...patternDataset,
+    metricId: "einwohner",
+    sourceLevel: "lor",
+    baseline: "per_1000_inhabitants",
+    yearlySeries: {
+      ...patternDataset.yearlySeries,
+      metricId: "einwohner",
+      sourceLevel: "lor",
+      points: [
+        { period: "2023", status: "present", value: 8, normalizedValue: 8 },
+        { period: "2024", status: "present", value: 9, normalizedValue: 9 },
+      ],
+    },
+  };
+  const otherMetric: PatternDatasetProfile = {
+    ...matching,
+    metricId: "unfallatlas",
+    yearlySeries: { ...matching.yearlySeries, metricId: "unfallatlas" },
+    criterion: { ...matching.criterion, key: "unfallatlas", label: "Unfälle" },
+  };
+  const otherLevel: PatternDatasetProfile = { ...matching, sourceLevel: "gemeinde" };
+  const otherBaseline: PatternDatasetProfile = { ...matching, baseline: "per_km2" };
+  const matched = buildTrefferCard(hit, [matching]);
+  assert.equal(matched.criteria[0]?.patternMissing, false);
+  assert.deepEqual(
+    matched.criteria[0]?.patternSeries.map((point) => point.value),
+    [8, 9],
+  );
+  const mismatchedMetric = buildTrefferCard(hit, [otherMetric]).criteria.find((row) => row.label === "Einwohner");
+  assert.equal(mismatchedMetric?.patternMissing, true);
+  assert.equal(buildTrefferCard(hit, [otherLevel]).criteria[0]?.patternMissing, true);
+  assert.equal(buildTrefferCard(hit, [otherBaseline]).criteria[0]?.patternMissing, true);
 });

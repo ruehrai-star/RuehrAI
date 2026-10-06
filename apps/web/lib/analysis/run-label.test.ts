@@ -52,6 +52,22 @@ test("six Zielregionen collapse to first + 5 weitere and expand to every Name (G
   assert.equal(view.entries.length, 6);
 });
 
+test("a missing snapshot parentLabel is filled from a matching saved row, never invented", () => {
+  const bareInnenstadt = region({ label: "Innenstadt", geoKey: "bezirk:osm:2613798", level: "bezirk" });
+  const savedTwin = region({
+    label: "Innenstadt",
+    geoKey: "stadtbezirk:osm:2613798",
+    level: "stadtbezirk",
+    parentLabel: "Köln",
+  });
+  const sixBare = [bareInnenstadt, ...six.slice(1).map((item) => ({ ...item, parentLabel: null }))];
+  assert.equal(runRegionEntryLabel(bareInnenstadt), "Innenstadt");
+  assert.equal(runRegionEntryLabel(bareInnenstadt, [savedTwin]), "Innenstadt (Köln)");
+  assert.equal(formatRunRegionLabel(sixBare).summary, "Innenstadt + 5 weitere");
+  assert.equal(formatRunRegionLabel(sixBare, [savedTwin]).summary, "Innenstadt (Köln) + 5 weitere");
+  assert.equal(runRegionEntryLabel(bareInnenstadt, [region({ label: "Rodenkirchen", geoKey: "b", parentLabel: "Köln" })]), "Innenstadt");
+});
+
 test("the run snapshot uses input.regions, not only the first region", () => {
   const fromInput = regionsFromRunInput({ region: six[0]!, regions: six });
   assert.equal(fromInput.length, 6);

@@ -27,9 +27,28 @@ export function parseStoredSession(raw: string | null): Session | null {
   }
 }
 
+/**
+ * JWT lives in localStorage so a second tab stays signed in.
+ * The Backend issues the token in the JSON body (no httpOnly cookie).
+ * Logout writes null here; other tabs pick that up on the `storage` event.
+ * A leftover sessionStorage value from older builds is migrated once.
+ */
+function readRaw(): string | null {
+  if (typeof window === "undefined") return null;
+  const local = window.localStorage.getItem(STORAGE_KEY);
+  if (local) return local;
+  const previous = window.sessionStorage.getItem(STORAGE_KEY);
+  if (previous) {
+    window.localStorage.setItem(STORAGE_KEY, previous);
+    window.sessionStorage.removeItem(STORAGE_KEY);
+    return previous;
+  }
+  return null;
+}
+
 export function readStoredSession(): Session | null {
   if (typeof window === "undefined") return null;
-  const raw = window.sessionStorage.getItem(STORAGE_KEY);
+  const raw = readRaw();
   if (raw === cachedRaw) return cachedSession;
   cachedRaw = raw;
   cachedSession = parseStoredSession(raw);
@@ -39,16 +58,30 @@ export function readStoredSession(): Session | null {
 export function writeStoredSession(session: Session | null): void {
   if (typeof window === "undefined") return;
   if (!session) {
+    window.localStorage.removeItem(STORAGE_KEY);
     window.sessionStorage.removeItem(STORAGE_KEY);
   } else {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    window.sessionStorage.removeItem(STORAGE_KEY);
   }
-  cachedRaw = window.sessionStorage.getItem(STORAGE_KEY);
+  cachedRaw = window.localStorage.getItem(STORAGE_KEY);
   cachedSession = session;
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 export function subscribeSession(onChange: () => void): () => void {
-  window.addEventListener(CHANGE_EVENT, onChange);
-  return () => window.removeEventListener(CHANGE_EVENT, onChange);
+  const onCustom = () => onChange();
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY || event.key === null) {
+      cachedRaw = null;
+      cachedSession = null;
+      onChange();
+    }
+  };
+  window.addEventListener(CHANGE_EVENT, onCustom);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, onCustom);
+    window.removeEventListener("storage", onStorage);
+  };
 }

@@ -126,6 +126,26 @@ test("analysis calls send the bearer token and follow the OpenAPI paths", async 
   assert.equal(calls[1]?.body, undefined);
 });
 
+test("POST /analysis/runs sends the marked geoKey in the JSON body", async () => {
+  const seen: { url: string; body: string | undefined }[] = [];
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl, init) => {
+      seen.push({
+        url: String(inputUrl),
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      return json({ ...run, status: "queued" }, 202);
+    },
+  });
+  await api.createAnalysisRun({ geoKey: "ortsteil:osm:162894" });
+  assert.equal(seen[0]?.url, "http://localhost:3000/analysis/runs?geoKey=ortsteil%3Aosm%3A162894");
+  assert.equal(seen[0]?.body, JSON.stringify({ geoKey: "ortsteil:osm:162894" }));
+  await api.createAnalysisRun();
+  assert.equal(seen[1]?.url, "http://localhost:3000/analysis/runs");
+  assert.equal(seen[1]?.body, undefined);
+});
+
 test("GET /analysis/pattern maps 404 to no pattern", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
@@ -140,6 +160,28 @@ test("GET /analysis/pattern maps 404 to no pattern", async () => {
       ),
   });
   assert.equal(await api.getAnalysisPattern(), null);
+});
+
+test("POST /analysis/runs 400 for more than 200 Zielregionen keeps a German limit message", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json(
+        {
+          statusCode: 400,
+          message: "Too many target regions: maximum is 200",
+          error: "Bad Request",
+        },
+        400,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 400);
+    assert.match(error.message, /200/);
+    assert.match(error.message, /target region/i);
+    return true;
+  });
 });
 
 test("POST /analysis/runs keeps the German Backend error", async () => {

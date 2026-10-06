@@ -84,19 +84,93 @@ export function catalogParentName(source: unknown): string | null {
   if (!source || typeof source !== "object") return null;
   const value = (source as { parentLabel?: unknown }).parentLabel;
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  const cleaned = visiblePlaceText(value);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+/**
+ * UX fallback when the backend sends no readable name.
+ * Kind only — never a geoKey, PLR code, or Quartier number.
+ */
+export function unnamedPlaceLabel(source: {
+  kind?: string | null;
+  grain?: string | null;
+  level?: unknown;
+  id?: string | null;
+  geoKey?: string | null;
+}): string | null {
+  const blob = [source.kind, source.grain, source.level, source.id, source.geoKey]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" ");
+  if (/lor:plr:/i.test(blob) || source.kind === "lor" || /(?:^|\s)lor(?:\s|$)/i.test(blob)) {
+    return "Planungsraum ohne Namen";
+  }
+  if (/koeln:sq:/i.test(blob) || source.kind === "quartier" || source.level === "quartier") {
+    return "Quartier ohne Namen";
+  }
+  if (source.kind === "grid100" || source.grain === "grid100") return "100-m-Rasterzelle";
+  if (source.kind === "address" || source.grain === "address") return "Adresse ohne Hausnummer";
+  if (
+    source.kind === "ortsteil" ||
+    source.kind === "stadtteil" ||
+    source.level === "ortsteil" ||
+    source.level === "stadtteil"
+  ) {
+    return "Ortsteil ohne Namen";
+  }
+  return null;
 }
 
 const CATALOG_KEY =
   /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::\S+)+$/i;
+
+const INTERNAL_KEY_TOKEN =
+  /(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::[^\s,;()]+)+/gi;
+
+const COLON_TRIPLE_ID = /\b[a-z][a-z0-9_]*:[a-z][a-z0-9_]*:\d+\b/gi;
+
+/** Patterns the UI must never render: `kind:ns:id`, `lor:plr:`, `koeln:sq:`, `stadtteil:osm:`. */
+export const INTERNAL_KEY_SCAN =
+  /(?:\b\w+:\w+:\d+\b|\blor:plr:|\bkoeln:sq:|\bstadtteil:osm:)/i;
 
 /**
  * Internal catalog id such as `plz5:12247` or `ortsteil:osm:5712247`.
  * These keys are stored and sent on save; they are never visible copy.
  */
 export function isCatalogKey(value: unknown): boolean {
-  return typeof value === "string" && CATALOG_KEY.test(value.trim());
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return CATALOG_KEY.test(trimmed) || /^(?:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*:\d+)$/i.test(trimmed);
+}
+
+/**
+ * Drop catalog keys and parenthesized ids from a user-visible string.
+ * Does not invent a replacement name.
+ */
+export function stripInternalKeys(value: string, geoKey?: string | null): string {
+  let next = value;
+  next = next.replace(/\s*[\(（]\s*(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::[^\s,;()]+)+\s*[\)）]/gi, "");
+  next = next.replace(INTERNAL_KEY_TOKEN, "");
+  next = next.replace(COLON_TRIPLE_ID, "");
+  next = next.replace(/\blor:plr:\S+/gi, "");
+  next = next.replace(/\bkoeln:sq:\S+/gi, "");
+  next = next.replace(/\bstadtteil:osm:\S+/gi, "");
+  const tail = typeof geoKey === "string" ? geoKey.match(/(\d+)\s*$/)?.[1] : undefined;
+  if (tail) {
+    next = next.replace(new RegExp(`[\\(（]\\s*${tail}\\s*[\\)）]`), "");
+  }
+  return next.replace(/\s+/g, " ").replace(/^[\s,;:–—-]+|[\s,;:–—-]+$/g, "").trim();
+}
+
+export function visiblePlaceText(value: string | null | undefined, geoKey?: string | null): string {
+  if (typeof value !== "string") return "";
+  const cleaned = stripInternalKeys(value, geoKey);
+  if (!cleaned || isCatalogKey(cleaned) || INTERNAL_KEY_SCAN.test(cleaned)) return "";
+  return cleaned;
+}
+
+export function containsInternalKey(value: string | null | undefined): boolean {
+  return typeof value === "string" && INTERNAL_KEY_SCAN.test(value);
 }
 
 /**
@@ -107,9 +181,14 @@ export function catalogPlaceName(source: unknown): string | null {
   if (!source || typeof source !== "object") return null;
   const label = (source as { label?: unknown }).label;
   if (typeof label !== "string") return null;
-  const trimmed = label.trim();
-  if (!trimmed || isCatalogKey(trimmed)) return null;
-  return trimmed;
+  const geoKey =
+    typeof (source as { geoKey?: unknown }).geoKey === "string"
+      ? (source as { geoKey: string }).geoKey
+      : typeof (source as { id?: unknown }).id === "string"
+        ? (source as { id: string }).id
+        : null;
+  const cleaned = visiblePlaceText(label, geoKey);
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 /** Hits without a place name stay out of the Trefferliste. */

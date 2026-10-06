@@ -6,8 +6,10 @@ import {
   bindPatternToMarkedRegion,
   formatStandLine,
   loadPatternForMarkedRegion,
+  markedStandRegions,
   patternMatchesMarkedRegion,
   patternQueryGeoKey,
+  runIsForMarkedRegion,
   runMatchesMarkedRegion,
   standRegionLabel,
   yearlySeriesForRegion,
@@ -270,6 +272,47 @@ test("a run with six Zielregionen labels all of them on the Stand line", async (
   assert.equal(bound.regions.length, 6);
   assert.equal(formatStandLine(bound.createdAt, bound.regions), formatStandLine(bound.createdAt, six));
   assert.match(formatStandLine(bound.createdAt, bound.regions), /Innenstadt \(Köln\) \+ 5 weitere$/);
+});
+
+test("a rewritten pattern.region does not bind another region's run", async () => {
+  const tempelhof = { ...lankwitz, label: "Tempelhof", geoKey: "ortsteil:osm:162894" };
+  const bound = await loadPatternForMarkedRegion(
+    {
+      getAnalysisPattern: async () => ({
+        runId: "47",
+        createdAt: "2026-10-06T10:48:34.255Z",
+        region: { label: "Tempelhof", geoKey: "ortsteil:osm:162894", parentLabel: "Berlin" },
+        pattern,
+      }),
+      getAnalysisRun: async () => runFor(munich, [munich, tempelhof]),
+    },
+    tempelhof,
+  );
+  assert.equal(bound, null);
+  assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), false);
+  assert.equal(runMatchesMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof), true);
+  assert.equal(runIsForMarkedRegion(runFor(munich, [munich, tempelhof]), tempelhof, "47"), false);
+  assert.equal(runIsForMarkedRegion({ ...runFor(munich, [munich, tempelhof]), id: "47" }, tempelhof, "47"), false);
+});
+
+test("Stand for the marked region stays singular and does not use another name", async () => {
+  const bound = await loadPatternForMarkedRegion(
+    {
+      getAnalysisPattern: async () => ({
+        runId: "7",
+        createdAt: "2026-10-05T16:37:00.000Z",
+        region: { label: "Lankwitz", geoKey: "ortsteil:osm:5712247", parentLabel: "Berlin" },
+        pattern,
+      }),
+      getAnalysisRun: async () => runFor(lankwitz, [lankwitz, munich]),
+    },
+    lankwitz,
+  );
+  assert.ok(bound);
+  const stand = markedStandRegions(bound, lankwitz);
+  assert.equal(stand.length, 1);
+  assert.equal(stand[0]?.label, "Lankwitz");
+  assert.equal(formatStandLine(bound.createdAt, stand).includes("München"), false);
 });
 
 test("a 500 from the run lookup is not turned into another region's series", async () => {

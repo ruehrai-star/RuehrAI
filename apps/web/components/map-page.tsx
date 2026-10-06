@@ -13,7 +13,9 @@ import {
   type SearchHit,
 } from "@/lib/api";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
-import { ensureMarkedKey } from "@/lib/locations/regions";
+import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { readMarkedKey, writeMarkedKey } from "@/lib/locations/marked-region";
+import { ensureMarkedKey, markedRegion } from "@/lib/locations/regions";
 import {
   LEGEND_LABEL,
   NO_STORES_LABEL,
@@ -21,7 +23,10 @@ import {
   REGION_LINE,
   buildKarte,
 } from "@/lib/map/karte";
+import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
+import { visibleHits } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
+import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { SearchPanel } from "./search-panel";
 import { useSession } from "./session-provider";
 
@@ -102,22 +107,18 @@ export function MapPage() {
     const load = () => {
       const current = ++request;
       const api = getApi();
-      Promise.all([
-        api.listStores(),
-        api.listTargetRegions(),
-        api.getRecommendations().catch(() => null),
-      ])
-        .then(([nextStores, nextRegions, nextRecommendations]) => {
+      Promise.all([api.listStores(), api.listTargetRegions()])
+        .then(([nextStores, nextRegions]) => {
           if (cancelled || current !== request) return;
-          setSnapshot((currentSnapshot) => ({
+          setSnapshot({
             token,
             stores: nextStores,
             regions: nextRegions,
-            markedKey: ensureMarkedKey(nextRegions, currentSnapshot?.token === token ? currentSnapshot.markedKey : null),
-            recommendations: nextRecommendations?.items ?? [],
+            markedKey: ensureMarkedKey(nextRegions, readMarkedKey()),
+            recommendations: [],
             error: null,
             ready: true,
-          }));
+          });
         })
         .catch((error: unknown) => {
           if (cancelled || current !== request) return;
@@ -143,6 +144,36 @@ export function MapPage() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [session]);
+
+  useEffect(() => {
+    const token = session?.accessToken;
+    if (!token || !snapshot || snapshot.token !== token || !snapshot.ready) return;
+    const marked = markedRegion(snapshot.regions, snapshot.markedKey);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const bound = await loadPatternForMarkedRegion(getApi(), marked, {
+          startedRunId: marked?.geoKey ? startedRunIdForRegion(marked.geoKey) : null,
+        });
+        const set = bound ? await loadRecommendationsForRun(getApi(), bound.runId) : null;
+        if (cancelled) return;
+        setSnapshot((current) =>
+          current && current.token === token
+            ? { ...current, recommendations: visibleHits(set?.items ?? [], marked) }
+            : current,
+        );
+      } catch {
+        if (!cancelled) {
+          setSnapshot((current) =>
+            current && current.token === token ? { ...current, recommendations: [] } : current,
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, snapshot?.token, snapshot?.ready, snapshot?.markedKey, snapshot?.regions]);
 
   const visibleLayer = session ? layer : null;
   const layerStatus = !session
@@ -233,9 +264,10 @@ export function MapPage() {
           camera={karte.camera}
           markerKey={karte.markerKey}
           regionKey={karte.regionKey}
-          onMarkRegion={(key) =>
-            setSnapshot((current) => (current ? { ...current, markedKey: key } : current))
-          }
+          onMarkRegion={(key) => {
+            writeMarkedKey(key);
+            setSnapshot((current) => (current ? { ...current, markedKey: key } : current));
+          }}
         />
         <div className="map-notices">
           {karte.showEmptyAddresses ? (

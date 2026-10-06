@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CatalogHitLabel } from "@/components/catalog-hit-label";
 import { getApi, ApiError, type SearchHit, type TargetRegion } from "@/lib/api";
-import { catalogPlaceName, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
+import { catalogPlaceName, visiblePlaceText, visibleSavedRegions, visibleSearchHits } from "@/lib/format";
 import { regionHasDrawableArea } from "@/lib/map/karte";
 import {
   REGION_LIST_COPY,
@@ -12,6 +12,7 @@ import {
   regionListKey,
 } from "@/lib/locations/regions";
 import { errorText } from "@/lib/user-message";
+import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
 import { loadPatternForMarkedRegion } from "@/lib/verlauf/bind";
 import { VERLAUF_COPY } from "@/lib/verlauf/model";
 
@@ -79,7 +80,9 @@ export function RegionSection({
     if (!marked) return;
     const key = regionListKey(marked);
     let cancelled = false;
-    loadPatternForMarkedRegion(getApi(), marked)
+    loadPatternForMarkedRegion(getApi(), marked, {
+      startedRunId: marked.geoKey ? startedRunIdForRegion(marked.geoKey) : null,
+    })
       .then((bound) => {
         if (cancelled) return;
         setPattern(bound?.pattern.summary ?? null);
@@ -226,7 +229,11 @@ function Verlauf({ summary, loaded }: { summary: string | null; loaded: boolean 
   return (
     <div className="verlauf">
       <h3>{REGION_LIST_COPY.verlauf}</h3>
-      {summary ? <p className="summary-line">{summary}</p> : loaded ? <p className="message">{VERLAUF_COPY.missingRun}</p> : null}
+      {summary ? (
+        <p className="summary-line">{visiblePlaceText(summary) || "liegt nicht vor"}</p>
+      ) : loaded ? (
+        <p className="message">{VERLAUF_COPY.missingRun}</p>
+      ) : null}
     </div>
   );
 }

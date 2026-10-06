@@ -584,6 +584,20 @@ test("map hover hint carries rank, name, badge and Lage-Satz; outlines have no e
   assert.equal(mapView.includes("addSource(\"bezirk\")"), false);
 });
 
+test("Karte Empfehlung pins never use a catalog key as the popup title", () => {
+  const keyed = recommendation("lor:plr:07400823", "lor:plr:07400823", 13.4, 52.5);
+  keyed.kind = "lor";
+  keyed.location = { geoKey: "lor:plr:07400823", grain: "other", lon: 13.4, lat: 52.5, name: null };
+  const model = buildKarte({
+    stores: [],
+    regions: [],
+    recommendations: [keyed],
+    addressesKnownEmpty: false,
+  });
+  assert.equal(model.empfehlungen[0]?.title, "Planungsraum ohne Namen");
+  assert.equal(model.empfehlungen[0]?.ariaLabel.includes("lor:plr"), false);
+});
+
 function recommendation(id: string, title: string, lon: number | null, lat: number | null): Recommendation {
   return {
     id,

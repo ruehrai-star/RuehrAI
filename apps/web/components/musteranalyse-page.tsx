@@ -2,8 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import type { AnalysisInput, AnalysisPattern, AnalysisRun } from "@/lib/api";
+import type { AnalysisInput, AnalysisPattern, AnalysisRun, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
+import { rememberStartedRun, startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { readMarkedKey } from "@/lib/locations/marked-region";
+import { usePersistedMarkedKey } from "./use-persisted-marked-key";
+import { markedRegion } from "@/lib/locations/regions";
+import { getLocationApi } from "@/lib/locations/api";
+import { visiblePlaceText } from "@/lib/format";
+import { loadPatternForMarkedRegion, patternQueryGeoKey } from "@/lib/verlauf/bind";
+import { targetRegionKeyOf } from "@/lib/recommendations/target-region-key";
 import {
   ANALYSIS_COPY,
   brainStatusText,
@@ -12,7 +20,6 @@ import {
   revenueDirectionLabel,
   revenueMonthCount,
 } from "@/lib/analysis/model";
-import { regionsFromRunInput } from "@/lib/analysis/run-label";
 import { analysisFailureFromHttp, analysisFailureMessage } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
@@ -24,8 +31,11 @@ type Phase = "loading" | "idle" | "running" | "failed" | "deadline";
 export function MusteranalysePage() {
   const { session } = useSession();
   const api = getAnalysisApi();
+  const locationApi = getLocationApi();
   const [phase, setPhase] = useState<Phase>("loading");
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
+  const [regions, setRegions] = useState<TargetRegion[]>([]);
+  const [markedKey] = usePersistedMarkedKey(regions);
   const [input, setInput] = useState<AnalysisInput | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
   const [run, setRun] = useState<AnalysisRun | null>(null);
@@ -38,6 +48,8 @@ export function MusteranalysePage() {
 
   const visible = Boolean(session && loadedEmail === session.email && phase !== "loading");
   const visibleInput = visible ? input : null;
+  const marked = visible ? markedRegion(regions, markedKey) : null;
+  const markedGeoKey = patternQueryGeoKey(marked);
   const visibleRun = visible && phase !== "running" ? run : null;
   const visiblePattern = visible && phase !== "running" ? pattern : null;
   const status = statusText(phase, visible, Boolean(visiblePattern));
@@ -60,6 +72,17 @@ export function MusteranalysePage() {
       setReadError(null);
       setActionError(null);
 
+      let nextRegions: TargetRegion[] = [];
+      try {
+        nextRegions = await locationApi.listTargetRegions();
+        if (cancelled) return;
+        setRegions(nextRegions);
+      } catch {
+        if (cancelled) return;
+        setRegions([]);
+      }
+      const current = markedRegion(nextRegions, readMarkedKey());
+
       try {
         const nextInput = await api.getAnalysisInput();
         if (cancelled) return;
@@ -70,12 +93,14 @@ export function MusteranalysePage() {
       }
 
       try {
-        const latest = await api.getAnalysisPattern();
+        const bound = await loadPatternForMarkedRegion(api, current, {
+          startedRunId: current?.geoKey ? startedRunIdForRegion(current.geoKey) : null,
+        });
         if (cancelled) return;
-        if (latest) {
-          setPattern(latest.pattern);
+        if (bound) {
+          setPattern(bound.pattern);
           try {
-            const stored = await api.getAnalysisRun(latest.runId);
+            const stored = await api.getAnalysisRun(bound.runId);
             if (cancelled) return;
             setRun(stored);
             setPattern(stored.pattern);
@@ -100,7 +125,7 @@ export function MusteranalysePage() {
       pollAbort.current?.abort();
       pollAbort.current = null;
     };
-  }, [session, api]);
+  }, [session, api, locationApi, markedKey]);
 
   async function onStart() {
     if (startGate.current || startLocked) return;
@@ -114,7 +139,10 @@ export function MusteranalysePage() {
     setActionError(null);
     setReadError(null);
     try {
-      const created = await api.createAnalysisRun();
+      const created = await api.createAnalysisRun({
+        geoKey: marked ? targetRegionKeyOf(marked) : markedGeoKey,
+      });
+      if (markedGeoKey) rememberStartedRun(markedGeoKey, created.id);
       if (request.current !== token) return;
       let settled = created;
       if (isInFlightStatus(created.status)) {
@@ -186,7 +214,7 @@ export function MusteranalysePage() {
         {visibleInput ? (
           <>
             <p className="summary-line">
-              Zielregion: <RunRegionLabel regions={regionsFromRunInput(visibleInput)} />
+              Zielregion: <RunRegionLabel regions={marked ? [marked] : []} catalog={regions} />
               {` · Filialen: ${visibleInput.stores.length} · Monate Umsatz: ${revenueMonthCount(visibleInput)}`}
             </p>
             <p className="hint">Umsatzrichtung: {revenueDirectionLabel(visibleInput.revenueDirection)}</p>
@@ -260,7 +288,7 @@ function PatternView({ pattern }: { pattern: AnalysisPattern }) {
   return (
     <>
       <h3>{ANALYSIS_COPY.briefHeading}</h3>
-      <p className="summary-line">{pattern.summary}</p>
+      <p className="summary-line">{visiblePlaceText(pattern.summary) || "liegt nicht vor"}</p>
       <p className="hint">
         Umsatzrichtung: {revenueDirectionLabel(pattern.revenueDirection)} · Quelle: {patternSourceLabel(pattern.source)}
       </p>
@@ -273,7 +301,7 @@ function PatternView({ pattern }: { pattern: AnalysisPattern }) {
                 <p className="hit-label">
                   {criterion.label} · {criterionDirectionLabel(criterion.direction)}
                 </p>
-                <p className="message">{criterion.evidence}</p>
+                <p className="message">{visiblePlaceText(criterion.evidence) || "liegt nicht vor"}</p>
               </li>
             ))}
           </ul>

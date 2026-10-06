@@ -262,7 +262,7 @@ export function empfehlungPins(items: Recommendation[]): EmpfehlungPin[] {
   for (const item of items) {
     const point = coordinatesOf(item.location);
     if (!point) continue;
-    const title = item.title.trim() || "Empfehlung";
+    const title = hitName(item) || "Empfehlung";
     pins.push({
       kind: "empfehlung",
       id: item.id,

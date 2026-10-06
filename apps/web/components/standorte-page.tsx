@@ -12,9 +12,9 @@ import type {
 } from "@/lib/api";
 import { getLocationApi } from "@/lib/locations/api";
 import { toTargetRegionWrite } from "@/lib/locations/model";
+import { usePersistedMarkedKey } from "./use-persisted-marked-key";
 import {
   addRegionToFront,
-  ensureMarkedKey,
   nextMarkedKeyAfterAdd,
   nextMarkedKeyAfterRemove,
   removeRegion,
@@ -30,7 +30,7 @@ export function StandortePage() {
   const { session } = useSession();
   const api = getLocationApi();
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = useState<string | null>(null);
+  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   const [storeId, setStoreId] = useState<string | null>(null);
@@ -63,7 +63,6 @@ export function StandortePage() {
       .then(([nextRegions, nextStores]) => {
         if (cancelled) return;
         setRegions(nextRegions);
-        setMarkedKey(ensureMarkedKey(nextRegions, null));
         setStores(nextStores);
         setStoreId((current) =>
           current && nextStores.some((store) => store.id === current) ? current : (nextStores[0]?.id ?? null),
@@ -112,7 +111,7 @@ export function StandortePage() {
       const added = await api.addTargetRegion(toTargetRegionWrite(hit));
       setRegions((current) => {
         const next = addRegionToFront(current, added);
-        setMarkedKey((currentMark) => nextMarkedKeyAfterAdd(current, added, currentMark));
+        setMarkedKey(nextMarkedKeyAfterAdd(current, added, markedKey));
         return next;
       });
     } catch (caught) {
@@ -129,7 +128,7 @@ export function StandortePage() {
     try {
       await api.removeTargetRegion(key);
       setRegions((current) => {
-        setMarkedKey((currentMark) => nextMarkedKeyAfterRemove(current, key, currentMark));
+        setMarkedKey(nextMarkedKeyAfterRemove(current, key, markedKey));
         return removeRegion(current, key);
       });
     } catch (caught) {

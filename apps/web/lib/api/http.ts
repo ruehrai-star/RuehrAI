@@ -235,8 +235,18 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return parseAnalysisInput(body);
     },
 
-    async createAnalysisRun(): Promise<AnalysisRun> {
-      const body = await request<AnalysisRun>("/analysis/runs", { method: "POST", auth: true });
+    async createAnalysisRun(query?: { geoKey?: string | null }): Promise<AnalysisRun> {
+      const geoKey = trimQueryValue(query?.geoKey);
+      const body = await request<AnalysisRun>("/analysis/runs", {
+        method: "POST",
+        auth: true,
+        // Marked Zielregion in the JSON body (and as ?geoKey=). Nest 9545ce2
+        // still snapshots every saved row and ignores both; the body is what
+        // a backend that honors the mark must read. Never send another
+        // region's key or an empty list default.
+        query: geoKey ? { geoKey } : undefined,
+        body: geoKey ? JSON.stringify({ geoKey }) : undefined,
+      });
       return parseAnalysisRun(body, { allowIncomplete: true });
     },
 
@@ -895,6 +905,12 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
   if (body.parentLabel != null && typeof body.parentLabel !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
+  if (body.targetRegionGeoKey !== undefined && typeof body.targetRegionGeoKey !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.dataAsOf !== undefined && body.dataAsOf != null && typeof body.dataAsOf !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   if (body.intersectionOf !== undefined) {
     if (!Array.isArray(body.intersectionOf)) {
       throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
@@ -929,12 +945,6 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       }
     }
   }
-  if (body.targetRegionGeoKey != null && typeof body.targetRegionGeoKey !== "string") {
-    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
-  }
-  if (body.dataAsOf != null && (typeof body.dataAsOf !== "string" || !WINDOW_STAMP.test(body.dataAsOf))) {
-    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
-  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
@@ -943,7 +953,7 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     name: recommendationDisplayName(body),
     parentLabel,
     targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : "",
-    dataAsOf: body.dataAsOf === undefined ? undefined : body.dataAsOf,
+    dataAsOf: typeof body.dataAsOf === "string" ? body.dataAsOf : undefined,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),

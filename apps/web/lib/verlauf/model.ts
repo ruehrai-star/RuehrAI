@@ -12,7 +12,7 @@ import type {
 } from "@ruehrai/api-contracts";
 import { ADDRESS_COPY, topicName } from "../addresses/model.ts";
 import { criterionDirectionLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogPlaceName, grainLabel } from "../format.ts";
+import { catalogBadge, catalogPlaceName, grainLabel, visiblePlaceText } from "../format.ts";
 import { formatAddress, RECOMMENDATION_COPY } from "../recommendations/model.ts";
 
 /** After Standorte the product opens Verlauf. Vorschlag 1 (Karte zuerst) does not apply. */
@@ -163,7 +163,7 @@ export function regionView(region: TargetRegion | null): VerlaufRegionView {
   if (!region) return { label: null, badge: null, error: null };
   const badge = catalogBadge(region) || (region.grain ? grainLabel(region.grain, region.ags || region.geoKey) : null);
   return {
-    label: catalogPlaceName(region) ?? region.label,
+    label: catalogPlaceName(region),
     badge: badge || null,
     error: null,
   };
@@ -211,7 +211,7 @@ export function buildVerlaufHero(input: {
       key: criterion.key,
       label: criterion.label,
       direction: criterionDirectionLabel(criterion.direction),
-      evidence: criterion.evidence,
+      evidence: visiblePlaceText(criterion.evidence) || RECOMMENDATION_COPY.missingValue,
     })),
     months: monthRow(input.recommendations?.window),
     nextHeading: VERLAUF_COPY.nextHeading,

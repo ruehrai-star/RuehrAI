@@ -4,13 +4,15 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MonthlyRevenuePoint, RecommendationSet, StoreLocation, TargetRegion } from "@/lib/api";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
+import { usePersistedMarkedKey } from "./use-persisted-marked-key";
+import { markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildKarte } from "@/lib/map/karte";
 import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
-import { formatStandPrefix, loadPatternForMarkedRegion, standRegionsOf, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
+import { formatStandPrefix, loadPatternForMarkedRegion, markedStandRegions, type BoundVerlauf } from "@/lib/verlauf/bind";
 import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
 import {
   POST_STANDORTE_HREF,
@@ -40,7 +42,7 @@ export function VerlaufPage() {
   const [bindFailed, setBindFailed] = useState(false);
   const [recommendationSet, setRecommendationSet] = useState<RecommendationSet | null>(null);
   const [regions, setRegions] = useState<TargetRegion[]>([]);
-  const [markedKey, setMarkedKey] = useState<string | null>(null);
+  const [markedKey, setMarkedKey] = usePersistedMarkedKey(regions);
   const [stores, setStores] = useState<StoreLocation[] | null>(null);
   const [revenue, setRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function VerlaufPage() {
       ? recommendationStatus(boundRecommendations)
       : null;
   const revenueCount = optionalRevenueCount(revenue);
-  const runRegions = bindPhase === "ready" && bound ? standRegionsOf(bound) : [];
+  const runRegions = bindPhase === "ready" && bound ? markedStandRegions(bound, marked) : [];
   const standPrefix = bindPhase === "ready" && bound ? formatStandPrefix(bound.createdAt) : null;
   const showEmpty =
     visible &&
@@ -92,7 +94,6 @@ export function VerlaufPage() {
       setBindFailed(false);
       setRecommendationSet(null);
       setRegions([]);
-      setMarkedKey(null);
       setStores(null);
       setRevenue([]);
       setLoadError(null);
@@ -104,7 +105,6 @@ export function VerlaufPage() {
         ]);
         if (cancelled) return;
         setRegions(nextRegions);
-        setMarkedKey(ensureMarkedKey(nextRegions, null));
         setStores(nextStores);
         setLoadedEmail(email);
         setPagePhase("idle");
@@ -141,7 +141,8 @@ export function VerlaufPage() {
 
     void (async () => {
       try {
-        const next = await loadPatternForMarkedRegion(analysisApi, current);
+        const startedRunId = current?.geoKey ? startedRunIdForRegion(current.geoKey) : null;
+        const next = await loadPatternForMarkedRegion(analysisApi, current, { startedRunId });
         const recs = next ? await loadRecommendationsForRun(recommendationApi, next.runId) : null;
         if (bindRequest.current !== token) return;
         setBound(next);
@@ -252,7 +253,7 @@ export function VerlaufPage() {
         {standPrefix ? (
           <div className="verlauf-stand" role="status">
             {standPrefix}
-            <RunRegionLabel regions={runRegions} />
+            <RunRegionLabel regions={runRegions} catalog={visibleRegions} />
           </div>
         ) : null}
 

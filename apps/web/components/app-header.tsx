@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { readMarkedKey, subscribeMarkedKey, withMarkedRegionHref } from "@/lib/locations/marked-region";
 import { useSession } from "./session-provider";
 
 const LINKS: { href: string; label: string; signedIn?: boolean }[] = [
@@ -21,6 +22,7 @@ export function AppHeader() {
   const router = useRouter();
   const { session, logout } = useSession();
   const [pending, setPending] = useState(false);
+  const markedKey = useSyncExternalStore(subscribeMarkedKey, readMarkedKey, () => null);
 
   async function onLogout() {
     setPending(true);
@@ -49,10 +51,11 @@ export function AppHeader() {
       <nav className="nav" aria-label="Hauptnavigation">
         {LINKS.filter((link) => !link.signedIn || session).map((link) => {
           const active = pathname === link.href;
+          const href = withMarkedRegionHref(link.href, markedKey);
           return (
             <Link
               key={link.href}
-              href={link.href}
+              href={href}
               className={active ? "nav-link is-active" : "nav-link"}
               aria-current={active ? "page" : undefined}
             >

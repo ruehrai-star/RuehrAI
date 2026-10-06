@@ -51,6 +51,7 @@ export async function bindTrefferlisteForRegion(
   api: Pick<RuehrApi, "getAnalysisPattern" | "getAnalysisRun" | "getRecommendations">,
   marked: MarkedRegion,
   inflightRunId?: string | null,
+  options?: { startedRunId?: string | null },
 ): Promise<TrefferlisteBind> {
   const inflight = typeof inflightRunId === "string" ? inflightRunId.trim() : "";
   if (inflight) {
@@ -58,7 +59,7 @@ export async function bindTrefferlisteForRegion(
     if (live.kind === "in_flight" || live.kind === "failed") return live;
   }
 
-  const bound = await loadPatternForMarkedRegion(api, marked);
+  const bound = await loadPatternForMarkedRegion(api, marked, { startedRunId: options?.startedRunId });
   if (!bound) return { kind: "empty" };
   const set = await loadRecommendationsForRun(api, bound.runId);
   return { kind: "ready", bound, set };
@@ -95,7 +96,7 @@ export async function loadTrefferlisteAfterCompletedRun(
   runId: string,
   marked: MarkedRegion,
 ): Promise<Extract<TrefferlisteBind, { kind: "ready" | "empty" }>> {
-  const bound = await loadPatternForMarkedRegion(api, marked);
+  const bound = await loadPatternForMarkedRegion(api, marked, { startedRunId: runId });
   const set = await loadRecommendationsForRun(api, runId);
   if (!bound) return { kind: "empty" };
   return { kind: "ready", bound, set: set && set.runId === bound.runId ? set : await loadRecommendationsForRun(api, bound.runId) };
