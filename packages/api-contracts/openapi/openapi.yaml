@@ -2607,9 +2607,8 @@ components:
             True outline of this hit for the map (EPSG:4326). Dataset Fläche
             clipped to the Zielregion (`ST_Intersection`). Never a bounding
             box or circle. Null only when the outline cannot be computed.
-          oneOf:
+          allOf:
             - $ref: "#/components/schemas/RegionGeometry"
-            - type: "null"
         geometryUnavailableReason:
           type: string
           nullable: true

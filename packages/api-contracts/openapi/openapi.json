@@ -3128,12 +3128,9 @@
           "geometry": {
             "nullable": true,
             "description": "True outline of this hit for the map (EPSG:4326). Dataset Fläche\nclipped to the Zielregion (`ST_Intersection`). Never a bounding\nbox or circle. Null only when the outline cannot be computed.\n",
-            "oneOf": [
+            "allOf": [
               {
                 "$ref": "#/components/schemas/RegionGeometry"
-              },
-              {
-                "type": "null"
               }
             ]
           },

@@ -1503,7 +1503,7 @@ export interface components {
              *     clipped to the Zielregion (`ST_Intersection`). Never a bounding
              *     box or circle. Null only when the outline cannot be computed.
              */
-            geometry?: (components["schemas"]["RegionGeometry"] | null) | null;
+            geometry?: components["schemas"]["RegionGeometry"] | null;
             /**
              * @description German reason when `geometry` is null (e.g. Schnittfläche leer
              *     oder Brain-Geometrie fehlt). Null when `geometry` is set.
