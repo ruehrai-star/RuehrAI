@@ -162,6 +162,51 @@ test("GET /analysis/pattern maps 404 to no pattern", async () => {
   assert.equal(await api.getAnalysisPattern(), null);
 });
 
+test("POST /analysis/runs 404 keeps ErrorResponse.code on ApiError", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json(
+        {
+          statusCode: 404,
+          message: "Die markierte Zielregion gehört nicht zu diesem Konto.",
+          error: "Not Found",
+          code: "marked_target_region_not_found",
+        },
+        404,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun({ geoKey: "ortsteil:osm:999" }), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 404);
+    assert.equal(error.code, "marked_target_region_not_found");
+    assert.match(error.message, /Zielregion/);
+    return true;
+  });
+});
+
+test("POST /analysis/runs 404 without a code does not invent marked_target_region_not_found", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      json(
+        {
+          statusCode: 404,
+          message: "Die Analyse wurde nicht gefunden.",
+          error: "Not Found",
+        },
+        404,
+      ),
+  });
+  await assert.rejects(api.createAnalysisRun(), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 404);
+    assert.equal(error.code, undefined);
+    assert.equal(error.message, "Die Analyse wurde nicht gefunden.");
+    return true;
+  });
+});
+
 test("POST /analysis/runs 400 for more than 200 Zielregionen keeps a German limit message", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

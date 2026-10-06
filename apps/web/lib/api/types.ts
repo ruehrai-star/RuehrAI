@@ -146,11 +146,14 @@ export interface Session {
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string | null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    const trimmed = typeof code === "string" ? code.trim() : "";
+    if (trimmed) this.code = trimmed;
   }
 }
 

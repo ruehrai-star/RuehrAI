@@ -144,7 +144,7 @@ export async function pollAnalysisRun(
         return {
           kind: "failed",
           run: null,
-          message: analysisFailureFromHttp(error.status, error.message),
+          message: analysisFailureFromHttp(error.status, error.message, error.code),
         };
       } else {
         throw error;

@@ -1,6 +1,8 @@
 /** Closed OpenAPI `AnalysisRunFailureReason` → German copy. Never show the key. */
 
 import type { AnalysisRun } from "@ruehrai/api-contracts";
+import { ApiError } from "../api/types.ts";
+import { containsInternalKey, visiblePlaceText } from "../format.ts";
 
 export type AnalysisRunFailureReason = NonNullable<AnalysisRun["failureReason"]>;
 
@@ -26,7 +28,17 @@ export const ANALYSIS_FAILURE_COPY = {
   unexpected: "Es ist ein unerwarteter Fehler aufgetreten.",
   restart: "Erneut starten",
   tooManyTargetRegions: "Bitte wählen Sie höchstens 200 Zielregionen.",
+  markedTargetRegionMissing: "Diese Zielregion ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  chooseTargetRegion: "Zielregion wählen",
 } as const;
+
+const NAMED_MISSING_PREFIX = "Die Zielregion „";
+const NAMED_MISSING_SUFFIX = "“ ist nicht mehr gespeichert. Bitte wählen Sie sie neu.";
+
+/** OpenAPI ErrorResponse.code on POST /analysis/runs for an unknown/foreign mark. */
+export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found";
+
+export const CHOOSE_TARGET_REGION_HREF = "/standorte#zielregion";
 
 const REASON_DETAIL: Record<AnalysisRunFailureReason, string> = {
   timeout: ANALYSIS_FAILURE_COPY.timeout,
@@ -64,8 +76,19 @@ export function analysisFailureMessage(reason: string | null | undefined): strin
  * POST `/analysis/runs` 400 for more than 200 Zielregionen is a user-facing
  * limit, not a run `failureReason` — show the German sentence, not the
  * generic unexpected line.
+ *
+ * POST `/analysis/runs` 404 with `code` `marked_target_region_not_found`
+ * means the marked geoKey is gone from the saved list. Other 404s stay
+ * the generic unexpected line.
  */
-export function analysisFailureFromHttp(status: number, body?: string | null): string {
+export function analysisFailureFromHttp(
+  status: number,
+  body?: string | null,
+  code?: string | null,
+): string {
+  if (status === 404 && isMarkedTargetRegionNotFoundCode(code)) {
+    return ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  }
   if (status === 404) {
     return analysisFailureMessage("internal_error");
   }
@@ -73,6 +96,39 @@ export function analysisFailureFromHttp(status: number, body?: string | null): s
     return ANALYSIS_FAILURE_COPY.tooManyTargetRegions;
   }
   return analysisFailureMessage(body);
+}
+
+export function isMarkedTargetRegionNotFoundCode(code?: string | null): boolean {
+  return typeof code === "string" && code.trim() === MARKED_TARGET_REGION_NOT_FOUND_CODE;
+}
+
+export function isMarkedTargetRegionNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && isMarkedTargetRegionNotFoundCode(error.code);
+}
+
+/**
+ * Visible name from session/catalog (label / parentLabel). Keys and IDs
+ * never become the name; without a readable name the generic sentence stays.
+ */
+export function markedTargetRegionMissingMessage(name?: string | null): string {
+  const visible = visibleMarkedRegionName(name);
+  if (!visible) return ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  return `${NAMED_MISSING_PREFIX}${visible}${NAMED_MISSING_SUFFIX}`;
+}
+
+export function isMarkedTargetRegionMissingCopy(text: string | null | undefined): text is string {
+  if (typeof text !== "string") return false;
+  if (text === ANALYSIS_FAILURE_COPY.markedTargetRegionMissing) return true;
+  if (!text.startsWith(NAMED_MISSING_PREFIX) || !text.endsWith(NAMED_MISSING_SUFFIX)) return false;
+  const inner = text.slice(NAMED_MISSING_PREFIX.length, text.length - NAMED_MISSING_SUFFIX.length);
+  return Boolean(visibleMarkedRegionName(inner));
+}
+
+function visibleMarkedRegionName(name?: string | null): string | null {
+  if (typeof name !== "string") return null;
+  const cleaned = visiblePlaceText(name).trim();
+  if (!cleaned || containsInternalKey(cleaned)) return null;
+  return cleaned;
 }
 
 function isTooManyTargetRegionsMessage(body: string | null | undefined): boolean {

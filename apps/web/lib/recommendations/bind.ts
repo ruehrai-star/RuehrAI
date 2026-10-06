@@ -80,7 +80,7 @@ async function readKnownRun(
       return { kind: "in_flight", runId, status: "running" };
     }
     if (error instanceof ApiError) {
-      return { kind: "failed", runId, message: analysisFailureFromHttp(error.status, error.message) };
+      return { kind: "failed", runId, message: analysisFailureFromHttp(error.status, error.message, error.code) };
     }
     throw error;
   }

@@ -110,7 +110,8 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       if (init.auth && response.status === 401) {
         clearStoredSessionAndGoToLogin();
       }
-      throw new ApiError(await readErrorMessage(response), response.status);
+      const parsed = await readErrorBody(response);
+      throw new ApiError(parsed.message, response.status, parsed.code);
     }
     if (init.empty || response.status === 204) {
       return undefined as T;
@@ -416,16 +417,22 @@ function buildUrl(baseUrl: string, path: string, query?: Record<string, string |
   return url.toString();
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorBody(response: Response): Promise<{ message: string; code?: string }> {
+  let code: string | undefined;
   try {
     const body = (await response.json()) as ErrorResponse;
-    if (Array.isArray(body.message) && body.message.length > 0) return body.message.join(" ");
-    if (typeof body.message === "string" && body.message.length > 0) return body.message;
+    if (typeof body.code === "string" && body.code.trim()) code = body.code.trim();
+    if (Array.isArray(body.message) && body.message.length > 0) {
+      return { message: body.message.join(" "), code };
+    }
+    if (typeof body.message === "string" && body.message.length > 0) {
+      return { message: body.message, code };
+    }
   } catch {
     // Nest may return an empty body.
   }
-  if (response.status === 401) return "Anmeldung erforderlich.";
-  return `Anfrage fehlgeschlagen (${response.status}).`;
+  if (response.status === 401) return { message: "Anmeldung erforderlich.", code };
+  return { message: `Anfrage fehlgeschlagen (${response.status}).`, code };
 }
 
 function parseHits(body: SearchResponse): SearchHit[] {

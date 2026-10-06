@@ -6,10 +6,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendationSet, TargetRegion } from "@/lib/api";
 import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { analysisFailureFromHttp } from "@/lib/analysis/failure";
+import {
+  analysisFailureFromHttp,
+  isMarkedTargetRegionMissingCopy,
+  isMarkedTargetRegionNotFound,
+  markedTargetRegionMissingMessage,
+} from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
 import { rememberStartedRun } from "@/lib/analysis/started-runs";
+import { clearMarkedKey } from "@/lib/locations/marked-region";
 import { usePersistedMarkedKey } from "./use-persisted-marked-key";
+import { MarkedRegionMissingNotice } from "./marked-region-missing";
 import { markedRegion, regionListKey } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { buildTrefferlisteKarte } from "@/lib/map/karte";
@@ -29,6 +36,7 @@ import {
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
 import { formatStandPrefix, markedStandRegions, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { runRegionEntryLabel } from "@/lib/analysis/run-label";
 import { bindTrefferlisteForRegion, loadTrefferlisteAfterCompletedRun, pollTrefferlisteRun } from "@/lib/recommendations/bind";
 import { CatalogHitLabel } from "./catalog-hit-label";
 import { RunRegionLabel } from "./run-region-label";
@@ -124,7 +132,11 @@ export function EmpfehlungenPage() {
   const showLegacySet = bindPhase === "ready" && !inFlight && legacySet;
   const showEmptyHits =
     bindPhase === "ready" && !inFlight && Boolean(boundRecommendations) && cards.length === 0 && !legacySet;
-  const showRestart = (runPhase === "failed" || runPhase === "deadline") && !showLegacySet;
+  const showRestart =
+    (runPhase === "failed" || runPhase === "deadline") &&
+    !showLegacySet &&
+    !isMarkedTargetRegionMissingCopy(runError);
+  const showMarkedRegionMissing = isMarkedTargetRegionMissingCopy(runError);
 
   function stopPolling() {
     pollAbort.current?.abort();
@@ -370,9 +382,16 @@ export function EmpfehlungenPage() {
       if (bindRequest.current !== token) return;
       setStarting(false);
       setRunPhase("failed");
-      const status = caught instanceof ApiError ? caught.status : 0;
-      const message = caught instanceof ApiError ? caught.message : null;
-      setRunError(analysisFailureFromHttp(status, message));
+      if (isMarkedTargetRegionNotFound(caught)) {
+        const regionName = runRegionEntryLabel(current, regions);
+        clearMarkedKey();
+        setRunError(markedTargetRegionMissingMessage(regionName));
+      } else {
+        const status = caught instanceof ApiError ? caught.status : 0;
+        const message = caught instanceof ApiError ? caught.message : null;
+        const code = caught instanceof ApiError ? caught.code : null;
+        setRunError(analysisFailureFromHttp(status, message, code));
+      }
       setBoundKey(key);
     } finally {
       startGate.current = false;
@@ -468,7 +487,8 @@ export function EmpfehlungenPage() {
             </button>
           </div>
         ) : null}
-        {runPhase === "failed" && runError ? (
+        {showMarkedRegionMissing ? <MarkedRegionMissingNotice message={runError} /> : null}
+        {runPhase === "failed" && runError && !showMarkedRegionMissing ? (
           <p className="message message-error" role="alert">
             {runError}
           </p>

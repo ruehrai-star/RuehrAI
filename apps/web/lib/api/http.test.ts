@@ -342,6 +342,7 @@ test("error JSON from the Backend becomes ApiError", async () => {
     assert.ok(error instanceof ApiError);
     assert.equal(error.status, 404);
     assert.equal(error.message, "Layer not found");
+    assert.equal(error.code, undefined);
     return true;
   });
 });
