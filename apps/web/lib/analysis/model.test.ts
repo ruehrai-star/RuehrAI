@@ -55,10 +55,13 @@ test("UX-Gate labels for the analysis start stay exact", () => {
   assert.equal(ANALYSIS_COPY.help, "Aus Ihren Standorten und Umsätzen leiten wir ein Kriterien-Muster ab.");
   assert.equal(ANALYSIS_COPY.summary, "Zielregion · Filialen · Monate Umsatz");
   assert.equal(ANALYSIS_COPY.start, "Analyse starten");
+  assert.equal(ANALYSIS_COPY.restart, "Erneut starten");
+  assert.equal(ANALYSIS_COPY.restart, "Erneut starten");
   assert.equal(ANALYSIS_COPY.back, "Zurück zu Standorten");
   assert.equal(ANALYSIS_COPY.empty, "Keine Analyse ausgewählt.");
   assert.equal(ANALYSIS_COPY.running, "Analyse läuft …");
   assert.equal(ANALYSIS_COPY.failed, "Analyse fehlgeschlagen. Bitte erneut versuchen.");
+  assert.equal(ANALYSIS_COPY.deadline, "Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.");
   assert.equal(ANALYSIS_COPY.briefHeading, "Kurzfassung");
 });
 

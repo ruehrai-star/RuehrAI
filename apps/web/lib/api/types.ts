@@ -1,5 +1,6 @@
 import type {
   AnalysisPatternResponse as ContractAnalysisPatternResponse,
+  AnalysisRun,
   Grain,
   Recommendation as ContractRecommendation,
   RecommendationLocation as ContractRecommendationLocation,
@@ -12,6 +13,9 @@ import type {
 /** Catalog `level` on a search / Zielregion hit. Named by the Product-Owner. */
 export const CATALOG_LEVELS = ["plz", "bezirk", "stadtbezirk", "stadtteil", "ortsteil", "gemeinde"] as const;
 export type CatalogLevel = (typeof CATALOG_LEVELS)[number];
+
+/** OpenAPI `AnalysisRunFailureReason`. No local shadow enum. */
+export type AnalysisRunFailureReason = NonNullable<AnalysisRun["failureReason"]>;
 
 export type {
   AnalysisBrain,

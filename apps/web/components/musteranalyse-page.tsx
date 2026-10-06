@@ -12,11 +12,12 @@ import {
   patternSourceLabel,
   revenueDirectionLabel,
 } from "@/lib/analysis/model";
-import { pollAnalysisRun } from "@/lib/analysis/poll";
+import { analysisFailureFromHttp, analysisFailureMessage } from "@/lib/analysis/failure";
+import { isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
 import { useSession } from "./session-provider";
 
-type Phase = "loading" | "idle" | "running" | "failed";
+type Phase = "loading" | "idle" | "running" | "failed" | "deadline";
 
 export function MusteranalysePage() {
   const { session } = useSession();
@@ -30,6 +31,7 @@ export function MusteranalysePage() {
   const [readError, setReadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const request = useRef(0);
+  const pollAbort = useRef<AbortController | null>(null);
 
   const visible = Boolean(session && loadedEmail === session.email && phase !== "loading");
   const visibleInput = visible ? input : null;
@@ -88,23 +90,42 @@ export function MusteranalysePage() {
     return () => {
       cancelled = true;
       request.current += 1;
+      pollAbort.current?.abort();
+      pollAbort.current = null;
     };
   }, [session, api]);
 
   async function onStart() {
     const token = request.current + 1;
     request.current = token;
+    pollAbort.current?.abort();
+    const controller = new AbortController();
+    pollAbort.current = controller;
     setPhase("running");
     setActionError(null);
     setReadError(null);
     try {
       const created = await api.createAnalysisRun();
+      if (request.current !== token) return;
       let settled = created;
-      try {
-        settled = await pollAnalysisRun(api, created.id);
-      } catch {
-        // POST already returned the completed run from OpenAPI 0.3.0.
-        settled = created;
+      if (isInFlightStatus(created.status)) {
+        const outcome = await pollAnalysisRun(api, created.id, { signal: controller.signal });
+        if (request.current !== token || outcome.kind === "aborted") return;
+        if (outcome.kind === "deadline") {
+          setActionError(ANALYSIS_COPY.deadline);
+          setPhase("deadline");
+          return;
+        }
+        if (outcome.kind === "failed") {
+          setActionError(outcome.message);
+          setPhase("failed");
+          return;
+        }
+        settled = outcome.run;
+      } else if (created.status === "failed") {
+        setActionError(analysisFailureMessage(created.failureReason));
+        setPhase("failed");
+        return;
       }
       if (request.current !== token) return;
       setRun(settled);
@@ -113,7 +134,10 @@ export function MusteranalysePage() {
       setPhase("idle");
     } catch (caught) {
       if (request.current !== token) return;
-      setActionError(errorText(caught, ANALYSIS_COPY.failed));
+      const status = caught instanceof Error && "status" in caught ? Number((caught as { status: number }).status) : 0;
+      setActionError(
+        analysisFailureFromHttp(status, caught instanceof Error ? caught.message : ANALYSIS_COPY.failed),
+      );
       setPhase("failed");
     }
   }
@@ -163,8 +187,8 @@ export function MusteranalysePage() {
 
       {status ? (
         <p
-          className={phase === "failed" ? "message message-error" : "message"}
-          role={phase === "failed" ? "alert" : "status"}
+          className={phase === "failed" || phase === "deadline" ? "message message-error" : "message"}
+          role={phase === "failed" || phase === "deadline" ? "alert" : "status"}
           aria-live="polite"
         >
           {status}
@@ -181,7 +205,7 @@ export function MusteranalysePage() {
 
       <div className="auth-actions">
         <button type="button" className="button" onClick={onStart} disabled={phase === "loading" || phase === "running"}>
-          {ANALYSIS_COPY.start}
+          {phase === "failed" || phase === "deadline" ? ANALYSIS_COPY.restart : ANALYSIS_COPY.start}
         </button>
         <Link href="/standorte" className="button button-quiet">
           {ANALYSIS_COPY.back}
@@ -248,6 +272,7 @@ function PatternView({ pattern }: { pattern: AnalysisPattern }) {
 function statusText(phase: Phase, visible: boolean, hasPattern: boolean): string | null {
   if (phase === "loading" || !visible) return "Eingaben werden geladen …";
   if (phase === "running") return ANALYSIS_COPY.running;
+  if (phase === "deadline") return ANALYSIS_COPY.deadline;
   if (phase === "failed") return ANALYSIS_COPY.failed;
   if (!hasPattern) return ANALYSIS_COPY.empty;
   return null;

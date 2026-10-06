@@ -164,11 +164,26 @@ test("POST /analysis/runs keeps the German Backend error", async () => {
   });
 });
 
-test("a malformed analysis run is rejected", async () => {
+test("POST /analysis/runs accepts 202 queued without brain or pattern", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",
-    fetch: async () => json({ id: "7", status: "running" }),
+    fetch: async () => json({ id: "8", status: "queued" }, 202),
   });
+  const created = await api.createAnalysisRun();
+  assert.equal(created.id, "8");
+  assert.equal(created.status, "queued");
+});
+
+test("GET /analysis/runs accepts a queued stub and still rejects a completed stub", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async (inputUrl) => {
+      const url = String(inputUrl);
+      if (url.endsWith("/analysis/runs/8")) return json({ id: "8", status: "running" });
+      return json({ id: "7", status: "completed" });
+    },
+  });
+  assert.equal((await api.getAnalysisRun("8")).status, "running");
   await assert.rejects(api.getAnalysisRun("7"), (error: unknown) => {
     assert.ok(error instanceof ApiError);
     assert.equal(error.status, 502);
@@ -198,6 +213,18 @@ test("GET /analysis/runs accepts queued, running, and failed when the payload is
   const failed = await api.getAnalysisRun("10");
   assert.equal(failed.status, "failed");
   assert.equal(failed.failureReason, "timeout");
+});
+
+test("GET /analysis/runs rejects a failureReason outside the closed enum", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json({ ...run, status: "failed", failureReason: "timed_out" }),
+  });
+  await assert.rejects(api.getAnalysisRun("7"), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 502);
+    return true;
+  });
 });
 
 test("GET /analysis/pattern accepts an old run without yearlySeries", async () => {
