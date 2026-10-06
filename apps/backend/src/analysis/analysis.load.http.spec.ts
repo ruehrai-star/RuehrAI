@@ -132,9 +132,7 @@ async function runTwoStageCompute(
   expect(capped.selected.length).toBeLessThanOrEqual(DEFAULT_SERIES_CANDIDATE_CAP);
   expect(capped.truncated).toBe(true);
   for (const region of fixture.regions) {
-    const hits = capped.selected.filter(
-      (item) => item.ags === region.ags || item.geoKey.startsWith(`${region.geoKey}:`),
-    );
+    const hits = capped.selected.filter((item) => item.targetRegionGeoKey === region.geoKey);
     expect(hits.length).toBeGreaterThan(0);
   }
 
@@ -197,6 +195,7 @@ function loadFixture(): {
       plz: null,
       lon: region.lon,
       lat: region.lat,
+      targetRegionGeoKey: region.geoKey ?? undefined,
     });
     index += 1;
   }

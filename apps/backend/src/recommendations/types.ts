@@ -75,6 +75,10 @@ export interface ScoredLocation {
   parentLabel: string | null;
   intersectionOf?: RecommendationIntersectionPart[];
   overlaps?: RecommendationOverlap[];
+  /** Zielregion this hit was loaded for (`AnalysisRegion.geoKey`). */
+  targetRegionGeoKey: string;
+  /** Newest `criteriaEvidence.points[].period` used for this hit (`YYYY` or `YYYY-MM`). */
+  dataAsOf: string | null;
   location: RecommendationLocation;
   score: number;
   criteriaEvidence: RecommendationEvidence[];
@@ -99,6 +103,11 @@ export interface RecommendationPayload {
   patternByLevel?: PatternLevelProfile[];
   /** Store-surroundings Musterprofil je Datensatz (normalized trend). */
   patternByDataset?: PatternDatasetProfile[];
+  /**
+   * Zielregionen of this set in snapshot order. `geoKey` is the key used as
+   * `items[].targetRegionGeoKey` (geoKey → `ags:{ags}` → `label:{normalized}`).
+   */
+  targetRegions?: Array<{ geoKey: string; label: string }>;
   items: RecommendationItem[];
 }
 

@@ -1,5 +1,5 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
-import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
+import { PATTERN_NOT_FOUND, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS } from "../analysis/messages";
 import { buildPatternByDataset, buildPatternByLevel } from "../analysis/pattern-profile";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
 import { AnalysisInput, AnalysisPattern, analysisRegions } from "../analysis/types";
@@ -7,7 +7,7 @@ import { SeriesRegionInput, YearlySeries, asOfFrom } from "../analysis/yearly-se
 import { YearlySeriesService } from "../analysis/yearly-series.service";
 import { DatabaseService, analysisWriteQuery } from "../database/database.service";
 import { toIso } from "../customer/values";
-import { AreaCandidate } from "./area-candidates";
+import { AreaCandidate, targetRegionKeyOf, targetRegionsFromAnalysis } from "./area-candidates";
 import { AreaCandidateService } from "./area-candidate.service";
 import { capCandidatesForSeries } from "./candidate-cap";
 import { RECOMMENDATIONS_NOT_FOUND, RECOMMENDATIONS_NOT_STORED, recommendationReason } from "./messages";
@@ -20,6 +20,7 @@ import { yieldEventLoop } from "../common/safe-array";
 import { runComputeJob } from "../analysis/compute-host";
 import { readAnalysisSeriesCandidateCap } from "../analysis/analysis-env";
 import { throwIfAborted } from "../analysis/run-abort";
+import { assignRanksByTargetRegion, dataAsOfFromEvidence, MAX_TARGET_REGIONS } from "./score";
 
 interface RunRow {
   id: string;
@@ -71,6 +72,9 @@ export class RecommendationsService {
     const captured = asOfFrom(run.input.capturedAt);
     const asOfDate = asOf && !Number.isNaN(asOf.getTime()) ? asOf : captured;
     const regions = analysisRegions(run.input);
+    if (regions.length > MAX_TARGET_REGIONS) {
+      throw new BadRequestException(TOO_MANY_TARGET_REGIONS);
+    }
 
     const surroundings = await this.surroundings.resolve(run.input.stores);
     throwIfAborted(signal);
@@ -123,10 +127,12 @@ export class RecommendationsService {
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
     const written = await this.rationales.write(pattern, window, withOverlaps, signal);
     throwIfAborted(signal);
+    const regionOrder = regions.map((region) => targetRegionKeyOf(region)).filter((key) => key.length > 0);
+    const rankedItems = assignRanksByTargetRegion(written, regionOrder);
     const payload: RecommendationPayload = {
       runId: run.id,
       window,
-      count: written.length,
+      count: rankedItems.length,
       reason: recommendationReason({
         candidateCount: capped.candidateCount,
         truncated: loaded.truncated || capped.truncated,
@@ -134,7 +140,8 @@ export class RecommendationsService {
       pattern,
       patternByLevel,
       patternByDataset,
-      items: written.map((item, index) => ({ ...item, rank: index + 1 })),
+      targetRegions: targetRegionsFromAnalysis(regions),
+      items: rankedItems,
     };
     if (!persist) {
       return toSet("0", new Date().toISOString(), payload);
@@ -259,11 +266,16 @@ function hydrateHitDisplay(item: RecommendationItem): RecommendationItem {
   });
   const grain = item.grain ?? item.location.grain;
   const parentLabel = item.parentLabel !== undefined ? item.parentLabel : null;
+  const targetRegionGeoKey = item.targetRegionGeoKey?.trim() ?? "";
+  const dataAsOf =
+    item.dataAsOf !== undefined ? item.dataAsOf : dataAsOfFromEvidence(item.criteriaEvidence ?? []);
   return {
     ...item,
     grain,
     name,
     parentLabel: parentLabel ?? null,
+    targetRegionGeoKey,
+    dataAsOf,
     title: visibleAreaName(item.title) ?? name,
     location: {
       ...item.location,
@@ -299,6 +311,7 @@ export function recommendationPayloadOf(set: RecommendationSet): RecommendationP
     pattern: set.pattern,
     patternByLevel: set.patternByLevel,
     patternByDataset: set.patternByDataset,
+    targetRegions: set.targetRegions,
     items: set.items,
   };
 }

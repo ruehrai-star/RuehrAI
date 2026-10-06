@@ -1,6 +1,5 @@
 import { AnalysisRegion } from "../analysis/types";
 import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
-import { areaGroupKey } from "./hit-display";
 
 export const DEFAULT_SERIES_CANDIDATE_CAP = 400;
 
@@ -64,11 +63,11 @@ export function capCandidatesForSeries(
 
 function groupByTargetRegion(
   candidates: AreaCandidate[],
-  regions: AnalysisRegion[],
+  _regions: AnalysisRegion[],
 ): Map<string, AreaCandidate[]> {
   const grouped = new Map<string, AreaCandidate[]>();
   for (const candidate of candidates) {
-    const key = assignTargetRegion(candidate, regions);
+    const key = assignTargetRegion(candidate);
     const list = grouped.get(key) ?? [];
     list.push(candidate);
     grouped.set(key, list);
@@ -76,36 +75,15 @@ function groupByTargetRegion(
   return grouped;
 }
 
-export function assignTargetRegion(candidate: AreaCandidate, regions: AnalysisRegion[]): string {
-  let bestKey = "_unassigned";
-  let best = 0;
-  for (const region of regions) {
-    const score = membershipScore(candidate, region);
-    if (score > best) {
-      best = score;
-      bestKey = regionKey(region);
-    }
-  }
-  return bestKey;
-}
-
-function membershipScore(candidate: AreaCandidate, region: AnalysisRegion): number {
-  const regionKeyValue = region.geoKey?.trim() ?? "";
-  if (regionKeyValue && (candidate.geoKey === regionKeyValue || candidate.ags === regionKeyValue)) {
-    return 100;
-  }
-  const regionAgs = region.ags?.trim() ?? "";
-  const candidateAgs = candidate.ags?.trim() ?? "";
-  if (regionAgs && candidateAgs && regionAgs === candidateAgs) return 90;
-  if (regionAgs && candidateAgs && candidateAgs.startsWith(regionAgs)) return 80;
-  if (region.plz && candidate.plz && region.plz === candidate.plz) return 60;
-  if (regionKeyValue && candidate.geoKey.startsWith(regionKeyValue)) return 50;
-  if (areaGroupKey(candidate) === areaGroupKey(region) && regionAgs.length >= 8) return 40;
-  return 0;
-}
-
-function regionKey(region: AnalysisRegion): string {
-  return region.geoKey?.trim() || region.ags?.trim() || region.label;
+/**
+ * Cap groups exclusively by `targetRegionGeoKey` from the per-Zielregion
+ * catalog load (`geo_ref_zielregion_teil` / clipped query). Never `ags`/`plz`.
+ */
+export function assignTargetRegion(
+  candidate: Pick<AreaCandidate, "targetRegionGeoKey">,
+  _regions?: AnalysisRegion[],
+): string {
+  return candidate.targetRegionGeoKey?.trim() || "_unassigned";
 }
 
 function fairQuotas(groups: Map<string, AreaCandidate[]>, cap: number): Map<string, number> {

@@ -35,6 +35,7 @@ import {
   REGION_MISSING,
   REVENUE_INSUFFICIENT,
   RUN_NOT_FOUND,
+  TOO_MANY_TARGET_REGIONS,
 } from "./messages";
 import { PatternService } from "./pattern.service";
 import {
@@ -63,6 +64,7 @@ import {
 import { asOfFrom } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
 import { RecommendationsService, recommendationPayloadOf } from "../recommendations/recommendations.service";
+import { MAX_TARGET_REGIONS } from "../recommendations/score";
 
 interface RegionRow {
   label: string;
@@ -192,6 +194,9 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
    */
   async createRun(userId: string): Promise<AnalysisRun> {
     const input = await this.loadInput(userId);
+    if (analysisRegions(input).length > MAX_TARGET_REGIONS) {
+      throw new BadRequestException(TOO_MANY_TARGET_REGIONS);
+    }
     const inserted = await this.db.query<{ id: string; created_at: Date | string }>(
       `INSERT INTO app.analysis_runs (user_id, status, input, brain, pattern)
        VALUES ($1::bigint, 'queued', $2::jsonb, $3::jsonb, $4::jsonb)

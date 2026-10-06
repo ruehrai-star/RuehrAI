@@ -1,9 +1,9 @@
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
-import { PATTERN_FOR_REGION_NOT_FOUND, PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND } from "./messages";
+import { PATTERN_FOR_REGION_NOT_FOUND, PATTERN_NOT_FOUND, REGION_MISSING, REVENUE_INSUFFICIENT, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS } from "./messages";
 import { PatternService } from "./pattern.service";
 import { AnalysisBrain, AnalysisInput, AnalysisPattern, AnalysisRegion } from "./types";
 import { YearlySeries } from "./yearly-series";
@@ -151,6 +151,31 @@ describe("AnalysisService", () => {
     );
     expect(query.mock.calls.some((call) => String(call[0]).includes("'running'"))).toBe(true);
     expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(true);
+  });
+
+  it("rejects more than 200 Zielregionen before enqueueing a run", async () => {
+    const rows = Array.from({ length: 201 }, (_, index) => ({
+      ...regionRow(),
+      label: `R${index}`,
+      geo_key: `r:${index}`,
+    }));
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    await expect(service.createRun("4")).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createRun("4")).rejects.toMatchObject({ message: TOO_MANY_TARGET_REGIONS });
+    expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT INTO app.analysis_runs"))).toBe(false);
+    expect(createRecommendations).not.toHaveBeenCalled();
   });
 
   it("marks the run failed when ranking the recommendation set throws", async () => {

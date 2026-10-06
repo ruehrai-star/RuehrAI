@@ -1,5 +1,5 @@
-import { NotFoundException } from "@nestjs/common";
-import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { PATTERN_NOT_FOUND, RUN_NOT_FOUND, TOO_MANY_TARGET_REGIONS } from "../analysis/messages";
 import { AnalysisInput, AnalysisPattern } from "../analysis/types";
 import { YearlySeries } from "../analysis/yearly-series";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
@@ -54,7 +54,7 @@ function input(): AnalysisInput {
 
 function area(geoKey: string, title: string, kind: AreaCandidate["kind"] = "ortsteil"): AreaCandidate {
   return {
-    id: `other:${geoKey}`,
+    id: `other:${geoKey}@09162000`,
     geoKey,
     grain: "other",
     kind,
@@ -64,6 +64,7 @@ function area(geoKey: string, title: string, kind: AreaCandidate["kind"] = "orts
     plz: null,
     lon: 11.5,
     lat: 48.1,
+    targetRegionGeoKey: "09162000",
   };
 }
 
@@ -208,11 +209,14 @@ describe("RecommendationsService", () => {
       grain: "other",
       name: "Schwabing",
       parentLabel: "München",
+      targetRegionGeoKey: "09162000",
     });
+    expect(set.items[0]?.dataAsOf).toBe("2025");
     expect(set.items[0]?.intersectionOf).toBeUndefined();
     expect(set.items.map((item) => item.location.geoKey)).not.toContain("09162000");
     expect(set.pattern.criteria[0]?.kind).toBe("trend");
     expect(set.patternByLevel?.map((item) => item.level)).toEqual(["ortsteil", "plz"]);
+    expect(set.targetRegions).toEqual([{ geoKey: "09162000", label: "München" }]);
     expect(set.patternByLevel?.find((item) => item.level === "ortsteil")?.criteria[0]?.scope).toBe("local");
     expect(set.patternByLevel?.find((item) => item.level === "plz")?.geoKeys).toEqual(["80331"]);
     expect(set.patternByDataset?.[0]).toMatchObject({
@@ -387,5 +391,103 @@ describe("RecommendationsService", () => {
     });
     expect(load).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("ranks each Zielregion from 1 when an overlapping Fläche appears twice", async () => {
+    const left = "ortsteil:osm:licht";
+    const right = "ortsteil:osm:steg";
+    const multi: AnalysisInput = {
+      ...input(),
+      regions: [
+        { ...input().region, label: "Lichterfelde", geoKey: left, ags: null, grain: "other" },
+        { ...input().region, label: "Steglitz", geoKey: right, ags: null, grain: "other" },
+      ],
+    };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: "15", input: multi, pattern }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "11", created_at: new Date("2026-09-29T12:00:00.000Z") }],
+      });
+    load.mockResolvedValue({
+      items: [
+        {
+          ...area("12207", "PLZ 12207", "plz"),
+          id: `plz5:12207@${left}`,
+          grain: "plz5" as const,
+          targetRegionGeoKey: left,
+          ags: null,
+          geometry: { type: "Polygon", coordinates: [[[13.3, 52.4], [13.35, 52.4], [13.35, 52.45], [13.3, 52.45], [13.3, 52.4]]] },
+        },
+        {
+          ...area("12207", "PLZ 12207", "plz"),
+          id: `plz5:12207@${right}`,
+          grain: "plz5" as const,
+          targetRegionGeoKey: right,
+          ags: null,
+          geometry: { type: "Polygon", coordinates: [[[13.35, 52.4], [13.4, 52.4], [13.4, 52.45], [13.35, 52.45], [13.35, 52.4]]] },
+        },
+      ],
+      truncated: false,
+    });
+    build
+      .mockResolvedValueOnce([trend("ortsteil:osm:store", 20, 8, "ortsteil"), inhabitants("ortsteil:osm:store", "ortsteil")])
+      .mockResolvedValueOnce([trend("12207", 20, 8, "plz"), inhabitants("12207", "plz")]);
+
+    const set = await service.create("4", undefined, asOf);
+    expect(set.items).toHaveLength(2);
+    expect(new Set(set.items.map((item) => item.id)).size).toBe(2);
+    expect(set.items.map((item) => item.rank)).toEqual([1, 1]);
+    expect(set.items.map((item) => item.targetRegionGeoKey).sort()).toEqual([left, right].sort());
+    expect(set.targetRegions?.map((item) => item.geoKey).sort()).toEqual([left, right].sort());
+    expect(set.items[0]?.geometry).not.toEqual(set.items[1]?.geometry);
+  });
+
+  it("lists documented fallback keys on the set when geoKey is missing", async () => {
+    const agsRegion = { ...input().region, geoKey: null, ags: "05315000", label: "Innenstadt" };
+    const labelRegion = { ...input().region, geoKey: "  ", ags: null, label: "  Steglitz  " };
+    const multi: AnalysisInput = { ...input(), regions: [agsRegion, labelRegion] };
+    query
+      .mockResolvedValueOnce({ rows: [{ id: "15", input: multi, pattern }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "11", created_at: new Date("2026-09-29T12:00:00.000Z") }],
+      });
+    load.mockResolvedValue({
+      items: [
+        { ...area("koeln:sq:1", "Quartier 1", "quartier"), id: "other:koeln:sq:1@ags:05315000", targetRegionGeoKey: "ags:05315000", ags: null },
+        { ...area("lor:plr:1", "PLR 1", "lor"), id: "other:lor:plr:1@label:steglitz", targetRegionGeoKey: "label:steglitz", ags: null },
+      ],
+      truncated: false,
+    });
+    build
+      .mockResolvedValueOnce([trend("ortsteil:osm:store", 20, 8, "ortsteil"), inhabitants("ortsteil:osm:store", "ortsteil")])
+      .mockResolvedValueOnce([
+        trend("koeln:sq:1", 20, 8, "quartier"),
+        inhabitants("koeln:sq:1", "quartier"),
+        trend("lor:plr:1", 10, 12, "lor"),
+        inhabitants("lor:plr:1", "lor"),
+      ]);
+
+    const set = await service.create("4", undefined, asOf);
+    expect(set.targetRegions).toEqual([
+      { geoKey: "ags:05315000", label: "Innenstadt" },
+      { geoKey: "label:steglitz", label: "  Steglitz  " },
+    ]);
+    expect(new Set(set.items.map((item) => item.targetRegionGeoKey))).toEqual(
+      new Set(["ags:05315000", "label:steglitz"]),
+    );
+  });
+
+  it("rejects more than 200 Zielregionen before loading candidates", async () => {
+    const regions = Array.from({ length: 201 }, (_, index) => ({
+      ...input().region,
+      label: `R${index}`,
+      geoKey: `r:${index}`,
+    }));
+    query.mockResolvedValue({ rows: [{ id: "15", input: { ...input(), regions }, pattern }] });
+    await expect(service.create("4", undefined, asOf)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.create("4", undefined, asOf)).rejects.toMatchObject({
+      message: TOO_MANY_TARGET_REGIONS,
+    });
+    expect(load).not.toHaveBeenCalled();
   });
 });

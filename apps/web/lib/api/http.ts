@@ -760,6 +760,16 @@ function parseRecommendationSet(body: RecommendationSet): RecommendationSet {
     }
     body.patternByDataset.forEach((profile) => parsePatternDatasetProfile(profile, route));
   }
+  if (body.targetRegions !== undefined) {
+    if (!Array.isArray(body.targetRegions) || body.targetRegions.length > 200) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
+    for (const region of body.targetRegions) {
+      if (!region || typeof region.geoKey !== "string") {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
+    }
+  }
   return {
     ...body,
     items: body.items.map((item) => parseRecommendation(item, route)),
@@ -919,6 +929,12 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       }
     }
   }
+  if (body.targetRegionGeoKey != null && typeof body.targetRegionGeoKey !== "string") {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.dataAsOf != null && (typeof body.dataAsOf !== "string" || !WINDOW_STAMP.test(body.dataAsOf))) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
   const parentLabel = catalogParentName(body) ?? catalogParentName(rawLocation);
   return {
@@ -926,6 +942,8 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
     grain: body.grain ?? body.location.grain,
     name: recommendationDisplayName(body),
     parentLabel,
+    targetRegionGeoKey: typeof body.targetRegionGeoKey === "string" ? body.targetRegionGeoKey : "",
+    dataAsOf: body.dataAsOf === undefined ? undefined : body.dataAsOf,
     location: {
       ...body.location,
       level: catalogLevelOf(rawLocation.level),

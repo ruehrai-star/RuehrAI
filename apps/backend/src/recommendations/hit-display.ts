@@ -204,7 +204,7 @@ function municipalityNameFromPool(
 }
 
 function municipalityNameFromRegions(hit: AreaCandidate, regions: AnalysisRegion[]): string | null {
-  const region = matchingParentRegion(hit, regions) ?? regions[0];
+  const region = matchingParentRegion(hit, regions);
   if (!region) return null;
   return municipalityNameOfRegion(region);
 }
@@ -227,19 +227,31 @@ function municipalityNameOfRegion(region: AnalysisRegion): string | null {
 }
 
 function matchingParentRegion(hit: AreaCandidate, regions: AnalysisRegion[]): AnalysisRegion | undefined {
+  const targetKey = hit.targetRegionGeoKey?.trim();
+  if (targetKey) {
+    const byTarget = regions.find((region) => (region.geoKey?.trim() ?? "") === targetKey);
+    if (byTarget) return byTarget;
+  }
+  const hitAgs = (municipalityAgsFrom(hit) ?? hit.ags)?.trim() ?? "";
+  const byAgs = hitAgs
+    ? regions.find((region) => {
+        const regionAgs = (municipalityAgsFrom(region) ?? region.ags)?.trim() ?? "";
+        return Boolean(regionAgs && regionAgs === hitAgs);
+      })
+    : undefined;
+  if (byAgs) return byAgs;
   const group = areaGroupKey(hit);
-  return (
-    regions.find((region) => areaGroupKey(region) === group) ??
-    regions.find((region) => {
-      const geoKey = region.geoKey?.trim();
-      return Boolean(geoKey && (geoKey === hit.geoKey || geoKey === hit.ags || region.ags === hit.ags));
-    }) ??
-    regions.find((region) => {
-      const hitAgs = municipalityAgsFrom(hit);
-      const regionAgs = municipalityAgsFrom(region);
-      return Boolean(hitAgs && regionAgs && hitAgs === regionAgs);
-    })
-  );
+  const byGroup = regions.find((region) => areaGroupKey(region) === group);
+  if (byGroup && group.startsWith("ags:")) return byGroup;
+  return regions.find((region) => {
+    const geoKey = region.geoKey?.trim();
+    const regionAgs = region.ags?.trim() ?? "";
+    const itemAgs = hit.ags?.trim() ?? "";
+    return Boolean(
+      geoKey &&
+        (geoKey === hit.geoKey || geoKey === hit.ags || (regionAgs.length > 0 && regionAgs === itemAgs)),
+    );
+  });
 }
 
 function kindOfRegion(region: AnalysisRegion): AreaKind | null {

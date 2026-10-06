@@ -1,6 +1,6 @@
 import { AnalysisRegion } from "../analysis/types";
-import { AreaCandidate, AreaKind } from "./area-candidates";
-import { capCandidatesForSeries, cheapBaselineScore } from "./candidate-cap";
+import { AreaCandidate, AreaKind, stampCandidateTargetRegion } from "./area-candidates";
+import { assignTargetRegion, capCandidatesForSeries, cheapBaselineScore } from "./candidate-cap";
 
 const KINDS: AreaKind[] = ["lor", "quartier", "ortsteil", "plz", "bezirk", "gemeinde"];
 
@@ -18,7 +18,7 @@ describe("capCandidatesForSeries", () => {
     expect(capped.truncated).toBe(true);
 
     for (const region of regions) {
-      const hits = capped.selected.filter((item) => item.ags === region.ags || item.geoKey.startsWith(`${region.geoKey}:`));
+      const hits = capped.selected.filter((item) => item.targetRegionGeoKey === region.geoKey);
       expect(hits.length).toBeGreaterThan(0);
     }
 
@@ -26,6 +26,23 @@ describe("capCandidatesForSeries", () => {
     for (const kind of kindsPresent) {
       expect(selectedKinds.has(kind)).toBe(true);
     }
+  });
+
+  it("shares the cap by targetRegionGeoKey when every region has ags=null and plz=null", () => {
+    const regions = targetRegions().map((region) => ({ ...region, ags: null, plz: null }));
+    const candidates = buildCandidates(regions, 2162).map((item) => ({ ...item, ags: null, plz: null }));
+    expect(candidates.every((item) => item.ags == null && item.plz == null)).toBe(true);
+    expect(new Set(candidates.map((item) => assignTargetRegion(item, regions)))).toEqual(
+      new Set(regions.map((region) => region.geoKey)),
+    );
+
+    const capped = capCandidatesForSeries(candidates, regions, 400);
+    expect(capped.selected.length).toBe(400);
+    for (const region of regions) {
+      const hits = capped.selected.filter((item) => item.targetRegionGeoKey === region.geoKey);
+      expect(hits.length).toBeGreaterThanOrEqual(Math.floor(400 / regions.length));
+    }
+    expect(capped.selected.some((item) => assignTargetRegion(item) === "_unassigned")).toBe(false);
   });
 
   it("ranks finer grain above coarser grain in the cheap baseline score", () => {
@@ -46,7 +63,7 @@ function targetRegions(): AnalysisRegion[] {
   ];
 }
 
-function region(label: string, geoKey: string, ags: string): AnalysisRegion {
+function region(label: string, geoKey: string, ags: string | null): AnalysisRegion {
   return {
     label,
     grain: "other",
@@ -70,7 +87,10 @@ function buildCandidates(regions: AnalysisRegion[], total: number): AreaCandidat
     const region = regions[index % regions.length]!;
     const kind = KINDS[index % KINDS.length]!;
     out.push(
-      candidate(`${kind}:${region.geoKey}:${index}`, kind, region.ags ?? "00000000", region.geoKey ?? kind),
+      stampCandidateTargetRegion(
+        candidate(`${kind}:${region.geoKey}:${index}`, kind, region.ags ?? "00000000", region.geoKey ?? kind),
+        region.geoKey ?? kind,
+      ),
     );
     index += 1;
   }

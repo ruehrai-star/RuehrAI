@@ -25,6 +25,8 @@ function item(): ScoredLocation {
     grain: "other",
     name: "Schwabing",
     parentLabel: "München",
+    targetRegionGeoKey: "09162000",
+    dataAsOf: "2025",
     location: { geoKey: "ortsteil:osm:1", grain: "other", lon: 11.5, lat: 48.1, name: "Schwabing" },
     score: 1,
     criteriaEvidence: [

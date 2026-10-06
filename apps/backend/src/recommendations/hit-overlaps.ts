@@ -20,8 +20,10 @@ export interface HitOverlapRow {
 }
 
 export interface OverlapHost {
+  id: string;
   kind: AreaKind;
   location: { geoKey: string };
+  targetRegionGeoKey?: string;
   overlaps?: RecommendationOverlap[];
 }
 
@@ -67,24 +69,43 @@ export async function attachHitOverlaps<T extends OverlapHost>(
 ): Promise<T[]> {
   const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
   if (eligible.length === 0) return hits;
-  const query = hitOverlapQuery(
-    eligible.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })),
-    regionsGeometryParam(regions),
-  );
-  if ((query.params[0] as string[]).length === 0) return hits;
+
+  const byRegion = new Map<string, T[]>();
+  for (const hit of eligible) {
+    const key = hit.targetRegionGeoKey?.trim() ?? "";
+    const list = byRegion.get(key) ?? [];
+    list.push(hit);
+    byRegion.set(key, list);
+  }
+
+  const overlapsById = new Map<string, RecommendationOverlap[]>();
   try {
-    assertCandidateQueryArity(query);
-    const result = await featuresReadQuery(db)<HitOverlapRow>(query.sql, query.params);
-    const byHit = groupOverlapsByHit(result.rows);
-    return hits.map((hit) => {
-      const overlaps = byHit.get(hit.location.geoKey);
-      if (!overlaps || overlaps.length === 0) return hit;
-      return { ...hit, overlaps };
-    });
+    for (const [regionKey, regionHits] of byRegion) {
+      const region = regionKey ? regions.find((item) => (item.geoKey?.trim() ?? "") === regionKey) : undefined;
+      const geometry = region ? regionsGeometryParam([region]) : regionsGeometryParam(regions);
+      const query = hitOverlapQuery(
+        regionHits.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })),
+        geometry,
+      );
+      if ((query.params[0] as string[]).length === 0) continue;
+      assertCandidateQueryArity(query);
+      const result = await featuresReadQuery(db)<HitOverlapRow>(query.sql, query.params);
+      const byHit = groupOverlapsByHit(result.rows);
+      for (const hit of regionHits) {
+        const overlaps = byHit.get(hit.location.geoKey);
+        if (overlaps && overlaps.length > 0) overlapsById.set(hit.id, overlaps);
+      }
+    }
   } catch (error) {
     logger.warn(`Hit overlaps query missed (${messageOf(error)}); omitting overlaps.`);
     return hits;
   }
+
+  return hits.map((hit) => {
+    const overlaps = overlapsById.get(hit.id);
+    if (!overlaps || overlaps.length === 0) return hit;
+    return { ...hit, overlaps };
+  });
 }
 
 function toOverlap(row: HitOverlapRow): RecommendationOverlap | null {

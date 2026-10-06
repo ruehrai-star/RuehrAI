@@ -36,9 +36,89 @@ export interface AreaCandidate {
   lat: number | null;
   /** Gemeinde display name from geo_ref_admin / AGS-prefix fallbacks. */
   municipalityName?: string | null;
+  /**
+   * Zielregion this candidate was loaded for (`AnalysisRegion.geoKey`).
+   * Cap, rank, geometry clip, and overlaps stay bound to this key — never
+   * inferred from `ags`/`plz`. A Fläche in two Zielregionen is two candidates.
+   */
+  targetRegionGeoKey?: string;
   /** Clipped hit outline (EPSG:4326), when Brain geom ∩ Zielregion is available. */
   geometry?: RegionGeometry | null;
   geometryUnavailableReason?: string | null;
+}
+
+/** Separates `{grain}:{geoKey}` from the Zielregion in set-unique item ids. */
+export const TARGET_REGION_ID_SEPARATOR = "@";
+
+/**
+ * Set-unique candidate id. Same Fläche in two Zielregionen → two ids:
+ * `{grain}:{geoKey}@{targetRegionGeoKey}`.
+ */
+export function areaCandidateId(
+  grain: Grain | string,
+  geoKey: string,
+  targetRegionGeoKey?: string | null,
+): string {
+  const base = `${grain}:${geoKey}`;
+  const region = targetRegionGeoKey?.trim();
+  return region ? `${base}${TARGET_REGION_ID_SEPARATOR}${region}` : base;
+}
+
+export function stampCandidateTargetRegion(
+  candidate: AreaCandidate,
+  targetRegionGeoKey: string,
+): AreaCandidate {
+  const key = targetRegionGeoKey.trim();
+  return {
+    ...candidate,
+    targetRegionGeoKey: key,
+    id: areaCandidateId(candidate.grain, candidate.geoKey, key),
+  };
+}
+
+export type TargetRegionKeySource = "geoKey" | "ags" | "label";
+
+export interface ResolvedTargetRegionKey {
+  key: string;
+  source: TargetRegionKeySource;
+}
+
+/** Trim, collapse whitespace, lowercase — used in `label:{…}` fallback keys. */
+export function normalizeTargetRegionLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+}
+
+/**
+ * Contract key for a Zielregion: `geoKey` → `ags:{ags}` → `label:{normalized label}`.
+ * Always returns a key so the region is never silently dropped.
+ */
+export function resolveTargetRegionKey(
+  region: Pick<AnalysisRegion, "geoKey" | "ags" | "label">,
+): ResolvedTargetRegionKey {
+  const geoKey = region.geoKey?.trim();
+  if (geoKey) return { key: geoKey, source: "geoKey" };
+  const ags = region.ags?.trim();
+  if (ags) return { key: `ags:${ags}`, source: "ags" };
+  return { key: `label:${normalizeTargetRegionLabel(region.label ?? "")}`, source: "label" };
+}
+
+export function targetRegionKeyOf(region: Pick<AnalysisRegion, "geoKey" | "ags" | "label">): string {
+  return resolveTargetRegionKey(region).key;
+}
+
+export interface RecommendationTargetRegionRef {
+  geoKey: string;
+  label: string;
+}
+
+/** Snapshot-order list of keys actually used as `items[].targetRegionGeoKey`. */
+export function targetRegionsFromAnalysis(
+  regions: Array<Pick<AnalysisRegion, "geoKey" | "ags" | "label">>,
+): RecommendationTargetRegionRef[] {
+  return regions.map((region) => ({
+    geoKey: targetRegionKeyOf(region),
+    label: region.label,
+  }));
 }
 
 export interface AreaCandidateSqlRow {

@@ -37,6 +37,9 @@ import {
   overlapJoinSql,
   overlapShareSql,
   teilCatalogQuery,
+  resolveTargetRegionKey,
+  targetRegionKeyOf,
+  normalizeTargetRegionLabel,
 } from "./area-candidates";
 
 function region(overrides: Partial<AnalysisRegion> = {}): AnalysisRegion {
@@ -574,5 +577,29 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
     expect(overlapShareSql("h.geom", "b.geom")).toContain("ST_Covers");
     expect(overlapShareSql("h.geom", "b.geom")).toContain("ST_Dimension");
     expect(overlapJoinSql("h.geom", "b.geom")).toContain("ST_Covers");
+  });
+});
+
+describe("targetRegionKeyOf", () => {
+  it("uses geoKey when present", () => {
+    expect(resolveTargetRegionKey(region({ geoKey: "ortsteil:osm:1", ags: "11000000", label: "Lichterfelde" }))).toEqual({
+      key: "ortsteil:osm:1",
+      source: "geoKey",
+    });
+  });
+
+  it("falls back to ags:{ags} and label:{normalized} in that order", () => {
+    expect(resolveTargetRegionKey(region({ geoKey: null, ags: "05315000", label: "Innenstadt" }))).toEqual({
+      key: "ags:05315000",
+      source: "ags",
+    });
+    expect(resolveTargetRegionKey(region({ geoKey: "  ", ags: null, label: "  Steglitz  West  " }))).toEqual({
+      key: "label:steglitz west",
+      source: "label",
+    });
+    expect(normalizeTargetRegionLabel("  Tempelhof  ")).toBe("tempelhof");
+    expect(targetRegionKeyOf(region({ geoKey: null, ags: null, label: "Köln Innenstadt" }))).toBe(
+      "label:köln innenstadt",
+    );
   });
 });
