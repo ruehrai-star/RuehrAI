@@ -305,39 +305,12 @@ export class StoreSurroundingsService {
     if (stores.length === 0) return [];
     const rows: GeoKeyRow[] = [];
     for (const store of stores) {
-      const found = await this.readCatalog<GeoKeyRow>(
-        `SELECT geo_key::text AS geo_key,
-                NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
-           FROM features.location_feature_docs
-          WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
-            AND geo_key LIKE 'lor:plr:%'
-            AND lon IS NOT NULL AND lat IS NOT NULL
-          ORDER BY ST_Distance(
-            ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
-            ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
-          )
-          LIMIT 1`,
-        [store.lon, store.lat],
-      );
+      const found = await this.readCatalog<GeoKeyRow>(NEAREST_LOR_PLR_SQL, [store.lon, store.lat]);
       if (found.length > 0) {
         rows.push(...found);
         continue;
       }
-      const legacy = await this.readCatalog<GeoKeyRow>(
-        `SELECT geo_key::text AS geo_key,
-                NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
-           FROM features.location_feature_docs
-          WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
-            AND geo_key LIKE 'lor:%'
-            AND geo_key NOT LIKE 'lor:plr:%'
-            AND lon IS NOT NULL AND lat IS NOT NULL
-          ORDER BY ST_Distance(
-            ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
-            ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
-          )
-          LIMIT 1`,
-        [store.lon, store.lat],
-      );
+      const legacy = await this.readCatalog<GeoKeyRow>(NEAREST_LOR_LEGACY_SQL, [store.lon, store.lat]);
       rows.push(...legacy);
     }
     return rows;
@@ -527,3 +500,40 @@ function isUndefinedColumn(error: unknown): boolean {
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
 }
+
+/**
+ * Nearest 2021 Berlin Planungsraum (`lor:plr:*`) by feature-doc lon/lat.
+ * `$1` lon, `$2` lat. Read-only.
+ */
+export const NEAREST_LOR_PLR_SQL = `
+  SELECT geo_key::text AS geo_key,
+         NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
+    FROM features.location_feature_docs
+   WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
+     AND geo_key LIKE 'lor:plr:%'
+     AND lon IS NOT NULL AND lat IS NOT NULL
+   ORDER BY ST_Distance(
+     ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
+     ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
+   )
+   LIMIT 1
+`;
+
+/**
+ * Fallback 2006 LOR (`lor:{RAUMID}`), never concatenated with PLR.
+ * `$1` lon, `$2` lat. Read-only.
+ */
+export const NEAREST_LOR_LEGACY_SQL = `
+  SELECT geo_key::text AS geo_key,
+         NULLIF(btrim(COALESCE(metadata->>'ags', metadata->>'geo_ags')), '') AS geo_ags
+    FROM features.location_feature_docs
+   WHERE source_theme = 'berlin_lor_ewr_bevoelkerung'
+     AND geo_key LIKE 'lor:%'
+     AND geo_key NOT LIKE 'lor:plr:%'
+     AND lon IS NOT NULL AND lat IS NOT NULL
+   ORDER BY ST_Distance(
+     ST_SetSRID(ST_MakePoint(lon::float8, lat::float8), 4326)::geography,
+     ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)::geography
+   )
+   LIMIT 1
+`;
