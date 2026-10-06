@@ -1,8 +1,8 @@
 import type { Recommendation, RegionGeometry, StoreLocation, TargetRegion } from "@ruehrai/api-contracts";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { coordinatesOf } from "../api/geo.ts";
-import { isCatalogKey } from "../format.ts";
 import { regionListKey } from "../locations/regions.ts";
+import { hitBadge, hitMapHint, hitName, overlapLageSentence } from "../recommendations/hit-copy.ts";
 
 /**
  * Map model for the Karte page (KAN-48, KAN-50, KAN-51) on OpenAPI 0.5.0.
@@ -79,6 +79,11 @@ export interface HitOutline {
   id: string;
   rank: number;
   title: string;
+  badge: string;
+  /** Same Lage-Satz as the card header; omitted when overlaps are missing. */
+  lage: string | null;
+  /** Rang, Name, Badge, Lage-Satz for hover/tap. */
+  hint: string;
   ariaLabel: string;
   lon: number;
   lat: number;
@@ -140,6 +145,8 @@ export function buildKarte(input: {
 /**
  * Trefferliste map: only `items[].geometry` plus a thin Zielregion frame.
  * Lon/lat and bounds never become a stand-in outline or point.
+ * No extra Bezirk borders and no percent labels on the map itself;
+ * the Lage-Satz lives on the hover/tap hint only.
  */
 export function buildTrefferlisteKarte(input: {
   region: TargetRegion | null;
@@ -179,8 +186,10 @@ export function hitOutlines(items: readonly Recommendation[]): {
   for (const item of items) {
     const geometry = readRegionGeometry(item.geometry);
     if (!geometry) continue;
-    const name = hitDisplayName(item);
+    const name = hitName(item);
     const title = name || "Treffer";
+    const badge = hitBadge(item);
+    const hint = hitMapHint(item);
     features.push({
       type: "Feature",
       id: item.id,
@@ -199,7 +208,10 @@ export function hitOutlines(items: readonly Recommendation[]): {
         id: item.id,
         rank: item.rank,
         title,
-        ariaLabel: name ? `${name}, Rang ${item.rank}` : rankAria(item.rank),
+        badge,
+        lage: overlapLageSentence(item.overlaps),
+        hint,
+        ariaLabel: hint,
         lon: label.lon,
         lat: label.lat,
       });
@@ -449,21 +461,6 @@ function walkCoordinates(coordinates: unknown, visit: (lon: number, lat: number)
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
-}
-
-function hitDisplayName(item: Recommendation): string {
-  return visiblePlaceText(item.name) || visiblePlaceText(item.location.name) || visiblePlaceText(item.title);
-}
-
-function visiblePlaceText(value: string | null | undefined): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed || isCatalogKey(trimmed)) return "";
-  return trimmed;
-}
-
-function rankAria(rank: number): string {
-  return `Rang ${rank}`;
 }
 
 function inLon(value: unknown): value is number {

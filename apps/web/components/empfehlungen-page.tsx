@@ -590,8 +590,9 @@ function TrefferCard({
           {card.badge}
           {card.parentLabel ? ` ${card.parentLabel}` : ""}
         </p>
+        {card.intersection ? <p className="hint">{card.intersection}</p> : null}
+        {card.lage ? <p className="hint treffer-lage">{card.lage}</p> : null}
       </button>
-      {card.intersection ? <p className="hint">{card.intersection}</p> : null}
       {card.trendSummary ? <p className="summary-line">{card.trendSummary}</p> : null}
       <p className="message">{card.rationale}</p>
       {card.geometryHint ? <p className="hint">{card.geometryHint}</p> : null}
@@ -605,6 +606,13 @@ function TrefferCard({
       </ul>
       <details>
         <summary>{RECOMMENDATION_COPY.details}</summary>
+        {card.overlapDetails.length > 0 ? (
+          <ul className="treffer-overlap-details">
+            {card.overlapDetails.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
         <ul className="treffer-details">
           {[...card.criteria, ...card.inherited].map((row) => (
             <li key={`detail-${row.key}`}>

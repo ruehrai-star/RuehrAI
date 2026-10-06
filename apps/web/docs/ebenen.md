@@ -1,14 +1,16 @@
-# Ebenen: Quartier and Planungsraum
+# Ebenen: Badge and name use the same word
 
-The Treffer **badge** is the Ebene. The hit **name** / Backend evidence text is the Flächenart. They are allowed to differ.
+UX Trefferliste v4 (Confluence 31227905). This **replaces** the earlier decision that the Treffer badge always showed Quartier.
 
-| Keys / `kind` / `sourceLevel` | Badge (Ebene) | Flächenart in Backend text |
+| Keys / `kind` | Badge | Name |
 | --- | --- | --- |
-| `lor:plr:…`, `kind: lor`, `sourceLevel: lor` | Quartier | Planungsraum (Berlin LOR) |
-| `lor:…` (other LOR) | Quartier | LOR / Planungsraum as stored |
-| `koeln:sq:…`, `kind: quartier`, `sourceLevel: quartier` | Quartier | Stadtquartier (Köln) |
+| `lor:plr:…`, `kind: lor` (Berlin) | Planungsraum | `name` (last fallback `Planungsraum [amtliche Nummer]`) |
+| `koeln:sq:…`, `kind: quartier` (Köln) | Quartier | `name` (`Quartier [Nummer]` only as a backend fallback) |
+| `grid100` | 100-m-Raster | always `100-m-Rasterzelle` (no cell ID) |
 
-Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendations/model.ts`. Catalog keys are never shown.
+Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendations/model.ts` and `hit-copy.ts`. Catalog keys and cell IDs are never shown.
+
+Lage-Satz from `overlaps` uses only `label` and `share`. It is gated by `SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT` (on: #69 already clips shares to `items[].geometry`).
 
 # Async Analyse polling
 
