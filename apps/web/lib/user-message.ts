@@ -1,10 +1,15 @@
+import type { ErrorResponse } from "@ruehrai/api-contracts";
 import { ApiError, NetworkError } from "./api/types.ts";
 import { LOGIN_EXPIRED_COPY } from "./session-storage.ts";
 
 /** OpenAPI `ErrorResponse.code` on POST /analysis/runs for an unknown/foreign mark. */
-export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found";
+export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found" satisfies NonNullable<
+  ErrorResponse["code"]
+>;
 /** OpenAPI 0.19.6 `ErrorResponse.code` on POST /target-region when the catalog has no outline. */
-export const TARGET_REGION_WITHOUT_GEOMETRY_CODE = "TARGET_REGION_WITHOUT_GEOMETRY";
+export const TARGET_REGION_WITHOUT_GEOMETRY_CODE = "TARGET_REGION_WITHOUT_GEOMETRY" satisfies NonNullable<
+  ErrorResponse["code"]
+>;
 
 export const USER_MESSAGE_COPY = {
   invalidInput: "Bitte prüfen Sie Ihre Eingabe.",

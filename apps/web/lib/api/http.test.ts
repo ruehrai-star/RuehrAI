@@ -369,6 +369,32 @@ test("error JSON keeps a backend code on ApiError for UI mapping, not display", 
   });
 });
 
+test("POST /target-region 400 keeps code TARGET_REGION_WITHOUT_GEOMETRY on ApiError", async () => {
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () =>
+      jsonResponse(
+        {
+          statusCode: 400,
+          message:
+            "Region has no map area in the catalog. Supply geometry or bounds, or choose a place whose polygon is in the catalog.",
+          error: "Bad Request",
+          code: "TARGET_REGION_WITHOUT_GEOMETRY",
+        },
+        400,
+      ),
+  });
+  await assert.rejects(
+    api.addTargetRegion({ label: "Innenstadt", grain: "ags", geoKey: "05315000" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "TARGET_REGION_WITHOUT_GEOMETRY");
+      return true;
+    },
+  );
+});
+
 test("POST /auth/logout revokes the bearer token and accepts an empty body", async () => {
   const seen: { url?: string; method?: string; authorization?: string | null } = {};
   const api = createHttpApi({
