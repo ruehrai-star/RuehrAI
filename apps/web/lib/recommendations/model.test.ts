@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import type { Recommendation, RecommendationSet } from "../api/types.ts";
+import type { Recommendation, RecommendationOverlap, RecommendationSet } from "../api/types.ts";
 import type { PatternDatasetProfile } from "@ruehrai/api-contracts";
 import {
+  INACTIVE_HIT_COPY,
   RECOMMENDATION_COPY,
   SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT,
   areaKindBadge,
@@ -17,12 +18,14 @@ import {
   hasDrawableGeometry,
   headingForMarkedRegion,
   hitBadge,
+  hitMapHint,
   hitName,
   inheritedLabel,
   intersectionLine,
   isLegacyTargetRegionSet,
   mapDisplayName,
   overlapDetailLines,
+  overlapLageMapHint,
   overlapLageSentence,
   rankLabel,
   recommendationEmptyCopy,
@@ -94,6 +97,11 @@ function item(partial: Partial<Recommendation> & Pick<Recommendation, "id" | "ra
       ...partial.location,
     },
   };
+}
+
+/** UX v6: first overlap is the Zielregion (`isTargetRegion: true`). */
+function asZielregion(overlaps: RecommendationOverlap[]): RecommendationOverlap[] {
+  return overlaps.map((part, index) => (index === 0 ? { ...part, isTargetRegion: true } : part));
 }
 
 const patternDataset: PatternDatasetProfile = {
@@ -964,25 +972,36 @@ test("intersectionOf names the Schnittfläche and ignores title or parts heurist
   assert.equal(JSON.stringify(buildTrefferCard(named, undefined)).includes("ags:1"), false);
 });
 
-test("Lage-Satz from overlaps: one entry or share 1, two, three, four or more, rounding, missing, Details", () => {
+test("Lage-Satz from overlaps: Zielregion first, 100 %, two/three/four, rounding, hide old/missing", () => {
   assert.equal(SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT, true);
-  const one = [
+  const one = asZielregion([
+    { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 1 },
+  ]);
+  const two = asZielregion([
+    { geoKey: "stadtbezirk:a", label: "Altstadt-Lehel", kind: "stadtbezirk", share: 0.624 },
+    { geoKey: "stadtbezirk:b", label: "Ludwigsvorstadt-Isarvorstadt", kind: "stadtbezirk", share: 0.376 },
+  ]);
+  const three = asZielregion([
+    { geoKey: "bezirk:1", label: "Mitte", kind: "bezirk", share: 0.5 },
+    { geoKey: "bezirk:2", label: "Pankow", kind: "bezirk", share: 0.3 },
+    { geoKey: "bezirk:3", label: "Lichtenberg", kind: "bezirk", share: 0.2 },
+  ]);
+  const four = asZielregion([
+    { geoKey: "stadtbezirk:1", label: "Innenstadt", kind: "stadtbezirk", share: 0.4 },
+    { geoKey: "stadtbezirk:2", label: "Lindenthal", kind: "stadtbezirk", share: 0.3 },
+    { geoKey: "stadtbezirk:3", label: "Nippes", kind: "stadtbezirk", share: 0.2 },
+    { geoKey: "stadtbezirk:4", label: "Ehrenfeld", kind: "stadtbezirk", share: 0.1 },
+  ]);
+  const tempelhof = asZielregion([
+    { geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.97 },
+    { geoKey: "ortsteil:osm:lankwitz", label: "Lankwitz", kind: "ortsteil", share: 0.03 },
+  ]);
+  const almostWhole = asZielregion([
+    { geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.999 },
+    { geoKey: "ortsteil:osm:lankwitz", label: "Lankwitz", kind: "ortsteil", share: 0.001 },
+  ]);
+  const oldWithoutFlag = [
     { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk" as const, share: 1 },
-  ];
-  const two = [
-    { geoKey: "stadtbezirk:a", label: "Altstadt-Lehel", kind: "stadtbezirk" as const, share: 0.624 },
-    { geoKey: "stadtbezirk:b", label: "Ludwigsvorstadt-Isarvorstadt", kind: "stadtbezirk" as const, share: 0.376 },
-  ];
-  const three = [
-    { geoKey: "bezirk:1", label: "Mitte", kind: "bezirk" as const, share: 0.5 },
-    { geoKey: "bezirk:2", label: "Pankow", kind: "bezirk" as const, share: 0.3 },
-    { geoKey: "bezirk:3", label: "Lichtenberg", kind: "bezirk" as const, share: 0.2 },
-  ];
-  const four = [
-    { geoKey: "stadtbezirk:1", label: "Innenstadt", kind: "stadtbezirk" as const, share: 0.4 },
-    { geoKey: "stadtbezirk:2", label: "Lindenthal", kind: "stadtbezirk" as const, share: 0.3 },
-    { geoKey: "stadtbezirk:3", label: "Nippes", kind: "stadtbezirk" as const, share: 0.2 },
-    { geoKey: "stadtbezirk:4", label: "Ehrenfeld", kind: "stadtbezirk" as const, share: 0.1 },
   ];
   assert.equal(overlapLageSentence(one), "Liegt in Au-Haidhausen.");
   assert.equal(
@@ -994,25 +1013,36 @@ test("Lage-Satz from overlaps: one entry or share 1, two, three, four or more, r
     overlapLageSentence(four),
     "Liegt zu 40 % in Innenstadt, zu 30 % in Lindenthal, zu 20 % in Nippes und weiteren.",
   );
-  assert.equal(overlapDetailLines([{ geoKey: "x", label: "Rund", kind: "bezirk", share: 0.625 }])[0], "Rund: 63 %");
+  assert.equal(overlapLageSentence(tempelhof), "Liegt zu 97 % in Tempelhof und zu 3 % in Lankwitz.");
+  assert.equal(overlapLageSentence(almostWhole), "Liegt in Tempelhof.");
+  assert.equal(overlapLageMapHint(two), "Liegt in Altstadt-Lehel und Ludwigsvorstadt-Isarvorstadt.");
+  assert.equal(overlapLageMapHint(four), "Liegt in Innenstadt, Lindenthal, Nippes und weiteren.");
+  assert.equal(overlapLageMapHint(almostWhole), "Liegt in Tempelhof.");
+  assert.equal(overlapDetailLines([{ geoKey: "x", label: "Rund", kind: "bezirk", share: 0.625, isTargetRegion: true }])[0], "Rund: 63 %");
   assert.equal(
-    overlapLageSentence([
-      { geoKey: "a", label: "A", kind: "bezirk", share: 0.625 },
-      { geoKey: "b", label: "B", kind: "bezirk", share: 0.375 },
-    ]),
+    overlapLageSentence(
+      asZielregion([
+        { geoKey: "a", label: "A", kind: "bezirk", share: 0.625 },
+        { geoKey: "b", label: "B", kind: "bezirk", share: 0.375 },
+      ]),
+    ),
     "Liegt zu 63 % in A und zu 38 % in B.",
   );
   assert.equal(overlapLageSentence(undefined), null);
   assert.equal(overlapLageSentence([]), null);
+  assert.equal(overlapLageSentence(oldWithoutFlag), null);
+  assert.equal(overlapLageMapHint(oldWithoutFlag), null);
   const missing = item({ id: "plz5:81541", rank: 1, kind: "plz" });
   const empty = item({ id: "plz5:81542", rank: 1, kind: "plz", overlaps: [] });
   const cardOne = buildTrefferCard(item({ id: "grid100:1", rank: 1, kind: "grid100", name: "100-m-Rasterzelle", overlaps: one, location: { geoKey: "grid100:1", grain: "grid100", lon: null, lat: null, name: "Zelle" } }), undefined);
   const cardFour = buildTrefferCard(item({ id: "plz5:50667", rank: 1, kind: "plz", overlaps: four }), undefined);
   const cardMissing = buildTrefferCard(missing, undefined);
   const cardEmpty = buildTrefferCard(empty, undefined);
+  const cardOld = buildTrefferCard(item({ id: "plz5:81543", rank: 1, kind: "plz", overlaps: oldWithoutFlag }), undefined);
   assert.equal(cardOne.lage, "Liegt in Au-Haidhausen.");
   assert.equal(cardMissing.lage, null);
   assert.equal(cardEmpty.lage, null);
+  assert.equal(cardOld.lage, null);
   assert.deepEqual(cardMissing.overlapDetails, []);
   assert.deepEqual(cardEmpty.overlapDetails, []);
   assert.deepEqual(overlapDetailLines(four), [
@@ -1026,32 +1056,34 @@ test("Lage-Satz from overlaps: one entry or share 1, two, three, four or more, r
   assert.equal(visible.includes("stadtbezirk:"), false);
   assert.equal(visible.includes("geoKey"), false);
   assert.equal(cardOne.name, "100-m-Rasterzelle");
+  assert.equal(hitMapHint(item({ id: "plz5:50667", rank: 1, kind: "plz", name: "PLZ 50667", overlaps: four })).includes("%"), false);
+  assert.equal(hitMapHint(item({ id: "plz5:50667", rank: 1, kind: "plz", name: "PLZ 50667", overlaps: four })).includes("geoKey"), false);
 });
 
 test("overlap labels use the same name mapping as hits", () => {
-  const lorNumbered = [
-    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor" as const, share: 1 },
-  ];
-  const quartierNumbered = [
-    { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier" as const, share: 0.6 },
-    { geoKey: "koeln:sq:12", label: "Belgisches Viertel", kind: "quartier" as const, share: 0.4 },
-  ];
-  const lorKeyed = [
-    { geoKey: "lor:plr:07400823", label: "lor:plr:07400823", kind: "lor" as const, share: 1 },
-  ];
-  const raster = [
+  const lorNumbered = asZielregion([
+    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor", share: 1 },
+  ]);
+  const quartierNumbered = asZielregion([
+    { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.6 },
+    { geoKey: "koeln:sq:12", label: "Belgisches Viertel", kind: "quartier", share: 0.4 },
+  ]);
+  const lorKeyed = asZielregion([
+    { geoKey: "lor:plr:07400823", label: "lor:plr:07400823", kind: "lor", share: 1 },
+  ]);
+  const raster = asZielregion([
     {
       geoKey: "grid100:100mN32700E42100",
       label: "Rasterzelle 100mN32700E42100",
-      kind: "grid100" as const,
+      kind: "grid100",
       share: 1,
     },
-  ];
-  const bezirk = [{ geoKey: "bezirk:11000001", label: "Mitte", kind: "bezirk" as const, share: 1 }];
-  const ortsteil = [
-    { geoKey: "ortsteil:osm:5712247", label: "Ortsteil osm:5712247", kind: "ortsteil" as const, share: 1 },
-  ];
-  const unnamedQuartier = [{ geoKey: "koeln:sq:101", label: "", kind: "quartier" as const, share: 1 }];
+  ]);
+  const bezirk = asZielregion([{ geoKey: "bezirk:11000001", label: "Mitte", kind: "bezirk", share: 1 }]);
+  const ortsteil = asZielregion([
+    { geoKey: "ortsteil:osm:5712247", label: "Ortsteil osm:5712247", kind: "ortsteil", share: 1 },
+  ]);
+  const unnamedQuartier = asZielregion([{ geoKey: "koeln:sq:101", label: "", kind: "quartier", share: 1 }]);
 
   assert.equal(overlapLageSentence(lorNumbered), "Liegt in Planungsraum ohne Namen.");
   assert.equal(overlapDetailLines(lorNumbered)[0], "Planungsraum ohne Namen: 100 %");
@@ -1108,9 +1140,9 @@ test("overlap labels use the same name mapping as hits", () => {
 });
 
 test("a PLZ overlap whose label is only digits is PLZ 12207, not PLZ ohne Namen", () => {
-  const digits = [{ geoKey: "plz5:12207", label: "12207", kind: "plz" as const, share: 1 }];
-  const empty = [{ geoKey: "plz5:12207", label: "", kind: "plz" as const, share: 1 }];
-  const already = [{ geoKey: "plz5:12207", label: "PLZ 12207", kind: "plz" as const, share: 1 }];
+  const digits = asZielregion([{ geoKey: "plz5:12207", label: "12207", kind: "plz", share: 1 }]);
+  const empty = asZielregion([{ geoKey: "plz5:12207", label: "", kind: "plz", share: 1 }]);
+  const already = asZielregion([{ geoKey: "plz5:12207", label: "PLZ 12207", kind: "plz", share: 1 }]);
   assert.equal(overlapLageSentence(digits), "Liegt in PLZ 12207.");
   assert.equal(overlapDetailLines(digits)[0], "PLZ 12207: 100 %");
   assert.equal(overlapLageSentence(empty), "Liegt in PLZ ohne Namen.");
@@ -1273,10 +1305,10 @@ test("a 0.19.2 set runs through v6 name mapping: Planungsraum, no keys, rank 1",
     dataAsOf: "2022-12-31",
     trend: { direction: "up", summary: "Einwohner steigt je 1.000 Einwohner." },
     location: { geoKey: "lor:plr:07400720", grain: "other", lon: null, lat: null, name: "Planungsraum 07400720" },
-    overlaps: [
+    overlaps: asZielregion([
       { geoKey: "plz5:12207", label: "12207", kind: "plz", share: 0.7 },
       { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.3 },
-    ],
+    ]),
   });
   const otherRegion = item({
     id: "ortsteil:osm:2613711",
@@ -1450,10 +1482,11 @@ test("hit card evidence shows Nähe zum Filialmuster bands and never the raw pro
       rank: 1,
       kind: "lor",
       criteriaEvidence: [
+        { ...sampleEvidence, proximity: 0.8 },
         {
-          key: "einwohner",
-          metricId: "einwohner",
-          label: "Einwohner",
+          key: "leerstand",
+          metricId: "leerstand",
+          label: "Leerstand",
           direction: "unknown",
           patternDirection: "up",
           evidence: "liegt nicht vor",
@@ -1489,11 +1522,14 @@ test("hit card evidence shows Nähe zum Filialmuster bands and never the raw pro
   assert.equal(high.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: hoch");
   assert.equal(medium.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: mittel");
   assert.equal(low.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: gering");
-  assert.equal(absent.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: liegt nicht vor");
+  assert.equal(absent.criteria.find((row) => row.key === "leerstand")?.proximityLabel, "Nähe zum Filialmuster: liegt nicht vor");
   assert.equal(zero.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: gering");
   assert.equal(neutral.criteria[0]?.proximityLabel, null);
   assert.equal(inherited.inherited.length, 1);
   assert.equal(inherited.inherited[0]?.proximityLabel, null);
+  assert.equal(high.inactive, false);
+  assert.equal(high.inactiveHint, null);
+  assert.equal(medium.inactive, false);
   const output = [high, medium, low, absent, zero]
     .flatMap((card) => card.criteria.map((row) => row.proximityLabel))
     .join("\n");
@@ -1546,7 +1582,103 @@ test("trendYears 2 shows Trend aus 2 Jahren; two points without the field do not
     kind: "lor",
     criteriaEvidence: [{ ...withField.criteriaEvidence[0]!, trendYears: 3 }],
   });
+  const fromFlag = item({
+    id: "lor:plr:4",
+    rank: 1,
+    kind: "lor",
+    criteriaEvidence: [{ ...withField.criteriaEvidence[0]!, trendYears: undefined, trendFromTwoYears: true }],
+  });
   assert.equal(buildTrefferCard(withField, [patternDataset]).criteria[0]?.twoYearTrendLabel, "Trend aus 2 Jahren");
   assert.equal(buildTrefferCard(withoutField, [patternDataset]).criteria[0]?.twoYearTrendLabel, null);
   assert.equal(buildTrefferCard(threeYears, [patternDataset]).criteria[0]?.twoYearTrendLabel, null);
+  assert.equal(buildTrefferCard(fromFlag, [patternDataset]).criteria[0]?.twoYearTrendLabel, "Trend aus 2 Jahren");
+});
+
+test("nAktiv-0 hit (no own Verlauf) shows one muted card sentence; a normal hit stays unchanged", () => {
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /card\.inactiveHint/);
+  assert.match(page, /treffer-inactive-hint/);
+  assert.match(page, /card\.inactive \? "is-inactive"/);
+  assert.equal((page.match(/treffer-inactive-hint/g) ?? []).length, 1);
+  assert.match(css, /\.rec-card\.is-inactive/);
+  assert.match(css, /border-style:\s*dashed/);
+  assert.doesNotMatch(css, /\.rec-card\.is-inactive[^{]*\{[^}]*opacity/);
+  const inactiveHit = item({
+    id: "lor:plr:inactive",
+    rank: 1,
+    kind: "lor",
+    score: 0,
+    criteriaEvidence: [
+      {
+        key: "kaufkraft",
+        metricId: "kaufkraft",
+        label: "Kaufkraft",
+        direction: "up",
+        patternDirection: "up",
+        evidence: "Kaufkraft vererbt von Gemeinde.",
+        kind: "trend",
+        coverage: "series",
+        scope: "inherited",
+        sourceLevel: "gemeinde",
+        proximity: 0.9,
+      },
+      {
+        key: "flaeche",
+        metricId: "flaeche",
+        label: "Fläche",
+        direction: "unknown",
+        patternDirection: "up",
+        evidence: "Fläche am Stichtag.",
+        kind: "stichtag",
+        coverage: "single",
+        scope: "local",
+        sourceLevel: "lor",
+        normalizedValue: 12,
+      },
+    ],
+  });
+  const inactiveCard = buildTrefferCard(inactiveHit, undefined);
+  assert.equal(inactiveCard.inactive, true);
+  assert.equal(inactiveCard.inactiveHint, INACTIVE_HIT_COPY);
+  assert.equal(
+    inactiveCard.inactiveHint,
+    "Für diese Fläche liegen keine eigenen Verlaufsdaten vor. Die Einordnung beruht auf übergeordneten Werten.",
+  );
+  const proximityLines = [...inactiveCard.criteria, ...inactiveCard.inherited].map((row) => row.proximityLabel);
+  assert.equal(proximityLines.every((label) => label == null), true);
+  const twoYearLines = [...inactiveCard.criteria, ...inactiveCard.inherited].map((row) => row.twoYearTrendLabel);
+  assert.equal(twoYearLines.every((label) => label == null), true);
+  assert.equal(inactiveCard.inactiveHint?.includes("Nähe zum Filialmuster"), false);
+  const normal = buildTrefferCard(
+    item({
+      id: "lor:plr:active",
+      rank: 1,
+      kind: "lor",
+      criteriaEvidence: [
+        {
+          key: "einwohner",
+          metricId: "einwohner",
+          label: "Einwohner",
+          direction: "up",
+          patternDirection: "up",
+          evidence: "Einwohner steigt in den letzten drei Jahren.",
+          kind: "trend",
+          coverage: "series",
+          scope: "local",
+          sourceLevel: "ortsteil",
+          proximity: 0.8,
+          points: [
+            { period: "2023", status: "present", value: 10, normalizedValue: 10 },
+            { period: "2024", status: "present", value: 11, normalizedValue: 11 },
+            { period: "2025", status: "present", value: 12, normalizedValue: 12 },
+          ],
+        },
+      ],
+    }),
+    [patternDataset],
+  );
+  assert.equal(normal.inactive, false);
+  assert.equal(normal.inactiveHint, null);
+  assert.equal(normal.criteria[0]?.proximityLabel, "Nähe zum Filialmuster: hoch");
 });

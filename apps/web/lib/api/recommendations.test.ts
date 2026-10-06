@@ -562,6 +562,35 @@ test("GET /recommendations accepts additive 0.19.4 criteriaEvidence trendYears",
   assert.equal(latest?.items[0]?.criteriaEvidence[0]?.trendYears, 2);
 });
 
+test("GET /recommendations accepts additive 0.19.5 isTargetRegion and trendFromTwoYears", async () => {
+  const withFlags = {
+    ...set,
+    items: [
+      {
+        ...set.items[0],
+        overlaps: [
+          { geoKey: "ortsteil:osm:162894", label: "Tempelhof", kind: "ortsteil", share: 0.97, isTargetRegion: true },
+          { geoKey: "ortsteil:osm:lankwitz", label: "Lankwitz", kind: "ortsteil", share: 0.03 },
+        ],
+        criteriaEvidence: [
+          {
+            ...set.items[0]!.criteriaEvidence[0],
+            trendYears: 2,
+            trendFromTwoYears: true,
+          },
+        ],
+      },
+    ],
+  };
+  const api = createHttpApi({
+    getAccessToken: () => "jwt-1",
+    fetch: async () => json(withFlags),
+  });
+  const latest = await api.getRecommendations();
+  assert.equal(latest?.items[0]?.overlaps?.[0]?.isTargetRegion, true);
+  assert.equal(latest?.items[0]?.criteriaEvidence[0]?.trendFromTwoYears, true);
+});
+
 test("GET /recommendations rejects trendYears below 2", async () => {
   const api = createHttpApi({
     getAccessToken: () => "jwt-1",

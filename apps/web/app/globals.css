@@ -1327,6 +1327,23 @@ input {
   box-shadow: inset 0 0 0 1px var(--clay);
 }
 
+.rec-card.is-inactive {
+  background: #ebe6dc;
+  border-style: dashed;
+  border-color: #8f8678;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.rec-card.is-inactive.is-selected {
+  border-color: var(--ink-soft);
+  box-shadow: inset 0 0 0 1px var(--ink-soft);
+}
+
+.treffer-inactive-hint {
+  margin: 0;
+}
+
 .treffer-criterion {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);

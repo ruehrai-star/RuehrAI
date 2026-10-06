@@ -18,6 +18,7 @@ import { samePlace, type PlaceRef } from "../locations/regions.ts";
 import { itemMatchesMarkedRegion } from "./target-region-key.ts";
 import { standRegionLabel } from "../verlauf/bind.ts";
 import { hitBadge, hitName, overlapDetailLines, overlapLageSentence } from "./hit-copy.ts";
+import { INACTIVE_HIT_COPY, isInactiveHit } from "./inactive-hit.ts";
 import { proximityLabelFromEvidence } from "./proximity.ts";
 import { twoYearTrendLabelFromEvidence } from "./two-year-trend.ts";
 
@@ -29,8 +30,11 @@ export {
   hitName,
   mapDisplayName,
   overlapDetailLines,
+  overlapLageMapHint,
   overlapLageSentence,
 } from "./hit-copy.ts";
+
+export { INACTIVE_HIT_COPY, isInactiveHit } from "./inactive-hit.ts";
 
 /** UX-Gate labels for the Empfehlungen / Trefferliste page (Variante A). */
 export const RECOMMENDATION_COPY = {
@@ -141,9 +145,9 @@ export interface TrefferCriterionRow {
   baselineLabel: string | null;
   levelBadge: string | null;
   methodLabel: string | null;
-  /** German band from `criteriaEvidence[].proximity`, or null when inherited/neutral. */
+  /** German band from `criteriaEvidence[].proximity`, or null when inherited/neutral/inactive. */
   proximityLabel: string | null;
-  /** „Trend aus 2 Jahren“ when official `trendYears` is 2; otherwise null. */
+  /** „Trend aus 2 Jahren“ when official `trendYears` is 2 or `trendFromTwoYears`; otherwise null. */
   twoYearTrendLabel: string | null;
   details: {
     rawValue: string | null;
@@ -169,6 +173,13 @@ export interface TrefferCardView {
   rationale: string;
   criteria: TrefferCriterionRow[];
   inherited: TrefferCriterionRow[];
+  /**
+   * No 0.19.5 item field names nAktiv. True when no `criteriaEvidence`
+   * has own Verlauf (local trend / series).
+   */
+  inactive: boolean;
+  /** Card-level copy for inactive hits; null on a normal hit. */
+  inactiveHint: string | null;
   geometryMissing: boolean;
   geometryHint: string | null;
 }
@@ -418,7 +429,8 @@ export function buildTrefferCard(
   patternByDataset: PatternDatasetProfile[] | undefined,
   marked?: PlaceRef | null,
 ): TrefferCardView {
-  const rows = buildCriterionRows(item, patternByDataset, marked);
+  const inactive = isInactiveHit(item);
+  const rows = buildCriterionRows(item, patternByDataset, marked, inactive);
   const local = rows.filter((row) => !row.inherited);
   const inherited = rows.filter((row) => row.inherited);
   const missingGeometry = !hasDrawableGeometry(item);
@@ -436,6 +448,8 @@ export function buildTrefferCard(
     rationale: visibleRationale(item.rationale),
     criteria: local,
     inherited,
+    inactive,
+    inactiveHint: inactive ? INACTIVE_HIT_COPY : null,
     geometryMissing: missingGeometry,
     geometryHint: missingGeometry ? RECOMMENDATION_COPY.missingGeometry : null,
   };
@@ -494,7 +508,8 @@ export function headingForMarkedRegion(
 function buildCriterionRows(
   item: Recommendation,
   patternByDataset: PatternDatasetProfile[] | undefined,
-  marked?: PlaceRef | null,
+  marked: PlaceRef | null | undefined,
+  inactive: boolean,
 ): TrefferCriterionRow[] {
   const profiles = patternByDataset ?? [];
   const rows: TrefferCriterionRow[] = [];
@@ -506,7 +521,7 @@ function buildCriterionRows(
     const evidence = evidenceForProfile(item.criteriaEvidence, profile);
     if (evidence?.metricId) seen.add(evidence.metricId);
     if (evidence?.key) seen.add(evidence.key);
-    rows.push(toCriterionRow(key, evidence, profile, marked));
+    rows.push(toCriterionRow(key, evidence, profile, marked, inactive));
   }
 
   for (const evidence of item.criteriaEvidence) {
@@ -514,7 +529,7 @@ function buildCriterionRows(
     if (seen.has(key) || seen.has(evidence.key)) continue;
     seen.add(key);
     const profile = profiles.find((row) => evidenceMatchesProfileMetric(evidence, row));
-    rows.push(toCriterionRow(key, evidence, profile, marked));
+    rows.push(toCriterionRow(key, evidence, profile, marked, inactive));
   }
 
   const local = rows.filter((row) => !row.inherited);
@@ -526,7 +541,8 @@ function toCriterionRow(
   key: string,
   evidence: RecommendationEvidence | undefined,
   profile: PatternDatasetProfile | undefined,
-  marked?: PlaceRef | null,
+  marked: PlaceRef | null | undefined,
+  inactive: boolean,
 ): TrefferCriterionRow {
   const coverage = normalizeCoverage(evidence?.coverage, evidence?.kind, profile?.yearlySeries.coverage);
   const inherited = isInherited(evidence, marked);
@@ -565,8 +581,8 @@ function toCriterionRow(
     baselineLabel: baselineLabel(evidence?.baseline ?? profile?.baseline),
     levelBadge: seriesLevelBadge(evidence?.sourceLevel ?? profile?.sourceLevel),
     methodLabel: baselineMethodLabel(evidence?.baselineMethod ?? profile?.baselineMethod ?? profile?.criterion.baselineMethod),
-    proximityLabel: proximityLabelFromEvidence(evidence),
-    twoYearTrendLabel: twoYearTrendLabelFromEvidence(evidence),
+    proximityLabel: inactive ? null : proximityLabelFromEvidence(evidence),
+    twoYearTrendLabel: inactive ? null : twoYearTrendLabelFromEvidence(evidence),
     details: {
       rawValue: evidence?.rawValue != null ? `Rohwert ${formatNumber(evidence.rawValue)}` : null,
       evidence: visibleEvidence(evidence?.evidence ?? profile?.criterion.evidence ?? ""),

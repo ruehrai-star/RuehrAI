@@ -34,6 +34,10 @@ test("Trend aus 2 Jahren uses official trendYears === 2 and never counts points"
   assert.equal(twoYearTrendLabelFromEvidence(twoYearEvidence), "Trend aus 2 Jahren");
   assert.equal(twoYearTrendLabelFromEvidence({ ...twoYearEvidence, trendYears: 3 }), null);
   assert.equal(twoYearTrendLabelFromEvidence({ ...twoYearEvidence, trendYears: undefined }), null);
+  assert.equal(
+    twoYearTrendLabelFromEvidence({ ...twoYearEvidence, trendYears: undefined, trendFromTwoYears: true }),
+    "Trend aus 2 Jahren",
+  );
   assert.equal(twoYearTrendLabelFromEvidence(undefined), null);
   assert.equal(
     twoYearTrendLabelFromEvidence({ ...twoYearEvidence, coverage: "single", kind: "stichtag", trendYears: 2 }),

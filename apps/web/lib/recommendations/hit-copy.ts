@@ -2,15 +2,8 @@ import type { AreaKind, Recommendation, RecommendationOverlap } from "../api/typ
 import { catalogBadge, grainLabel, isCatalogKey } from "../format.ts";
 
 /**
- * Lage-Satz from `overlaps` may only be shown once shares are computed on the
- * hit area clipped to the Zielregion (same geometry as `items[].geometry`).
- *
- * #69 (OpenAPI 0.19.1, squash `9594da9`) already clips:
- * `buildHitOverlapSql` uses `clipToRegionSql` / `$3`, and the contract says
- * `share` = intersection / clipped hit area. Default on.
- *
- * Flip to `false` only if a later #69 revision goes back to the full (unclipped)
- * hit geometry.
+ * Lage-Satz (UX v6 / OpenAPI 0.19.5) uses `overlaps[0].isTargetRegion`.
+ * Older sets without that flag hide the sentence.
  */
 export const SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT = true;
 
@@ -119,51 +112,82 @@ export function hitName(item: Recommendation): string {
 }
 
 export function overlapLageSentence(overlaps: Recommendation["overlaps"] | undefined): string | null {
-  if (!SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT) return null;
-  const entries = visibleOverlaps(overlaps);
-  if (entries.length === 0) return null;
+  const entries = lageOverlapEntries(overlaps);
+  if (!entries) return null;
   const first = entries[0];
   if (!first) return null;
-  if (entries.length === 1 || first.share >= 1) return `Liegt in ${first.label}.`;
-  const percents = entries.map((entry) => ({ label: entry.label, pct: wholePercent(entry.share) }));
-  if (percents.length === 2) {
-    return `Liegt zu ${percents[0]?.pct} % in ${percents[0]?.label} und zu ${percents[1]?.pct} % in ${percents[1]?.label}.`;
+  if (entries.length === 1 || wholePercent(first.share) === 100) return `Liegt in ${first.label}.`;
+  const named = entries.slice(0, 3).map((entry) => ({ label: entry.label, pct: wholePercent(entry.share) }));
+  if (named.length === 2) {
+    return `Liegt zu ${named[0]?.pct} % in ${named[0]?.label} und zu ${named[1]?.pct} % in ${named[1]?.label}.`;
   }
-  if (percents.length === 3) {
-    return `Liegt zu ${percents[0]?.pct} % in ${percents[0]?.label}, zu ${percents[1]?.pct} % in ${percents[1]?.label} und zu ${percents[2]?.pct} % in ${percents[2]?.label}.`;
+  if (named.length === 3 && entries.length === 3) {
+    return `Liegt zu ${named[0]?.pct} % in ${named[0]?.label}, zu ${named[1]?.pct} % in ${named[1]?.label} und zu ${named[2]?.pct} % in ${named[2]?.label}.`;
   }
-  return `Liegt zu ${percents[0]?.pct} % in ${percents[0]?.label}, zu ${percents[1]?.pct} % in ${percents[1]?.label}, zu ${percents[2]?.pct} % in ${percents[2]?.label} und weiteren.`;
+  return `Liegt zu ${named[0]?.pct} % in ${named[0]?.label}, zu ${named[1]?.pct} % in ${named[1]?.label}, zu ${named[2]?.pct} % in ${named[2]?.label} und weiteren.`;
+}
+
+/** Map popup: same places as the Lage-Satz, never percentages. */
+export function overlapLageMapHint(overlaps: Recommendation["overlaps"] | undefined): string | null {
+  const entries = lageOverlapEntries(overlaps);
+  if (!entries) return null;
+  const first = entries[0];
+  if (!first) return null;
+  if (entries.length === 1 || wholePercent(first.share) === 100) return `Liegt in ${first.label}.`;
+  const names = entries.slice(0, 3).map((entry) => entry.label);
+  if (names.length === 2) return `Liegt in ${names[0]} und ${names[1]}.`;
+  if (names.length === 3 && entries.length === 3) return `Liegt in ${names[0]}, ${names[1]} und ${names[2]}.`;
+  return `Liegt in ${names[0]}, ${names[1]}, ${names[2]} und weiteren.`;
 }
 
 /** Full overlap list for Details: `[Name]: [x] %`. Empty when there is no sentence. */
 export function overlapDetailLines(overlaps: Recommendation["overlaps"] | undefined): string[] {
-  if (!SHOW_OVERLAP_LAGE_FROM_CLIPPED_HIT) return [];
-  return visibleOverlaps(overlaps).map((entry) => `${entry.label}: ${wholePercent(entry.share)} %`);
+  const entries = lageOverlapEntries(overlaps);
+  if (!entries) return [];
+  return entries.map((entry) => `${entry.label}: ${wholePercent(entry.share)} %`);
 }
 
-/** Map hover/tap hint: Rang, Name, Badge, same Lage-Satz. No extra percent labels. */
+/** Map hover/tap hint: Rang, Name, Badge, Lage without percentages. */
 export function hitMapHint(item: Recommendation): string {
   const name = hitName(item);
   const badge = hitBadge(item);
-  const lage = overlapLageSentence(item.overlaps);
+  const lage = overlapLageMapHint(item.overlaps);
   return [`Rang ${item.rank}`, name, badge, lage].filter((part): part is string => Boolean(part)).join(", ");
 }
 
 export function visibleOverlaps(overlaps: readonly RecommendationOverlap[] | undefined | null): { label: string; share: number }[] {
-  if (!Array.isArray(overlaps) || overlaps.length === 0) return [];
-  return overlaps
-    .map((part) => {
-      if (typeof part.share !== "number" || !Number.isFinite(part.share)) return null;
-      const label = mapDisplayName({
-        name: typeof part.label === "string" ? part.label : "",
-        kind: part.kind,
-        geoKey: part.geoKey,
-      });
-      if (!label) return null;
-      return { label, share: part.share };
-    })
-    .filter((row): row is { label: string; share: number } => row != null)
-    .sort((left, right) => right.share - left.share);
+  return lageOverlapEntries(overlaps) ?? [];
+}
+
+/**
+ * UX v6: first entry must be the Zielregion (`isTargetRegion: true`).
+ * Keep backend order (Zielregion, then Ortsteile). Never show geoKey.
+ */
+function lageOverlapEntries(
+  overlaps: readonly RecommendationOverlap[] | undefined | null,
+): { label: string; share: number }[] | null {
+  if (!Array.isArray(overlaps) || overlaps.length === 0) return null;
+  const first = overlaps[0];
+  if (!first || first.isTargetRegion !== true) return null;
+  const firstLabel = overlapDisplayLabel(first);
+  if (!firstLabel || typeof first.share !== "number" || !Number.isFinite(first.share)) return null;
+  const entries: { label: string; share: number }[] = [];
+  for (const part of overlaps) {
+    if (typeof part.share !== "number" || !Number.isFinite(part.share)) continue;
+    const label = overlapDisplayLabel(part);
+    if (!label) continue;
+    entries.push({ label, share: part.share });
+  }
+  if (entries.length === 0 || entries[0]?.label !== firstLabel) return null;
+  return entries;
+}
+
+function overlapDisplayLabel(part: RecommendationOverlap): string {
+  return mapDisplayName({
+    name: typeof part.label === "string" ? part.label : "",
+    kind: part.kind,
+    geoKey: part.geoKey,
+  });
 }
 
 export function wholePercent(share: number): number {

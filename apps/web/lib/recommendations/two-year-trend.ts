@@ -8,14 +8,14 @@ export const TWO_YEAR_TREND_LABEL = "Trend aus 2 Jahren";
 
 /**
  * Isolated adapter for the 2-year trend hint on a dataset.
- * Uses official OpenAPI 0.19.4 `RecommendationEvidence.trendYears`.
- * `2` means a two-year trend. Does not count `points`.
+ * Uses official `RecommendationEvidence.trendYears === 2`.
+ * `trendFromTwoYears` is equivalent when present. Does not count `points`.
  */
 export function twoYearTrendLabelFromEvidence(evidence: RecommendationEvidence | undefined): string | null {
   if (!evidence) return null;
   if (evidence.kind === "stichtag" || evidence.kind === "absent") return null;
   if (evidence.coverage === "single" || evidence.coverage === "none") return null;
-  return formatTwoYearTrendLabel(evidence.trendYears === 2);
+  return formatTwoYearTrendLabel(evidence.trendYears === 2 || evidence.trendFromTwoYears === true);
 }
 
 /** Exact UI text. */
