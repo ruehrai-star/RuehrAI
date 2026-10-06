@@ -1142,27 +1142,52 @@ export function municipalityNameQuery(agsKeys: string[]): CandidateQuery {
 /** Share of the hit's area; drop fragments below this (1 %). */
 export const OVERLAP_MIN_SHARE = 0.01;
 
-const OVERLAP_HIT_KINDS = new Set<AreaKind>(["plz", "lor", "quartier", "ortsteil", "stadtteil"]);
+const OVERLAP_HIT_KINDS = new Set<AreaKind>([
+  "plz",
+  "lor",
+  "quartier",
+  "ortsteil",
+  "stadtteil",
+  "grid100",
+  "address",
+]);
 
 export function overlapEligibleKind(kind: AreaKind): boolean {
   return OVERLAP_HIT_KINDS.has(kind);
 }
 
+/** Union of Zielregion outlines as one GeoJSON string, or null. */
+export function regionsGeometryParam(regions: AnalysisRegion[]): string | null {
+  const geoms = regions
+    .map((region) => region.geometry)
+    .filter((geom): geom is RegionGeometry => Boolean(geom));
+  if (geoms.length === 0) return null;
+  if (geoms.length === 1) return JSON.stringify(geoms[0]);
+  return JSON.stringify({ type: "GeometryCollection", geometries: geoms });
+}
+
 /**
  * Batched spatial parents (Stadtbezirk/Bezirk) for every eligible hit.
- * Intersect in 4326, compute area share in 3035. $1 geo_key[]  $2 kind[]
+ * Hit geoms are clipped to the Zielregion (`$3`, same as `items[].geometry`)
+ * before share = intersection / clipped hit area in EPSG:3035.
+ * $1 geo_key[]  $2 kind[]  $3 Zielregion GeoJSON (nullable)
  */
 export function buildHitOverlapSql(): string {
   const plzGeom = geom4326("p");
   const lorGeom = geom4326("l");
   const ortGeom = geom4326("o");
   const bezirkGeom = geom4326("b");
+  const addrGeom = addressGeom4326("a");
+  const clip = clipToRegionSql("r.geom", "g");
   return `
   WITH hits AS (
     SELECT geo_key, kind
       FROM unnest($1::text[], $2::text[]) AS t(geo_key, kind)
   ),
-  hit_geom AS (
+  region_geom AS (
+    SELECT ${regionGeomFromParam("$3")} AS geom
+  ),
+  hit_raw AS (
     SELECT h.geo_key, ${plzGeom} AS geom
       FROM hits h
       JOIN geo.geo_ref_plz p
@@ -1189,6 +1214,45 @@ export function buildHitOverlapSql(): string {
         OR o.geo_ortsteil_id::text = h.geo_key
      WHERE h.kind IN ('ortsteil', 'stadtteil')
        AND ${hasArea("o")}
+
+    UNION ALL
+
+    SELECT grid.geo_key, grid.geom
+      FROM (
+        SELECT DISTINCT ON (h.geo_key)
+          h.geo_key,
+          ST_SetSRID(ST_MakePoint(d.lon::float8, d.lat::float8), 4326) AS geom
+          FROM hits h
+          JOIN features.location_feature_docs d
+            ON d.geo_key = h.geo_key
+           AND d.grain = 'grid100'
+         WHERE h.kind = 'grid100'
+           AND d.lon IS NOT NULL
+           AND d.lat IS NOT NULL
+         ORDER BY h.geo_key ASC, d.ref_period DESC NULLS LAST
+      ) grid
+
+    UNION ALL
+
+    SELECT addr.geo_key, addr.geom
+      FROM (
+        SELECT DISTINCT ON (h.geo_key)
+          h.geo_key,
+          ${addrGeom} AS geom
+          FROM hits h
+          JOIN geo.geo_ref_address a
+            ON a.geo_key::text = h.geo_key
+            OR ('address:' || a.geo_addr_id::text) = h.geo_key
+            OR a.geo_addr_id::text = regexp_replace(h.geo_key, '^address:', '')
+         WHERE h.kind = 'address'
+           AND a.geom_3035 IS NOT NULL
+           AND NOT ST_IsEmpty(a.geom_3035)
+         ORDER BY h.geo_key ASC
+      ) addr
+  ),
+  hit_geom AS (
+    SELECT r.geo_key, ${clip} AS geom
+      FROM hit_raw r, region_geom g
   ),
   shares AS (
     SELECT
@@ -1207,11 +1271,13 @@ export function buildHitOverlapSql(): string {
         / NULLIF(ST_Area(ST_Transform(h.geom, 3035)), 0)
       )::float8 AS share
     FROM hit_geom h
+    CROSS JOIN region_geom g
     JOIN geo.geo_ref_bezirk b
       ON ${hasArea("b")}
      AND NULLIF(btrim(b.name), '') IS NOT NULL
      AND ST_Intersects(h.geom, ${bezirkGeom})
      AND NOT ST_IsEmpty(ST_Intersection(h.geom, ${bezirkGeom}))
+     AND (g.geom IS NULL OR ST_Intersects(${bezirkGeom}, g.geom))
     WHERE h.geom IS NOT NULL
       AND NOT ST_IsEmpty(h.geom)
   )
@@ -1222,12 +1288,24 @@ export function buildHitOverlapSql(): string {
 `;
 }
 
-export function hitOverlapQuery(hits: Array<{ geoKey: string; kind: AreaKind }>): CandidateQuery {
+export function hitOverlapQuery(
+  hits: Array<{ geoKey: string; kind: AreaKind }>,
+  regionGeometry: string | null = null,
+): CandidateQuery {
   const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
   return {
     sql: buildHitOverlapSql(),
-    params: [eligible.map((hit) => hit.geoKey), eligible.map((hit) => hit.kind)],
+    params: [eligible.map((hit) => hit.geoKey), eligible.map((hit) => hit.kind), regionGeometry],
   };
+}
+
+/** Clip hit geom to region_geom CTE `g` — same rule as `items[].geometry`. */
+export function clipToRegionSql(hitGeomExpr: string, regionAlias = "g"): string {
+  return `CASE
+      WHEN ${regionAlias}.geom IS NULL OR ${hitGeomExpr} IS NULL THEN NULL::geometry
+      WHEN ST_IsEmpty(ST_Intersection(${hitGeomExpr}, ${regionAlias}.geom)) THEN NULL::geometry
+      ELSE ST_MakeValid(ST_Intersection(${hitGeomExpr}, ${regionAlias}.geom))
+    END`;
 }
 
 /**

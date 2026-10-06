@@ -1,6 +1,6 @@
 import { AnalysisRegion } from "../analysis/types";
 import { AreaCandidate } from "./area-candidates";
-import { displayAreaName, hitParentLabel, isHiddenCatalogKey, visibleAreaName } from "./hit-display";
+import { displayAreaName, hitParentLabel, isHiddenCatalogKey, nameContainsForbiddenToken, visibleAreaName } from "./hit-display";
 
 function area(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -49,7 +49,7 @@ describe("hit display names", () => {
   it("fills name for every grain including documented fallbacks", () => {
     expect(
       displayAreaName(area({ geoKey: "koeln:sq:101010001", kind: "quartier", name: "koeln:sq:101010001", title: "koeln:sq:101010001", ags: "05315000" })),
-    ).toBe("Quartier 101010001");
+    ).toBe("Quartier ohne Namen");
     expect(
       displayAreaName(
         area({
@@ -80,12 +80,43 @@ describe("hit display names", () => {
     ).toBe("PLZ 80331");
     expect(
       displayAreaName(area({ geoKey: "cell-1", kind: "grid100", grain: "grid100", name: "cell-1", title: "cell-1" })),
-    ).toBe("Rasterzelle cell-1");
+    ).toBe("100-m-Rasterzelle");
     expect(
       displayAreaName(
         area({ geoKey: "address:1", kind: "address", grain: "address", name: "Sendlinger Str. 1", title: "address:1" }),
       ),
     ).toBe("Sendlinger Str. 1");
+    expect(
+      displayAreaName(area({ geoKey: "ortsteil:osm:5712247", kind: "ortsteil", name: "ortsteil:osm:5712247", title: "ortsteil:osm:5712247" })),
+    ).toBe("Ortsteil ohne Namen");
+    expect(
+      displayAreaName(area({ geoKey: "address:geo_addr_99", kind: "address", grain: "address", name: null, title: "address:geo_addr_99" })),
+    ).toBe("Adresse ohne Hausnummer");
+    expect(
+      displayAreaName(area({ geoKey: "plz5:x", kind: "plz", grain: "plz5", name: null, title: "plz5:x", plz: null })),
+    ).toBe("PLZ ohne Namen");
+  });
+
+  it("never puts osm:, id:, address:, geo_addr, INSPIRE/cell ids, or unbekannt in name", () => {
+    const samples: AreaCandidate[] = [
+      area({ geoKey: "ortsteil:osm:5712247", kind: "ortsteil", name: null, title: "osm:5712247" }),
+      area({ geoKey: "ortsteil:id:12", kind: "ortsteil", name: "id:12", title: "id:12" }),
+      area({ geoKey: "address:geo_addr_1", kind: "address", grain: "address", name: "geo_addr_1", title: "Adresse address:geo_addr_1" }),
+      area({ geoKey: "grid100:INSPIRE:100mN3278E4552", kind: "grid100", grain: "grid100", name: "INSPIRE:100mN3278E4552", title: "100mN3278E4552" }),
+      area({ geoKey: "grid100:cell-9", kind: "grid100", grain: "grid100", name: "cell-9" }),
+      area({ geoKey: "plz5:none", kind: "plz", grain: "plz5", name: "unbekannt", plz: null }),
+      area({ geoKey: "koeln:sq:101010001", kind: "quartier", name: "koeln:sq:101010001" }),
+      area({ geoKey: "bezirk:osm:1", kind: "bezirk", name: "bezirk:osm:1" }),
+      area({ geoKey: "lor:plr:07400823", kind: "lor", name: "Wittekindstraße" }),
+      area({ geoKey: "80331", kind: "plz", grain: "plz5", name: "80331", plz: "80331" }),
+      area({ geoKey: "address:1", kind: "address", grain: "address", name: "Sendlinger Str. 1" }),
+    ];
+    for (const sample of samples) {
+      const name = displayAreaName(sample);
+      expect(name.length).toBeGreaterThan(0);
+      expect(nameContainsForbiddenToken(name)).toBe(false);
+      expect(name).not.toMatch(/osm:|\bid:|address:|geo_addr|unbekannt|inspire/i);
+    }
   });
 
   it("uses the Gemeinde as parentLabel, never Allach or a PLZ", () => {

@@ -26,10 +26,16 @@ export type AreaNameSource = Pick<AreaCandidate, "kind" | "grain" | "geoKey" | "
 
 /**
  * Always-filled UI name. Prefers a real catalog / feature name, never a raw
- * catalog key. Fallbacks: `PLZ 80331`, `Planungsraum <code>`, `Quartier <id>`,
- * `Rasterzelle <id>`, Straße + Hausnummer, otherwise a short readable form.
+ * catalog key or internal id (`osm:…`, `id:…`, `address:…`, geo_addr,
+ * INSPIRE / cell ids, "unbekannt"). Fallbacks: `PLZ 80331`,
+ * `Planungsraum <8-digit code>`, `Quartier ohne Namen`, `100-m-Rasterzelle`,
+ * Straße + Hausnummer or `Adresse ohne Hausnummer`, otherwise
+ * `{Art} ohne Namen`.
  */
 export function displayAreaName(candidate: AreaNameSource): string {
+  if (candidate.kind === "grid100" || candidate.grain === "grid100") {
+    return "100-m-Rasterzelle";
+  }
   const preferred = preferredVisibleName(candidate);
   if (preferred) {
     if (candidate.kind === "plz" && BARE_PLZ.test(preferred)) return `PLZ ${preferred}`;
@@ -37,6 +43,11 @@ export function displayAreaName(candidate: AreaNameSource): string {
     if (preferred !== candidate.geoKey.trim() && preferred !== tail) return preferred;
   }
   return fallbackAreaName(candidate);
+}
+
+/** True when a display string still contains a catalog key, geo id, or "unbekannt". */
+export function nameContainsForbiddenToken(value: string): boolean {
+  return looksLikeInternalId(value);
 }
 
 /**
@@ -75,26 +86,30 @@ export function areaGroupKey(item: { geoKey?: string | null; ags?: string | null
 
 function preferredVisibleName(candidate: AreaNameSource): string | null {
   const fromName = visibleAreaName(candidate.name);
-  if (fromName) return fromName;
+  if (fromName && !looksLikeInternalId(fromName)) return fromName;
   if (candidate.kind === "quartier") {
     const fromTitle = parseQuartierTitle(candidate.title);
-    if (fromTitle) return fromTitle;
+    if (fromTitle && !looksLikeInternalId(fromTitle)) return fromTitle;
   }
-  return visibleAreaName(candidate.title);
+  const fromTitle = visibleAreaName(candidate.title);
+  if (fromTitle && !looksLikeInternalId(fromTitle)) return fromTitle;
+  return null;
 }
 
 function fallbackAreaName(candidate: AreaNameSource): string {
   if (candidate.kind === "plz" || candidate.grain === "plz5" || candidate.grain === "plz8") {
-    return `PLZ ${plzDigits(candidate)}`;
+    const digits = plzDigits(candidate);
+    return digits ? `PLZ ${digits}` : unnamedKind("plz");
   }
   if (candidate.kind === "lor" || isLorPlrKey(candidate.geoKey)) {
-    return `Planungsraum ${lorCode(candidate.geoKey)}`;
+    const code = lorCode(candidate.geoKey);
+    return code ? `Planungsraum ${code}` : unnamedKind("lor");
   }
   if (candidate.kind === "quartier" || isKoelnQuartierKey(candidate.geoKey)) {
-    return `Quartier ${quartierId(candidate.geoKey)}`;
+    return unnamedKind("quartier");
   }
   if (candidate.kind === "grid100" || candidate.grain === "grid100") {
-    return `Rasterzelle ${bareCatalogTail(candidate.geoKey)}`;
+    return unnamedKind("grid100");
   }
   if (candidate.kind === "address" || candidate.grain === "address") {
     return addressFallback(candidate);
@@ -112,38 +127,31 @@ function parseQuartierTitle(title: string | null | undefined): string | null {
   return visibleAreaName(stripped);
 }
 
-function plzDigits(candidate: AreaNameSource): string {
+function plzDigits(candidate: AreaNameSource): string | null {
   const fromPlz = candidate.plz?.replace(/\D/g, "") ?? "";
   if (BARE_PLZ.test(fromPlz)) return fromPlz;
   const fromKey = bareCatalogTail(candidate.geoKey).replace(/\D/g, "");
   if (BARE_PLZ.test(fromKey)) return fromKey;
   const fromName = (candidate.name ?? candidate.title ?? "").replace(/\D/g, "");
   if (BARE_PLZ.test(fromName)) return fromName;
-  return bareCatalogTail(candidate.geoKey) || "unbekannt";
+  return null;
 }
 
-function lorCode(geoKey: string): string {
-  const tail = bareCatalogTail(geoKey);
-  return tail.replace(/^plr:/i, "") || geoKey;
-}
-
-function quartierId(geoKey: string): string {
-  return bareCatalogTail(geoKey) || geoKey;
+function lorCode(geoKey: string): string | null {
+  const tail = bareCatalogTail(geoKey).replace(/^plr:/i, "");
+  return /^\d{8}$/.test(tail) ? tail : null;
 }
 
 function addressFallback(candidate: AreaNameSource): string {
   const fromVisible = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
-  if (fromVisible && !isHiddenCatalogKey(fromVisible)) return fromVisible;
-  const tail = bareCatalogTail(candidate.geoKey).replace(/[_+]+/g, " ").trim();
-  return tail || `Adresse ${candidate.geoKey}`;
+  if (fromVisible && isPlausibleDisplayName(fromVisible)) return fromVisible;
+  return unnamedKind("address");
 }
 
 function humanizedKey(geoKey: string, kind: AreaKind): string {
   const tail = bareCatalogTail(geoKey);
-  if (tail && !isHiddenCatalogKey(tail) && !/^(osm|id):\S+/i.test(tail)) {
-    return kindLabel(kind, tail);
-  }
-  return kindLabel(kind, tail || geoKey);
+  if (isPlausibleDisplayName(tail)) return kindLabel(kind, tail);
+  return unnamedKind(kind);
 }
 
 function kindLabel(kind: AreaKind, id: string): string {
@@ -152,7 +160,39 @@ function kindLabel(kind: AreaKind, id: string): string {
   if (kind === "bezirk") return `Bezirk ${id}`;
   if (kind === "stadtbezirk") return `Stadtbezirk ${id}`;
   if (kind === "gemeinde") return `Gemeinde ${id}`;
-  return id;
+  return unnamedKind(kind);
+}
+
+function unnamedKind(kind: AreaKind): string {
+  if (kind === "ortsteil") return "Ortsteil ohne Namen";
+  if (kind === "stadtteil") return "Stadtteil ohne Namen";
+  if (kind === "bezirk") return "Bezirk ohne Namen";
+  if (kind === "stadtbezirk") return "Stadtbezirk ohne Namen";
+  if (kind === "gemeinde") return "Gemeinde ohne Namen";
+  if (kind === "quartier") return "Quartier ohne Namen";
+  if (kind === "plz") return "PLZ ohne Namen";
+  if (kind === "lor") return "Planungsraum ohne Namen";
+  if (kind === "address") return "Adresse ohne Hausnummer";
+  return "100-m-Rasterzelle";
+}
+
+function looksLikeInternalId(value: string): boolean {
+  const text = value.trim();
+  if (!text) return true;
+  if (isHiddenCatalogKey(text)) return true;
+  if (/osm:|\bid:|address:|geo_addr|unbekannt|inspire/i.test(text)) return true;
+  if (/^(?:cell[-_]?|grid)\S*$/i.test(text)) return true;
+  if (/\b\d+m[NS]\d+[EW]\d+/i.test(text)) return true;
+  if (/^\d{6,}$/.test(text)) return true;
+  return false;
+}
+
+function isPlausibleDisplayName(value: string | null | undefined): boolean {
+  const text = value?.trim() ?? "";
+  if (!text || looksLikeInternalId(text)) return false;
+  if (/:/.test(text)) return false;
+  if (/^\d+$/.test(text)) return false;
+  return /[a-zäöüß]/i.test(text);
 }
 
 function bareCatalogTail(geoKey: string | null | undefined): string {

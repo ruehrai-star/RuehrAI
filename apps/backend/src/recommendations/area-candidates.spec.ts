@@ -27,10 +27,12 @@ import {
   lorPlrFeatureCandidateQuery,
   municipalityAgsForRegion,
   municipalityNameQuery,
+  overlapEligibleKind,
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
   skipAddressAndGridForRegion,
+  clipToRegionSql,
   clippedHitGeoJsonSql,
   teilCatalogQuery,
 } from "./area-candidates";
@@ -549,11 +551,21 @@ describe("candidate query arity (SQL $n vs params from loadRegion)", () => {
   it("matches municipality-name and overlap SQL $n to params", () => {
     const names = municipalityNameQuery(["09162000", "11000000"]);
     expect(names.params).toHaveLength(highestSqlPlaceholder(names.sql));
-    const overlaps = hitOverlapQuery([
-      { geoKey: "81541", kind: "plz" },
-      { geoKey: "80331", kind: "plz" },
-    ]);
+    const overlaps = hitOverlapQuery(
+      [
+        { geoKey: "81541", kind: "plz" },
+        { geoKey: "80331", kind: "plz" },
+      ],
+      JSON.stringify({ type: "Polygon", coordinates: [[[11.4, 48.0], [11.7, 48.0], [11.7, 48.3], [11.4, 48.3], [11.4, 48.0]]] }),
+    );
     expect(overlaps.params).toHaveLength(highestSqlPlaceholder(overlaps.sql));
-    expect(highestSqlPlaceholder(overlaps.sql)).toBe(2);
+    expect(highestSqlPlaceholder(overlaps.sql)).toBe(3);
+    expect(overlaps.sql).toContain("region_geom");
+    expect(overlaps.sql).toContain("geo.geo_ref_address");
+    expect(overlaps.sql).toContain("grid100");
+    expect(overlapEligibleKind("grid100")).toBe(true);
+    expect(overlapEligibleKind("address")).toBe(true);
+    expect(clipToRegionSql("hit.geom")).toContain("ST_Intersection");
+    expect(clipToRegionSql("hit.geom")).toContain("g.geom");
   });
 });

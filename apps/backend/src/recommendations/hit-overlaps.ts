@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { AnalysisRegion } from "../analysis/types";
 import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import { AreaKind, isAreaKind } from "./area-candidates";
 import {
@@ -6,6 +7,7 @@ import {
   assertCandidateQueryArity,
   hitOverlapQuery,
   overlapEligibleKind,
+  regionsGeometryParam,
 } from "./area-candidates";
 import { RecommendationOverlap } from "./types";
 
@@ -61,10 +63,14 @@ export async function attachHitOverlaps<T extends OverlapHost>(
     queryAnalysisFeatures?: DatabaseService["queryAnalysisFeatures"];
   },
   hits: T[],
+  regions: AnalysisRegion[] = [],
 ): Promise<T[]> {
   const eligible = hits.filter((hit) => overlapEligibleKind(hit.kind));
   if (eligible.length === 0) return hits;
-  const query = hitOverlapQuery(eligible.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })));
+  const query = hitOverlapQuery(
+    eligible.map((hit) => ({ geoKey: hit.location.geoKey, kind: hit.kind })),
+    regionsGeometryParam(regions),
+  );
   if ((query.params[0] as string[]).length === 0) return hits;
   try {
     assertCandidateQueryArity(query);

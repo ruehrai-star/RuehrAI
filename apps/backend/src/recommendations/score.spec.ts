@@ -507,7 +507,7 @@ describe("rankTeilflaechen", () => {
       [trendUp],
     );
     expect(ranked.every((item) => typeof item.name === "string" && item.name.length > 0)).toBe(true);
-    expect(ranked.find((item) => item.kind === "quartier")?.name).toBe("Quartier 101010001");
+    expect(ranked.find((item) => item.kind === "quartier")?.name).toBe("Quartier ohne Namen");
     expect(ranked.find((item) => item.kind === "quartier")?.name).not.toContain("koeln:sq:");
     expect(ranked.find((item) => item.kind === "lor")?.name).toBe("Wittekindstraße");
     expect(ranked.find((item) => item.kind === "plz")?.name).toBe("PLZ 80331");

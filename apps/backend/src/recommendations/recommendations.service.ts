@@ -117,7 +117,7 @@ export class RecommendationsService {
     const ranked = reattachGeometry(rankedJob.ranked, capped.selected);
     throwIfAborted(signal);
     await yieldEventLoop();
-    const withOverlaps = await attachHitOverlaps(this.db, ranked);
+    const withOverlaps = await attachHitOverlaps(this.db, ranked, regions);
     throwIfAborted(signal);
     await yieldEventLoop();
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));

@@ -1542,11 +1542,15 @@ export interface components {
             /**
              * @description Display name of this hit. Always set on new sets (0.19.1).
              *     Never a catalog key (`plz5:…`, `ortsteil:osm:…`, `koeln:sq:…`,
-             *     `lor:plr:…`). Prefer the catalog / feature name. Fallbacks:
-             *     PLZ → `PLZ 80331`; LOR → catalog name or `Planungsraum <code>`;
-             *     Köln-Quartier → feature title or `Quartier <id>`; Raster →
-             *     `Rasterzelle <id>`; Adresse → Straße + Hausnummer; otherwise
-             *     a short readable form. Never `0` and never the raw geoKey.
+             *     `lor:plr:…`), never `osm:`, `id:`, `address:`, `geo_addr`,
+             *     an INSPIRE / cell id, or the word unbekannt. Prefer the
+             *     catalog / feature name. Fallbacks: PLZ → `PLZ 80331` or
+             *     `PLZ ohne Namen`; LOR → catalog name or `Planungsraum`
+             *     plus the eight-digit PLR code; Köln-Quartier → feature
+             *     title or `Quartier ohne Namen`; Raster → `100-m-Rasterzelle`
+             *     (no cell id); Adresse → Straße + Hausnummer or
+             *     `Adresse ohne Hausnummer`; otherwise `{Art} ohne Namen`.
+             *     Never `0` and never the raw geoKey.
              */
             name: string;
             /**
@@ -1570,12 +1574,15 @@ export interface components {
             intersectionOf?: components["schemas"]["RecommendationIntersectionPart"][];
             /**
              * @description Stadtbezirke / Bezirke this hit spatially intersects, with
-             *     `share` = intersection area / hit area (0–1), sorted
-             *     descending. Fragments below 1 % are omitted. Omit the field
-             *     when nothing remains (or when the Brain read failed — the
-             *     run still completes). Required to compute for PLZ; also
-             *     present for other Ebenen that can cross several parents.
-             *     Additive; clients that ignore unknown fields keep working.
+             *     `share` = intersection area / **clipped** hit area (0–1).
+             *     The hit outline is the same Zielregion clip as
+             *     `items[].geometry`. Bezirke outside the Zielregion are
+             *     omitted. Sorted descending. Fragments below 1 % are
+             *     omitted. Omit the field when nothing remains (or when the
+             *     Brain read failed — the run still completes). Computed for
+             *     PLZ, LOR, Ortsteil, Quartier, Raster (`grid100`) and
+             *     Adresse (typically one parent at share 1). Additive;
+             *     clients that ignore unknown fields keep working.
              */
             overlaps?: components["schemas"]["RecommendationOverlap"][];
             location: components["schemas"]["RecommendationLocation"];

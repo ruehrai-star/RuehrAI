@@ -273,6 +273,9 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(recommendation.properties.name.nullable, undefined);
   assert.equal(recommendation.properties.name.type, "string");
   assert.ok(recommendation.properties.name.description.includes("PLZ 80331"));
+  assert.ok(recommendation.properties.name.description.includes("100-m-Rasterzelle"));
+  assert.ok(recommendation.properties.name.description.includes("ohne Namen"));
+  assert.ok(recommendation.properties.name.description.includes("Adresse ohne Hausnummer"));
   assert.ok(recommendation.properties.parentLabel.description.includes("Gemeinde"));
   assert.equal(recommendation.properties.parentLabel.nullable, true);
   assert.equal(recommendation.required.includes("grain"), false);
@@ -292,6 +295,8 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.minimum, 0);
   assert.equal(doc.components.schemas.RecommendationOverlap.properties.share.maximum, 1);
   assert.ok(recommendation.properties.overlaps.description.includes("1 %"));
+  assert.ok(recommendation.properties.overlaps.description.includes("clipped"));
+  assert.ok(recommendation.properties.overlaps.description.includes("grid100"));
   assert.deepEqual(doc.components.schemas.RecommendationIntersectionPart.required, ["geoKey", "grain", "name"]);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.properties.name.nullable, true);
   assert.equal(doc.components.schemas.RecommendationIntersectionPart.required.includes("datasetKey"), false);
