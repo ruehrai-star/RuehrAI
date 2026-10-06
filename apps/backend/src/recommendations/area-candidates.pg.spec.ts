@@ -233,9 +233,16 @@ describePg("PostGIS: Treffer cut to the Zielregion", () => {
     const edge = ["Alt-Lankwitz", "Chamissokiez", "Grazer Platz", "Eisenacher Straße"];
     const names = result.rows.map((row) => row.name);
     expect(names).toEqual(expect.arrayContaining(inner));
-    expect(result.rows).toHaveLength(8);
+    expect(names).toContain("Grenzweg");
+    expect(result.rows).toHaveLength(9);
     for (const label of edge) expect(names).not.toContain(label);
-    expect(result.rows.every((row) => Number(row.target_overlap_share) >= 0.9)).toBe(true);
+    expect(result.rows.every((row) => Number(row.target_overlap_share) >= 0.1)).toBe(true);
+    const innerShares = result.rows.filter((row) => inner.includes(row.name ?? ""));
+    expect(innerShares).toHaveLength(8);
+    expect(innerShares.every((row) => Number(row.target_overlap_share) >= 0.9)).toBe(true);
+    const grenz = result.rows.find((row) => row.name === "Grenzweg");
+    expect(Number(grenz?.target_overlap_share)).toBeGreaterThanOrEqual(0.1);
+    expect(Number(grenz?.target_overlap_share)).toBeLessThan(0.5);
     expect(result.rows[0]?.geometry_geojson).toContain("Polygon");
     await assertRowsIntersectRegion(result.rows, TEMPELHOF.geometry!);
   });
