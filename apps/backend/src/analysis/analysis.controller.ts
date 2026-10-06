@@ -1,8 +1,13 @@
-import { Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AnalysisService } from "./analysis.service";
-import { AnalysisPatternQueryDto, AnalysisRunParamsDto } from "./dto";
+import {
+  AnalysisPatternQueryDto,
+  AnalysisRunParamsDto,
+  CreateAnalysisRunDto,
+  markedTargetRegionFromCreate,
+} from "./dto";
 
 @Controller("analysis")
 export class AnalysisController {
@@ -15,8 +20,12 @@ export class AnalysisController {
 
   @Post("runs")
   @HttpCode(202)
-  createRun(@CurrentUser() user: AuthUser) {
-    return this.analysis.createRun(user.id);
+  createRun(
+    @CurrentUser() user: AuthUser,
+    @Body() body?: CreateAnalysisRunDto,
+    @Query() query?: AnalysisPatternQueryDto,
+  ) {
+    return this.analysis.createRun(user.id, markedTargetRegionFromCreate(body, query));
   }
 
   @Get("pattern")

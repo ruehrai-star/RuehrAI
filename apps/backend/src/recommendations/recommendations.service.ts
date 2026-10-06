@@ -290,15 +290,22 @@ function stripGeometry(candidate: AreaCandidate): AreaCandidate {
   return { ...candidate, geometry: null };
 }
 
-function reattachGeometry<T extends { id: string; geometry?: AreaCandidate["geometry"] }>(
-  ranked: T[],
-  originals: AreaCandidate[],
-): T[] {
+export function reattachGeometry<
+  T extends { id: string; geometry?: AreaCandidate["geometry"]; geometryUnavailableReason?: string | null },
+>(ranked: T[], originals: AreaCandidate[]): T[] {
   const byId = new Map(originals.map((item) => [item.id, item]));
   return ranked.map((item) => {
     const original = byId.get(item.id);
-    if (!original?.geometry) return item;
-    return { ...item, geometry: original.geometry };
+    const geometry = original?.geometry ?? item.geometry ?? null;
+    return {
+      ...item,
+      geometry,
+      geometryUnavailableReason: geometry
+        ? null
+        : item.geometryUnavailableReason ??
+          original?.geometryUnavailableReason ??
+          "Die Fläche kann noch nicht gezeichnet werden.",
+    };
   });
 }
 

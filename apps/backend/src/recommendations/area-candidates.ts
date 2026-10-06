@@ -2,6 +2,7 @@ import { AnalysisRegion } from "../analysis/types";
 import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
 import { catalogLevelFromGeoKey, municipalityAgsFromDisplayName, officialAgsKey } from "../geo/geo-catalog";
+import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
 import { Grain } from "../target-region/dto";
 import { minNumber } from "../common/safe-array";
 
@@ -552,8 +553,10 @@ export function buildGrid100CandidateSql(): string {
     AND d.source_theme = 'breitband_gitter'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND NOT (d.geo_key = ANY($4::text[]))
-    AND (
-      ($2::text IS NOT NULL AND (
+    AND ${pointIntersectOrFallback(
+      "d.lon",
+      "d.lat",
+      `($2::text IS NOT NULL AND (
         d.metadata->>'ags' = $2
         OR d.metadata->>'geo_ags' = $2
         OR d.metadata->>'ags' LIKE $2 || '%'
@@ -562,10 +565,8 @@ export function buildGrid100CandidateSql(): string {
         d.metadata->>'ags' LIKE $3 || '%'
         OR d.metadata->>'geo_ags' LIKE $3 || '%'
         OR d.metadata->>'geo_ags5' = $3
-      ))
-      OR (g.geom IS NOT NULL AND d.lon IS NOT NULL AND d.lat IS NOT NULL
-          AND ST_Intersects(g.geom, ST_SetSRID(ST_MakePoint(d.lon::float8, d.lat::float8), 4326)))
-    )
+      ))`,
+    )}
   ORDER BY d.geo_key ASC
   LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
@@ -606,15 +607,15 @@ export function buildGeoAddressCandidateSql(): string {
   WHERE COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) IS NOT NULL
     AND NOT (COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) = ANY($4::text[]))
     AND a.geom_3035 IS NOT NULL AND NOT ST_IsEmpty(a.geom_3035)
-    AND (
-      ($2::text IS NOT NULL AND (
+    AND ${intersectOrFallback(
+      "a.geom_3035",
+      `($2::text IS NOT NULL AND (
         a.geo_ags::text = $2
         OR a.geo_ags::text LIKE $2 || '%'
       ))
       OR ($3::text IS NOT NULL AND a.geo_ags::text LIKE $3 || '%')
-      OR ($5::text IS NOT NULL AND a.geo_plz5::text = $5)
-      OR (g.geom IS NOT NULL AND ST_Intersects(a.geom_3035, ST_Transform(g.geom, 3035)))
-    )
+      OR ($5::text IS NOT NULL AND a.geo_plz5::text = $5)`,
+    )}
   ORDER BY COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_addr_id::text) ASC
   LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
@@ -647,12 +648,12 @@ export function buildAddressCandidateSql(): string {
   WHERE d.grain = 'address'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND NOT (d.geo_key = ANY($4::text[]))
-    AND (
-      ($2::text IS NOT NULL AND (d.metadata->>'ags' = $2 OR d.metadata->>'geo_ags' = $2))
-      OR ($3::text IS NOT NULL AND (d.metadata->>'ags' LIKE $3 || '%' OR d.metadata->>'geo_ags5' = $3))
-      OR (g.geom IS NOT NULL AND d.lon IS NOT NULL AND d.lat IS NOT NULL
-          AND ST_Intersects(g.geom, ST_SetSRID(ST_MakePoint(d.lon::float8, d.lat::float8), 4326)))
-    )
+    AND ${pointIntersectOrFallback(
+      "d.lon",
+      "d.lat",
+      `($2::text IS NOT NULL AND (d.metadata->>'ags' = $2 OR d.metadata->>'geo_ags' = $2))
+      OR ($3::text IS NOT NULL AND (d.metadata->>'ags' LIKE $3 || '%' OR d.metadata->>'geo_ags5' = $3))`,
+    )}
   ORDER BY d.geo_key ASC
   LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
@@ -812,8 +813,8 @@ export function featureCandidateParams(
   region: AnalysisRegion,
 ): [string | null, string | null, string | null, string[]] {
   const geometry = region.geometry ? JSON.stringify(region.geometry) : null;
-  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
-  const kreis = kreisAgsFrom(region);
+  const ags = lorMunicipalityAgs(region);
+  const kreis = ags ? kreisAgsFrom(region) : null;
   return [geometry, ags, kreis, excludeKeys(region)];
 }
 
@@ -825,22 +826,20 @@ export function geoAddressCandidateParams(
 
 function berlinLorMembershipSql(): string {
   return `
-    AND (
-      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
+    AND ${pointIntersectOrFallback(
+      "d.lon",
+      "d.lat",
+      `($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
         NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '') = ANY($3::text[])
         OR ('bezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
         OR ('stadtbezirk:' || NULLIF(btrim(d.metadata->>'geo_bezirk_id'), '')) = ANY($3::text[])
         OR NULLIF(btrim(d.metadata->>'geo_ags'), '') = ANY($3::text[])
       ))
-      OR ($1::text IS NOT NULL AND (
-        $1 = '11000000'
-        OR $1 LIKE '11000%'
-        OR d.metadata->>'geo_ags' = $1
-        OR d.metadata->>'geo_ags' LIKE $1 || '%'
+      OR ($1::text IS NOT NULL AND $1 IS DISTINCT FROM '11000000' AND (
+        d.metadata->>'geo_ags' = $1
         OR d.metadata->>'geo_bezirk_id' = $1
-        OR d.metadata->>'geo_bezirk_id' LIKE $1 || '%'
-      ))
-    )
+      ))`,
+    )}
   `;
 }
 
@@ -876,22 +875,19 @@ export function buildLorPlrCatalogSql(): string {
   WHERE ${lorPlanungsraumFilter("l")}
     AND NOT (${plrKey} = ANY($2::text[]))
     AND ${hasArea("l")}
-    AND (
-      ($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
+    AND ${intersectOrFallback(
+      geom3035("l"),
+      `($3::text[] IS NOT NULL AND cardinality($3::text[]) > 0 AND (
         NULLIF(btrim(l.geo_bezirk_id::text), '') = ANY($3::text[])
         OR ('bezirk:' || NULLIF(btrim(l.geo_bezirk_id::text), '')) = ANY($3::text[])
         OR ('stadtbezirk:' || NULLIF(btrim(l.geo_bezirk_id::text), '')) = ANY($3::text[])
         OR NULLIF(btrim(l.geo_ags::text), '') = ANY($3::text[])
       ))
-      OR ($1::text IS NOT NULL AND (
-        $1 = '11000000'
-        OR $1 LIKE '11000%'
-        OR l.geo_ags::text = $1
-        OR l.geo_ags::text LIKE $1 || '%'
-      ))
-    )
+      OR ($1::text IS NOT NULL AND $1 IS DISTINCT FROM '11000000' AND (
+        l.geo_ags::text = $1
+      ))`,
+    )}
   ORDER BY ${plrKey} ASC
-  LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
 
@@ -902,9 +898,13 @@ export function buildLorPlrCatalogSql(): string {
  * $1 ags (nullable)
  * $2 exclude geoKey[]
  * $3 bezirk id variants[]
+ * $4 Zielregion GeoJSON (nullable)
  */
 export function buildLorPlrFeatureCandidateSql(): string {
   return `
+  WITH region_geom AS (
+    SELECT ${regionGeomFromParam("$4")} AS geom
+  )
   SELECT DISTINCT ON (d.geo_key)
     d.geo_key::text AS geo_key,
     'other'::text AS grain,
@@ -915,14 +915,13 @@ export function buildLorPlrFeatureCandidateSql(): string {
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
       NULL::text AS geometry_geojson
-  FROM features.location_feature_docs d
+  FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND d.geo_key LIKE 'lor:plr:%'
     AND NOT (d.geo_key = ANY($2::text[]))
     ${berlinLorMembershipSql()}
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
-  LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
 
@@ -933,9 +932,13 @@ export function buildLorPlrFeatureCandidateSql(): string {
  * $1 ags (nullable)
  * $2 exclude geoKey[]
  * $3 bezirk id variants[]
+ * $4 Zielregion GeoJSON (nullable)
  */
 export function buildLorFeatureCandidateSql(): string {
   return `
+  WITH region_geom AS (
+    SELECT ${regionGeomFromParam("$4")} AS geom
+  )
   SELECT DISTINCT ON (d.geo_key)
     d.geo_key::text AS geo_key,
     'other'::text AS grain,
@@ -946,7 +949,7 @@ export function buildLorFeatureCandidateSql(): string {
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
       NULL::text AS geometry_geojson
-  FROM features.location_feature_docs d
+  FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'berlin_lor_ewr_bevoelkerung'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND d.geo_key LIKE 'lor:%'
@@ -955,7 +958,6 @@ export function buildLorFeatureCandidateSql(): string {
     AND NOT (d.geo_key = ANY($2::text[]))
     ${berlinLorMembershipSql()}
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
-  LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
 
@@ -990,18 +992,17 @@ export function buildKoelnQuartierCandidateSql(): string {
     AND d.geo_key LIKE 'koeln:sq:%'
     AND COALESCE(d.metadata->>'placement', '') IS DISTINCT FROM 'parent_fallback'
     AND NOT (d.geo_key = ANY($2::text[]))
-    AND (
-      ($1::text IS NOT NULL AND (
+    AND ${pointIntersectOrFallback(
+      "d.lon",
+      "d.lat",
+      `$1::text IS NOT NULL AND (
         $1 = '05315000'
         OR $1 LIKE '05315%'
         OR d.metadata->>'geo_ags' = $1
         OR d.metadata->>'ags' = $1
-      ))
-      OR (g.geom IS NOT NULL AND d.lon IS NOT NULL AND d.lat IS NOT NULL
-          AND ST_Intersects(g.geom, ST_SetSRID(ST_MakePoint(d.lon::float8, d.lat::float8), 4326)))
-    )
+      )`,
+    )}
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
-  LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
 
@@ -1011,9 +1012,13 @@ export function buildKoelnQuartierCandidateSql(): string {
  *
  * $1 ags (nullable)
  * $2 exclude geoKey[]
+ * $3 Zielregion GeoJSON (nullable)
  */
 export function buildHamburgStadtteilFallbackSql(): string {
   return `
+  WITH region_geom AS (
+    SELECT ${regionGeomFromParam("$3")} AS geom
+  )
   SELECT DISTINCT ON (d.geo_key)
     d.geo_key::text AS geo_key,
     'other'::text AS grain,
@@ -1024,27 +1029,29 @@ export function buildHamburgStadtteilFallbackSql(): string {
     d.lon::float8 AS lon,
     d.lat::float8 AS lat,
       NULL::text AS geometry_geojson
-  FROM features.location_feature_docs d
+  FROM features.location_feature_docs d, region_geom g
   WHERE d.source_theme = 'hamburg_stadtteil_regionalstatistik'
     AND NULLIF(btrim(d.geo_key), '') IS NOT NULL
     AND d.geo_key LIKE 'hamburg_stadtteil:%'
     AND NOT (d.geo_key = ANY($2::text[]))
-    AND $1::text IS NOT NULL
-    AND (
-      $1 = '02000000'
-      OR $1 LIKE '02%'
-      OR d.metadata->>'geo_ags' = $1
-      OR d.metadata->>'ags' = $1
-    )
+    AND ${pointIntersectOrFallback(
+      "d.lon",
+      "d.lat",
+      `$1::text IS NOT NULL AND (
+        $1 = '02000000'
+        OR $1 LIKE '02%'
+        OR d.metadata->>'geo_ags' = $1
+        OR d.metadata->>'ags' = $1
+      )`,
+    )}
   ORDER BY d.geo_key ASC, d.ref_period DESC NULLS LAST
-  LIMIT ${AREA_CANDIDATE_LIMIT}
 `;
 }
 
 export function lorCandidateParams(
   region: AnalysisRegion,
 ): [string | null, string[], string[], string | null] {
-  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
+  const ags = lorMunicipalityAgs(region);
   return [ags, excludeKeys(region), bezirkIdVariants(region), regionGeometryParam(region)];
 }
 
@@ -1052,15 +1059,14 @@ export function regionGeometryParam(region: AnalysisRegion): string | null {
   return region.geometry ? JSON.stringify(region.geometry) : null;
 }
 
-export function hamburgFallbackParams(region: AnalysisRegion): [string | null, string[]] {
-  const ags = municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null;
-  return [ags, excludeKeys(region)];
+export function hamburgFallbackParams(region: AnalysisRegion): [string | null, string[], string | null] {
+  return [lorMunicipalityAgs(region), excludeKeys(region), regionGeometryParam(region)];
 }
 
 export function koelnQuartierCandidateParams(
   region: AnalysisRegion,
 ): [string | null, string[], string | null] {
-  return [municipalityAgsForRegion(region) ?? region.ags?.trim() ?? null, excludeKeys(region), regionGeometryParam(region)];
+  return [lorMunicipalityAgs(region), excludeKeys(region), regionGeometryParam(region)];
 }
 
 export interface CandidateQuery {
@@ -1106,14 +1112,14 @@ export function lorPlrCatalogQuery(region: AnalysisRegion): CandidateQuery {
   return { sql: buildLorPlrCatalogSql(), params: [...lorCandidateParams(region)] };
 }
 
-/** Feature-doc PLR lookup. `$1–$3` only — no clipped-geometry `$4`. */
+/** Feature-doc PLR lookup including clipped-geometry `$4`. */
 export function lorPlrFeatureCandidateQuery(region: AnalysisRegion): CandidateQuery {
-  return { sql: buildLorPlrFeatureCandidateSql(), params: [...lorFeatureCandidateParams(region)] };
+  return { sql: buildLorPlrFeatureCandidateSql(), params: [...lorCandidateParams(region)] };
 }
 
-/** Feature-doc LOR 2006 lookup. `$1–$3` only — no clipped-geometry `$4`. */
+/** Feature-doc LOR 2006 lookup including clipped-geometry `$4`. */
 export function lorFeatureCandidateQuery(region: AnalysisRegion): CandidateQuery {
-  return { sql: buildLorFeatureCandidateSql(), params: [...lorFeatureCandidateParams(region)] };
+  return { sql: buildLorFeatureCandidateSql(), params: [...lorCandidateParams(region)] };
 }
 
 export function koelnQuartierCandidateQuery(region: AnalysisRegion): CandidateQuery {
@@ -1477,6 +1483,65 @@ function regionGeomFromParam(param: string): string {
       ELSE ST_SetSRID(ST_GeomFromGeoJSON(${param}::text), 4326)
     END
   `;
+}
+
+function geom3035(alias: string): string {
+  return `
+    CASE
+      WHEN ${alias}.geom IS NULL OR ST_IsEmpty(${alias}.geom) THEN NULL::geometry
+      WHEN ST_SRID(${alias}.geom) IN (0, 3035) THEN ST_SetSRID(${alias}.geom, 3035)
+      ELSE ST_Transform(${alias}.geom, 3035)
+    END
+  `;
+}
+
+function regionGeom3035(): string {
+  return `CASE WHEN g.geom IS NULL THEN NULL::geometry ELSE ST_Transform(g.geom, 3035) END`;
+}
+
+function pointGeom3035(lonExpr: string, latExpr: string): string {
+  return `ST_Transform(ST_SetSRID(ST_MakePoint(${lonExpr}::float8, ${latExpr}::float8), 4326), 3035)`;
+}
+
+/**
+ * Spatial cut first (EPSG:3035). AGS / Bezirk membership only when the
+ * Zielregion has no stored outline.
+ */
+function intersectOrFallback(hitGeom3035: string, fallbackSql: string): string {
+  return `(
+      (g.geom IS NOT NULL AND ${hitGeom3035} IS NOT NULL
+        AND ST_Intersects(${hitGeom3035}, ${regionGeom3035()}))
+      OR (g.geom IS NULL AND (${fallbackSql}))
+    )`;
+}
+
+function pointIntersectOrFallback(lonExpr: string, latExpr: string, fallbackSql: string): string {
+  return `(
+      (g.geom IS NOT NULL AND ${lonExpr} IS NOT NULL AND ${latExpr} IS NOT NULL
+        AND ST_Intersects(${pointGeom3035(lonExpr, latExpr)}, ${regionGeom3035()}))
+      OR (g.geom IS NULL AND (${fallbackSql}))
+    )`;
+}
+
+/**
+ * Stadt-AGS such as Berlin `11000000` must not load every LOR / address /
+ * raster / Quartier of the city for an Ortsteil / Bezirk / PLZ Zielregion.
+ * Those use ST_Intersects or `geo_ref_zielregion_teil`. Never
+ * `municipalityAgsFromDisplayName(parentLabel)` and never the Ortsteil's
+ * inherited Stadt-AGS as a membership filter.
+ */
+export function lorMunicipalityAgs(region: AnalysisRegion): string | null {
+  const geoKey = region.geoKey?.trim() ?? "";
+  const level = region.level?.trim().toLowerCase() ?? "";
+  const fromKey = catalogLevelFromGeoKey(geoKey);
+  if (fromKey && fromKey !== "gemeinde") return null;
+  if (["ortsteil", "stadtteil", "bezirk", "stadtbezirk", "plz", "lor", "quartier"].includes(level)) {
+    return null;
+  }
+  if (/^(?:lor:|koeln:sq:|quartier:|hamburg_stadtteil:)/i.test(geoKey)) return null;
+  const key = officialAgsKey(geoKey) ?? officialAgsKey(region.ags);
+  if (key && isOfficialBerlinBezirkAgs(canonicalBerlinBezirkAgs(key))) return null;
+  return municipalityAgsFrom(region) ?? officialAgsKey(region.ags);
 }
 
 function regionGeomExpr(): string {

@@ -1,6 +1,6 @@
 import { AnalysisRegion } from "../analysis/types";
 import { AREA_KINDS, AreaCandidate, AreaKind } from "./area-candidates";
-import { displayAreaName, hitParentLabel, isHiddenCatalogKey, nameContainsForbiddenToken, visibleAreaName } from "./hit-display";
+import { displayAreaName, hitParentLabel, isHiddenCatalogKey, nameContainsForbiddenToken, textContainsCatalogKey, visibleAreaName } from "./hit-display";
 
 function area(overrides: Partial<AreaCandidate> & Pick<AreaCandidate, "geoKey" | "kind">): AreaCandidate {
   const grain = overrides.grain ?? (overrides.kind === "plz" ? "plz5" : overrides.kind === "gemeinde" ? "ags" : "other");
@@ -69,6 +69,9 @@ describe("hit display names", () => {
     expect(visibleAreaName("ortsteil:osm:5712247")).toBeNull();
     expect(visibleAreaName("")).toBeNull();
     expect(visibleAreaName(null)).toBeNull();
+    expect(textContainsCatalogKey("lor:plr:01100310")).toBe(true);
+    expect(textContainsCatalogKey("Die Teilfläche lor:plr:01100310 im Vergleich")).toBe(true);
+    expect(textContainsCatalogKey("Lichterfelde-Ost steigt")).toBe(false);
   });
 
   it("fills name for every grain including documented fallbacks", () => {

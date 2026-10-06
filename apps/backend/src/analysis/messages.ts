@@ -16,3 +16,8 @@ export const RUN_FAILED = "Die Analyse ist fehlgeschlagen. Bitte erneut versuche
 
 export const TOO_MANY_TARGET_REGIONS =
   "Die Analyse erlaubt höchstens 200 Zielregionen. Keine Region wird still weggelassen — bitte Regionen entfernen.";
+
+export const MARKED_TARGET_REGION_NOT_FOUND =
+  "Die markierte Zielregion gehört nicht zu diesem Konto.";
+
+export const MARKED_TARGET_REGION_NOT_FOUND_CODE = "marked_target_region_not_found";

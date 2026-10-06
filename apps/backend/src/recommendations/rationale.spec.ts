@@ -4,6 +4,7 @@ import {
   acceptRationales,
   buildHeuristicRationale,
   rationaleIsGrounded,
+  rationaleUserPayload,
 } from "./rationale";
 import { RationaleService } from "./rationale.service";
 import { ScoredLocation } from "./types";
@@ -49,10 +50,46 @@ describe("recommendation rationales", () => {
     const text = buildHeuristicRationale(item());
     expect(text).toContain("Teilfläche");
     expect(text).toContain("Schwabing");
-    expect(text).toContain("ortsteil:osm:1");
+    expect(text).not.toContain("ortsteil:osm:1");
+    expect(text).not.toMatch(/lor:plr:/i);
     expect(text).toContain("Unfälle");
     expect(text).toContain("2023");
     expect(text).toContain("Quelle: Heuristik, ohne Sprachmodell.");
+  });
+
+  it("uses Planungsraum ohne Namen instead of a geoKey", () => {
+    const nameless = item();
+    nameless.kind = "lor";
+    nameless.title = "lor:plr:01100310";
+    nameless.name = "lor:plr:01100310";
+    nameless.location.geoKey = "lor:plr:01100310";
+    nameless.location.name = null;
+    const text = buildHeuristicRationale(nameless);
+    expect(text).toContain("Planungsraum ohne Namen");
+    expect(text).not.toContain("lor:plr:01100310");
+    expect(text).not.toMatch(/\(\s*lor:/);
+  });
+
+  it("does not send geoKey to the model and keeps keys out of heuristic copy", () => {
+    const payload = JSON.parse(rationaleUserPayload(pattern, window, [item()])) as {
+      items: Array<{ id: string; title: string; geoKey?: string }>;
+    };
+    expect(payload.items[0]?.id).toBe("other:ortsteil:osm:1");
+    expect(payload.items[0]?.geoKey).toBeUndefined();
+    expect(payload.items[0]?.title).toBe("Schwabing");
+  });
+
+  it("rejects model text that embeds a catalog key even when the rest is grounded", () => {
+    const withKey =
+      "In Schwabing (lor:plr:01100310) fallen Unfälle im Dreijahresverlauf von 20 auf 8.";
+    expect(rationaleIsGrounded(withKey, item(), window)).toBe(false);
+    expect(
+      acceptRationales(
+        JSON.stringify({ items: [{ id: "other:ortsteil:osm:1", rationale: withKey }] }),
+        [item()],
+        window,
+      ).size,
+    ).toBe(0);
   });
 
   it("accepts model text that stays on the evidence and rejects invented numbers", () => {

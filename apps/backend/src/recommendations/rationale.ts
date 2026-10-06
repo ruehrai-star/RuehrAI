@@ -1,4 +1,5 @@
 import { AnalysisPattern } from "../analysis/types";
+import { displayAreaName, textContainsCatalogKey } from "./hit-display";
 import { RecommendationEvidence, RecommendationWindow, ScoredLocation } from "./types";
 
 const SYSTEM_PROMPT = [
@@ -13,6 +14,7 @@ const SYSTEM_PROMPT = [
   "- Fehlende Werte als 'liegt nicht vor' benennen, niemals 0 erfinden.",
   "- id muss eine der gelieferten ids sein.",
   "- Höchstens die gelieferten Einträge, keine zusätzlichen Flächen.",
+  "- Keine Katalogschlüssel (lor:plr:, ortsteil:, koeln:sq:, plz5:, …) in rationale.",
 ].join("\n");
 
 export function rationaleSystemPrompt(): string {
@@ -38,10 +40,16 @@ export function rationaleUserPayload(
     items: items.map((item) => ({
       id: item.id,
       title: item.title,
-      geoKey: item.location.geoKey,
       grain: item.location.grain,
       score: item.score,
-      criteriaEvidence: item.criteriaEvidence,
+      criteriaEvidence: item.criteriaEvidence.map((entry) => ({
+        key: entry.key,
+        label: entry.label,
+        evidence: entry.evidence,
+        direction: entry.direction,
+        kind: entry.kind,
+        status: entry.status,
+      })),
     })),
   });
 }
@@ -58,7 +66,15 @@ export function buildHeuristicRationale(item: ScoredLocation): string {
     return `${entry.label} (${entry.evidence}${inherited})`;
   });
   const body = parts.length > 0 ? parts.join(" ") : "ohne einzelne Kennzahl";
-  return `Die Teilfläche ${item.title} (${item.location.geoKey}) im Vergleich zum Filialmuster: ${body} Quelle: Heuristik, ohne Sprachmodell.`;
+  const place = displayAreaName({
+    kind: item.kind,
+    grain: item.grain,
+    geoKey: item.location.geoKey,
+    name: item.name,
+    title: item.title,
+    plz: null,
+  });
+  return `Die Teilfläche ${place} im Vergleich zum Filialmuster: ${body} Quelle: Heuristik, ohne Sprachmodell.`;
 }
 
 /**
@@ -97,10 +113,18 @@ export function rationaleIsGrounded(
 ): boolean {
   if (rationale.length < 20) return false;
   if (/heuristik/i.test(rationale)) return false;
+  if (textContainsCatalogKey(rationale)) return false;
   const haystack = rationale.toLowerCase();
   const title = item.title.toLowerCase();
-  const geoKey = item.location.geoKey.toLowerCase();
-  if (!haystack.includes(title) && !haystack.includes(geoKey)) return false;
+  const place = displayAreaName({
+    kind: item.kind,
+    grain: item.grain,
+    geoKey: item.location.geoKey,
+    name: item.name,
+    title: item.title,
+    plz: null,
+  }).toLowerCase();
+  if (!haystack.includes(title) && !haystack.includes(place)) return false;
   if (!mentionsEvidence(haystack, item.criteriaEvidence)) return false;
   const corpus = corpusFor(item, window);
   return numbersIn(rationale).every((token) => numberIsGrounded(token, corpus));
@@ -117,7 +141,6 @@ function mentionsEvidence(haystack: string, evidence: RecommendationEvidence[]):
 function corpusFor(item: ScoredLocation, window: RecommendationWindow): string {
   return [
     item.title,
-    item.location.geoKey,
     item.location.grain,
     item.location.name ?? "",
     window.from,
