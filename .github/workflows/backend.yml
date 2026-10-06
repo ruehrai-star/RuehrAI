@@ -1,28 +1,28 @@
-name: web
+name: backend
 
 on:
   pull_request:
     paths:
-      - "apps/web/**"
+      - "apps/backend/**"
       - "packages/api-contracts/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
-      - ".github/workflows/web.yml"
+      - ".github/workflows/backend.yml"
   push:
     branches:
       - main
     paths:
-      - "apps/web/**"
+      - "apps/backend/**"
       - "packages/api-contracts/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
-      - ".github/workflows/web.yml"
+      - ".github/workflows/backend.yml"
 
 jobs:
   check:
-    name: lint, typecheck, test, build
+    name: "backend: lint, typecheck, test"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,13 +41,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm --filter @ruehrai/web lint
+        run: pnpm --filter @ruehrai/backend run --if-present lint
 
       - name: Typecheck
-        run: pnpm --filter @ruehrai/web typecheck
+        run: pnpm --filter @ruehrai/backend build
 
       - name: Test
-        run: pnpm --filter @ruehrai/web test
+        run: pnpm --filter @ruehrai/backend test
 
-      - name: Build
-        run: pnpm --filter @ruehrai/web build
+      - name: API contracts
+        run: pnpm --filter @ruehrai/api-contracts test

@@ -1,6 +1,5 @@
 name: iOS
 
-# Path-filtered workflows skip backend-only PRs unless this file is in the diff.
 on:
   workflow_dispatch:
   pull_request:
