@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { resolveSignedInEntryHref } from "@/lib/entry";
 import { getLocationApi } from "@/lib/locations/api";
+import { LOGIN_EXPIRED_COPY } from "@/lib/session-storage";
 import { authErrorMessage } from "@/lib/user-message";
 import { useSession } from "./session-provider";
 import { SignedInPanel } from "./signed-in-panel";
 
-export function LoginForm() {
+export function LoginForm({ expired = false }: { expired?: boolean }) {
   const router = useRouter();
   const { session, login } = useSession();
   const [email, setEmail] = useState("");
@@ -45,6 +46,11 @@ export function LoginForm() {
     <>
       <p className="stub-kicker">Konto</p>
       <h1>Anmelden</h1>
+      {expired ? (
+        <p className="message" role="status">
+          {LOGIN_EXPIRED_COPY}
+        </p>
+      ) : null}
       <form className="auth-card" onSubmit={onSubmit}>
         <p className="stub-copy">Mit E-Mail und Passwort anmelden. Danach öffnet sich der Verlauf, ohne Standorte die Eingabe.</p>
         <label htmlFor="login-email">E-Mail</label>

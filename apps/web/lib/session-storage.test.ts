@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parseStoredSession, sessionIsCurrent } from "./session-storage.ts";
+import { parseStoredSession, sessionIsCurrent, LOGIN_EXPIRED_COPY, LOGIN_EXPIRED_HREF } from "./session-storage.ts";
 
 const session = {
   accessToken: "jwt",
@@ -27,7 +27,8 @@ test("the session store is localStorage plus a storage event, not sessionStorage
   assert.match(source, /sessionIsCurrent/);
   assert.match(source, /expiresAt/);
   assert.match(source, /writeStoredSession\(null\)/);
-  assert.match(source, /location\.assign\("\/login"\)/);
+  assert.match(source, /location\.assign\(LOGIN_EXPIRED_HREF\)/);
+  assert.match(source, /queueMicrotask/);
 });
 
 test("a session whose expiresAt is in the past is treated as signed out", () => {
@@ -39,5 +40,11 @@ test("a session whose expiresAt is in the past is treated as signed out", () => 
   const reader = readFileSync(new URL("./session-storage.ts", import.meta.url), "utf8");
   const readFn = reader.slice(reader.indexOf("export function readStoredSession"), reader.indexOf("export function writeStoredSession"));
   assert.match(readFn, /sessionIsCurrent/);
-  assert.match(readFn, /writeStoredSession\(null\)/);
+  assert.match(readFn, /scheduleClearStoredSession/);
+  assert.equal(readFn.includes("writeStoredSession(null)"), false);
+});
+
+test("expired login copy is the PO sentence and the href carries abgelaufen=1", () => {
+  assert.equal(LOGIN_EXPIRED_COPY, "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an.");
+  assert.equal(LOGIN_EXPIRED_HREF, "/login?abgelaufen=1");
 });
