@@ -12,7 +12,7 @@ import type {
 } from "@ruehrai/api-contracts";
 import type { Recommendation, RecommendationSet } from "../api/types.ts";
 import { criterionDirectionLabel, patternSourceLabel } from "../analysis/model.ts";
-import { catalogBadge, catalogParentName, isCatalogKey } from "../format.ts";
+import { catalogBadge, catalogParentName, isCatalogKey, visibleRationale } from "../format.ts";
 import { readRegionGeometry } from "../map/karte.ts";
 import { samePlace, type PlaceRef } from "../locations/regions.ts";
 import { itemMatchesMarkedRegion } from "./target-region-key.ts";
@@ -427,7 +427,7 @@ export function buildTrefferCard(
     overlapDetails: overlapDetailLines(item.overlaps),
     stichtagLabel: stichtagFromDataAsOf(item.dataAsOf),
     trendSummary: trendSummary(item),
-    rationale: item.rationale,
+    rationale: visibleRationale(item.rationale),
     criteria: local,
     inherited,
     geometryMissing: missingGeometry,

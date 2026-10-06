@@ -265,10 +265,12 @@ test("Trefferliste bind is GET-only; start is an explicit button", () => {
   assert.match(empfehlungen, /pollTrefferlisteRun/);
   assert.match(verlauf, /loadRecommendationsForRun/);
   assert.match(verlauf, /createRecommendations/);
-  const afterBind = verlauf.slice(verlauf.indexOf("loadPatternForMarkedRegion"));
+  const afterBind = verlauf.slice(verlauf.indexOf("loadVerlaufPatternForMarkedRegion"));
   const verlaufBind = afterBind.slice(0, afterBind.indexOf("async function onCreate"));
   assert.match(verlaufBind, /loadRecommendationsForRun/);
   assert.equal(verlaufBind.includes("createRecommendations"), false);
+  assert.ok(verlaufBind.indexOf("setBoundKey") < verlaufBind.indexOf("getAnalysisRun"));
+  assert.ok(verlaufBind.indexOf("loadVerlaufPatternForMarkedRegion") < verlaufBind.indexOf("loadRecommendationsForRun"));
   assert.match(empfehlungen, /disabled=\{startLocked\}/);
   assert.match(empfehlungen, /RECOMMENDATION_COPY\.loadFailed/);
   assert.match(empfehlungen, /RunRegionLabel/);

@@ -1389,3 +1389,23 @@ test("pattern yearlySeries links to the criterion by metricId at the same level 
   assert.equal(buildTrefferCard(hit, [otherLevel]).criteria[0]?.patternMissing, true);
   assert.equal(buildTrefferCard(hit, [otherBaseline]).criteria[0]?.patternMissing, true);
 });
+
+test("TrefferCard Begründung strips the heuristic catalog key", () => {
+  const hit = item({
+    id: "lor:plr:01100310",
+    rank: 1,
+    kind: "lor",
+    name: "Alexanderplatzviertel",
+    rationale:
+      "Die Teilfläche Alexanderplatzviertel (lor:plr:01100310) im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.",
+    location: { geoKey: "lor:plr:01100310", grain: "other", lon: null, lat: null, name: "Alexanderplatzviertel" },
+  });
+  const card = buildTrefferCard(hit, undefined);
+  assert.equal(
+    card.rationale,
+    "Die Teilfläche Alexanderplatzviertel im Vergleich zum Filialmuster: Einwohner steigt Quelle: Heuristik, ohne Sprachmodell.",
+  );
+  assert.equal(card.rationale.includes("lor:plr"), false);
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /card\.rationale/);
+});

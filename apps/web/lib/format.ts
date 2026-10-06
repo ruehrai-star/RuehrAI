@@ -121,11 +121,18 @@ export function unnamedPlaceLabel(source: {
   return null;
 }
 
-const CATALOG_KEY =
-  /^(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::\S+)+$/i;
+/** Catalog / fallback prefixes that must never appear in visible copy. */
+const INTERNAL_KEY_PREFIX =
+  "(?:ags5|ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100|grid|raster|label)";
 
-const INTERNAL_KEY_TOKEN =
-  /(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::[^\s,;()]+)+/gi;
+const CATALOG_KEY = new RegExp(`^${INTERNAL_KEY_PREFIX}(?::\\S+)+$`, "i");
+
+const INTERNAL_KEY_TOKEN = new RegExp(`${INTERNAL_KEY_PREFIX}(?::[^\\s,;()]+)+`, "gi");
+
+const PAREN_INTERNAL_KEY = new RegExp(
+  `\\s*[\\(（]\\s*${INTERNAL_KEY_PREFIX}(?::[^\\s,;()]+)+\\s*[\\)）]`,
+  "gi",
+);
 
 const COLON_TRIPLE_ID = /\b[a-z][a-z0-9_]*:[a-z][a-z0-9_]*:\d+\b/gi;
 
@@ -149,7 +156,7 @@ export function isCatalogKey(value: unknown): boolean {
  */
 export function stripInternalKeys(value: string, geoKey?: string | null): string {
   let next = value;
-  next = next.replace(/\s*[\(（]\s*(?:ags|plz5|plz8|bezirk|stadtbezirk|stadtteil|ortsteil|lor:plr|lor|koeln:sq|quartier|hamburg_stadtteil|other|address|grid100)(?::[^\s,;()]+)+\s*[\)）]/gi, "");
+  next = next.replace(PAREN_INTERNAL_KEY, "");
   next = next.replace(INTERNAL_KEY_TOKEN, "");
   next = next.replace(COLON_TRIPLE_ID, "");
   next = next.replace(/\blor:plr:\S+/gi, "");
@@ -159,7 +166,17 @@ export function stripInternalKeys(value: string, geoKey?: string | null): string
   if (tail) {
     next = next.replace(new RegExp(`[\\(（]\\s*${tail}\\s*[\\)）]`), "");
   }
+  next = next.replace(/\s*[\(（]\s*[\)）]/g, "");
   return next.replace(/\s+/g, " ").replace(/^[\s,;:–—-]+|[\s,;:–—-]+$/g, "").trim();
+}
+
+/**
+ * Begründung / rationale: drop parenthesized or bare catalog keys and tidy
+ * leftover spaces. Keeps the surrounding German sentence.
+ */
+export function visibleRationale(value: string | null | undefined, geoKey?: string | null): string {
+  if (typeof value !== "string") return "";
+  return stripInternalKeys(value, geoKey);
 }
 
 export function visiblePlaceText(value: string | null | undefined, geoKey?: string | null): string {

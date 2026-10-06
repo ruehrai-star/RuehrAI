@@ -12,7 +12,15 @@ import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
 import { startedRunIdForRegion } from "@/lib/analysis/started-runs";
-import { formatStandPrefix, loadPatternForMarkedRegion, markedStandRegions, type BoundVerlauf } from "@/lib/verlauf/bind";
+import {
+  formatStandPrefix,
+  loadVerlaufPatternForMarkedRegion,
+  markedStandRegions,
+  runIsForMarkedRegion,
+  VERLAUF_BIND_TIMEOUT_MS,
+  withRunSnapshot,
+  type BoundVerlauf,
+} from "@/lib/verlauf/bind";
 import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
 import {
   POST_STANDORTE_HREF,
@@ -142,13 +150,36 @@ export function VerlaufPage() {
     void (async () => {
       try {
         const startedRunId = current?.geoKey ? startedRunIdForRegion(current.geoKey) : null;
-        const next = await loadPatternForMarkedRegion(analysisApi, current, { startedRunId });
-        const recs = next ? await loadRecommendationsForRun(recommendationApi, next.runId) : null;
+        const next = await loadVerlaufPatternForMarkedRegion(analysisApi, current, {
+          timeoutMs: VERLAUF_BIND_TIMEOUT_MS,
+        });
         if (bindRequest.current !== token) return;
         setBound(next);
-        setRecommendationSet(recs);
         setBoundKey(key);
         setBindFailed(false);
+        if (!next) {
+          setRecommendationSet(null);
+          return;
+        }
+        let snapshot = next;
+        try {
+          const run = await analysisApi.getAnalysisRun(next.runId);
+          if (bindRequest.current !== token) return;
+          if (current && runIsForMarkedRegion(run, current, startedRunId)) {
+            snapshot = withRunSnapshot(next, run);
+            setBound(snapshot);
+          }
+        } catch {
+          if (bindRequest.current !== token) return;
+        }
+        try {
+          const recs = await loadRecommendationsForRun(recommendationApi, snapshot.runId);
+          if (bindRequest.current !== token) return;
+          setRecommendationSet(recs);
+        } catch {
+          if (bindRequest.current !== token) return;
+          setRecommendationSet(null);
+        }
       } catch {
         if (bindRequest.current !== token) return;
         setBound(null);
@@ -271,7 +302,7 @@ export function VerlaufPage() {
         {bindPhase === "failed" ? (
           <div className="verlauf-load-error">
             <p className="message" role="status">
-              {VERLAUF_COPY.loadFailed}
+              {VERLAUF_COPY.bindFailed}
             </p>
             <button type="button" className="button" onClick={() => setBindNonce((value) => value + 1)}>
               {VERLAUF_COPY.retryLoad}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { catalogHitVisibleText, catalogPlaceName, containsInternalKey, unnamedPlaceLabel, visiblePlaceText } from "./format.ts";
+import { catalogHitVisibleText, catalogPlaceName, containsInternalKey, unnamedPlaceLabel, visiblePlaceText, visibleRationale } from "./format.ts";
 import { hitName } from "./recommendations/model.ts";
 import { runRegionEntryLabel } from "./analysis/run-label.ts";
 import type { Recommendation } from "./api/types.ts";
@@ -70,6 +70,9 @@ test("rendered copy for search, Stand, heading, hits, and Musterprofil has no in
     runRegionEntryLabel({ label: "Tempelhof", geoKey: "ortsteil:osm:162894", parentLabel: "Berlin" }),
     hitName(rec({ id: "other:lor:plr:07400823", kind: "lor", name: null, title: "lor:plr:07400823" })),
     hitName(rec({ id: "plz5:10965", kind: "plz", name: "10965", title: "10965", location: { geoKey: "plz5:10965", grain: "plz5", lon: null, lat: null, name: "10965" } })),
+    visibleRationale(
+      "Die Teilfläche Alexanderplatzviertel (lor:plr:01100310) im Vergleich zum Filialmuster: Einwohner steigt.",
+    ),
   ];
   for (const text of sources) {
     assert.equal(containsInternalKey(text), false, text);

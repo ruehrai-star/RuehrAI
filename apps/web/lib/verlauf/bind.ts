@@ -97,11 +97,13 @@ export function runMatchesMarkedRegion(run: Pick<AnalysisRun, "input">, marked: 
  * Variante A: this run belongs to the marked Zielregion.
  * Presence in `input.regions` alone is not enough — POST still snapshots
  * every saved region, so Innenstadt's run would otherwise fill Tempelhof.
+ * Exception: the run the user just started for this mark (`startedRunId`)
+ * when the marked place is on the snapshot (`samePlace` in region/regions).
  */
 export function runIsForMarkedRegion(
   run: Pick<AnalysisRun, "id" | "input">,
   marked: PlaceRef,
-  _startedRunId?: string | null,
+  startedRunId?: string | null,
 ): boolean {
   if (!runMatchesMarkedRegion(run, marked)) return false;
   const listed = regionsFromRunInput(run.input);
@@ -109,7 +111,9 @@ export function runIsForMarkedRegion(
   // Primary `input.region` is the run's Zielregion. Presence in
   // `input.regions` is not enough: POST still snapshots every saved row
   // (newest first), so an Innenstadt run also lists Tempelhof.
-  return Boolean(run.input.region && samePlace(run.input.region, marked));
+  if (run.input.region && samePlace(run.input.region, marked)) return true;
+  const started = typeof startedRunId === "string" ? startedRunId.trim() : "";
+  return Boolean(started && started === run.id.trim());
 }
 
 /** Stand line for the marked region only — never another region's name. */
@@ -178,6 +182,58 @@ export async function loadPatternForMarkedRegion(
   if (!run || !runIsForMarkedRegion(run, marked, options?.startedRunId)) return null;
   const bound = bindPatternToMarkedRegion({ latest, run, marked });
   if (!bound) return null;
+  return withRunSnapshot(bound, run);
+}
+
+/** Leave „wird geladen …“ after this many ms and show the bind-failed empty state. */
+export const VERLAUF_BIND_TIMEOUT_MS = 30_000;
+
+export class VerlaufBindTimeoutError extends Error {
+  readonly name = "VerlaufBindTimeoutError";
+  constructor() {
+    super("verlauf-bind-timeout");
+  }
+}
+
+export function isVerlaufBindTimeout(error: unknown): boolean {
+  return error instanceof VerlaufBindTimeoutError;
+}
+
+export async function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new VerlaufBindTimeoutError()), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Verlauf-first bind: GET `/analysis/pattern?geoKey=` only.
+ * Does not wait for GET run or GET /recommendations. 404 / missing geoKey → null.
+ * Other HTTP errors and `VERLAUF_BIND_TIMEOUT_MS` throw.
+ */
+export async function loadVerlaufPatternForMarkedRegion(
+  api: Pick<RuehrApi, "getAnalysisPattern">,
+  marked: (PlaceRef & { level?: unknown; grain?: unknown; ags?: unknown; parentLabel?: string | null }) | null,
+  options?: { timeoutMs?: number },
+): Promise<BoundVerlauf | null> {
+  const geoKey = patternQueryGeoKey(marked);
+  if (!marked || !geoKey) return null;
+
+  const timeoutMs = options?.timeoutMs ?? VERLAUF_BIND_TIMEOUT_MS;
+  const latest = await raceWithTimeout(api.getAnalysisPattern({ geoKey }), timeoutMs);
+  if (!latest) return null;
+  return bindPatternToMarkedRegion({ latest, marked });
+}
+
+/** Attach `input.regions` from a later GET `/analysis/runs/{id}` without blocking pattern bind. */
+export function withRunSnapshot(bound: BoundVerlauf, run: AnalysisRun | null): BoundVerlauf {
   return withRunRegions(bound, run);
 }
 
