@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
   isMissingFeaturesRelation,
@@ -16,6 +16,7 @@ import {
 } from "./brain-search.sql";
 import { OmlxClient } from "./omlx.client";
 import { roundCountMetricValue } from "./count-metrics";
+import { throwIfAborted } from "./run-abort";
 import {
   AnalysisBrain,
   AnalysisInput,
@@ -63,19 +64,20 @@ export class BrainSearchService {
    * an embedding column the same filters run as SQL.
    * KAN-5 will read the persisted pattern, not this result set, for Top-3.
    */
-  async search(input: AnalysisInput): Promise<AnalysisBrain> {
+  async search(input: AnalysisInput, signal?: AbortSignal): Promise<AnalysisBrain> {
+    throwIfAborted(signal);
     const chosen = await this.resolveRelation();
     if (!chosen) {
       return brainResult("sql", "features_unavailable", []);
     }
 
     const flags = flagsFromColumns(chosen.columns);
-    const vectorAttempt = await this.tryVector(input, chosen.relation, flags);
+    const vectorAttempt = await this.tryVector(input, chosen.relation, flags, signal);
     if (vectorAttempt.facts) {
       return brainResult("vector", null, vectorAttempt.facts);
     }
 
-    const facts = await this.collect(chosen.relation, flags, input, null);
+    const facts = await this.collect(chosen.relation, flags, input, null, signal);
     return brainResult("sql", vectorAttempt.reason, facts);
   }
 
@@ -92,6 +94,7 @@ export class BrainSearchService {
     input: AnalysisInput,
     relation: FeatureRelation,
     flags: FeatureColumnFlags,
+    signal?: AbortSignal,
   ): Promise<{ facts: BrainFact[] | null; reason: VectorUnavailableReason }> {
     const gate = this.omlx.vectorGate();
     if (!flags.embedding) {
@@ -106,7 +109,7 @@ export class BrainSearchService {
     if (!embedded.ok) return { facts: null, reason: embedded.reason };
 
     try {
-      const facts = await this.collect(relation, flags, input, embedded.vector);
+      const facts = await this.collect(relation, flags, input, embedded.vector, signal);
       if (facts.length === 0) {
         return { facts: null, reason: "no_embeddings_in_region" };
       }
@@ -123,6 +126,7 @@ export class BrainSearchService {
     flags: FeatureColumnFlags,
     input: AnalysisInput,
     vector: number[] | null,
+    signal?: AbortSignal,
   ): Promise<BrainFact[]> {
     const useVector = vector !== null;
     const vectorLiteral = vector ? toVectorLiteral(vector) : null;
@@ -130,6 +134,7 @@ export class BrainSearchService {
     const seenFacts = new Set<string>();
     const regionFacts: BrainFact[] = [];
     for (const region of regions) {
+      throwIfAborted(signal);
       const regionParams = [
         region.ags,
         region.plz,
@@ -170,7 +175,7 @@ export class BrainSearchService {
 
   private async read(sql: string, params: unknown[]): Promise<FactRow[]> {
     try {
-      const result = await this.db.queryReadingFeatures<FactRow>(sql, params);
+      const result = await featuresReadQuery(this.db)<FactRow>(sql, params);
       return result.rows;
     } catch (error) {
       if (isMissingFeaturesRelation(error) || isFeaturesAccessDenied(error)) return [];
@@ -180,7 +185,7 @@ export class BrainSearchService {
 
   private async columnSet(relation: FeatureRelation): Promise<ReadonlySet<string> | null> {
     try {
-      const result = await this.db.queryReadingFeatures<{ column_name: string }>(
+      const result = await featuresReadQuery(this.db)<{ column_name: string }>(
         `SELECT column_name
          FROM information_schema.columns
          WHERE table_schema = 'features'

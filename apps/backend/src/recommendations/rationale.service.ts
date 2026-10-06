@@ -21,6 +21,7 @@ export class RationaleService {
     pattern: AnalysisPattern,
     window: RecommendationWindow,
     items: ScoredLocation[],
+    signal?: AbortSignal,
   ): Promise<Omit<RecommendationItem, "rank">[]> {
     const heuristic = items.map((item) => ({
       ...item,
@@ -28,6 +29,7 @@ export class RationaleService {
       source: "heuristic" as const,
     }));
     if (items.length === 0 || !this.omlx.llmEnabled()) return heuristic;
+    if (signal?.aborted) return heuristic;
 
     const completed = await this.omlx.complete(
       rationaleSystemPrompt(),

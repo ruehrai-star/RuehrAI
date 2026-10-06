@@ -6,7 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, analysisTransaction, analysisWriteQuery } from "../database/database.service";
 import { emptyToNull, toCoord, toIso, toRevenue } from "../customer/values";
 import { fillMissingCatalogDisplay } from "../geo/catalog-display";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
@@ -28,6 +28,7 @@ import {
   failureDetailForLog,
   mapAnalysisFailureReason,
 } from "./failure-reason";
+import { interruptedError, throwIfAborted } from "./run-abort";
 import {
   PATTERN_FOR_REGION_NOT_FOUND,
   PATTERN_NOT_FOUND,
@@ -61,7 +62,7 @@ import {
 } from "./types";
 import { asOfFrom } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
-import { RecommendationsService } from "../recommendations/recommendations.service";
+import { RecommendationsService, recommendationPayloadOf } from "../recommendations/recommendations.service";
 
 interface RegionRow {
   label: string;
@@ -125,6 +126,7 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AnalysisService.name);
   private readonly jobs = new Set<Promise<void>>();
   private readonly waiters: Array<() => void> = [];
+  private readonly runControllers = new Map<string, AbortController>();
   private inflight = 0;
   private readonly maxConcurrent = readAnalysisMaxConcurrent();
   private readonly deadlineMs = readAnalysisRunDeadlineMs();
@@ -166,6 +168,9 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.closed = true;
+    for (const controller of this.runControllers.values()) {
+      controller.abort(interruptedError());
+    }
     await this.whenIdle();
   }
 
@@ -284,12 +289,18 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
       await this.markFailed(userId, runId, "interrupted");
       return;
     }
+    const controller = new AbortController();
+    this.runControllers.set(runId, controller);
     const deadlineAt = Date.now() + this.deadlineMs;
+    const remaining = Math.max(1, deadlineAt - Date.now());
+    const timer = setTimeout(() => controller.abort(analysisDeadlineError()), remaining);
+    const unbind = this.db.bindAnalysisAbort?.(controller.signal);
     let phase: AnalysisFailurePhase = "pattern";
     const started = Date.now();
     try {
       await this.markRunning(userId, runId);
       await yieldEventLoop();
+      throwIfAborted(controller.signal);
       const row = await this.loadRunRow(userId, runId);
       if (!row) return;
       const input = row.input;
@@ -297,20 +308,20 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
       const brain = await this.phase(
         "brain",
         runId,
-        () => this.withDeadline(this.brain.search(input), deadlineAt),
+        () => this.withDeadline(this.brain.search(input, controller.signal), deadlineAt, controller.signal),
         { candidateCount: analysisRegions(input).length },
       );
       const derived = await this.phase(
         "pattern",
         runId,
-        () => this.withDeadline(this.patterns.derive(input, brain.facts), deadlineAt),
+        () => this.withDeadline(this.patterns.derive(input, brain.facts), deadlineAt, controller.signal),
       );
       const pattern = await this.phase(
         "yearlySeries",
         runId,
-        () => this.withDeadline(this.attachYearlySeries(derived, input), deadlineAt),
+        () => this.withDeadline(this.attachYearlySeries(derived, input, controller.signal), deadlineAt, controller.signal),
       );
-      await this.db.query(
+      await analysisWriteQuery(this.db)(
         `UPDATE app.analysis_runs
             SET brain = $3::jsonb,
                 pattern = $4::jsonb
@@ -319,15 +330,121 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
             AND status = 'running'`,
         [runId, userId, JSON.stringify(brain), JSON.stringify(pattern)],
       );
+      let setPayload = null as ReturnType<typeof recommendationPayloadOf> | null;
       if (analysisRegions(input).length > 0) {
         phase = "set";
-        await this.phase(
+        const created = await this.phase(
           "recommendations",
           runId,
-          () => this.withDeadline(this.recommendations.create(userId, runId), deadlineAt),
+          () =>
+            this.withDeadline(
+              this.recommendations.create(userId, runId, new Date(), {
+                signal: controller.signal,
+                persist: false,
+                analysisPool: true,
+              }),
+              deadlineAt,
+              controller.signal,
+            ),
         );
+        setPayload = recommendationPayloadOf(created);
       }
-      const finished = await this.db.query<{ started_at: Date | string | null; completed_at: Date | string | null }>(
+      throwIfAborted(controller.signal);
+      await this.finishCompleted(userId, runId, brain, pattern, setPayload);
+      this.logger.log(
+        `Analysis run ${runId} completed in ${Date.now() - started}ms (deadlineMs=${this.deadlineMs})`,
+      );
+    } catch (error) {
+      const reason = mapAnalysisFailureReason(error, phase);
+      this.logger.error(`Analysis run ${runId} failed (${reason}): ${failureDetailForLog(error)}`);
+      await this.db.cancelAnalysisWork?.().catch(() => undefined);
+      await this.markFailed(userId, runId, reason);
+    } finally {
+      clearTimeout(timer);
+      unbind?.();
+      this.runControllers.delete(runId);
+    }
+  }
+
+  private async phase<T>(
+    name: string,
+    runId: string,
+    fn: () => Promise<T>,
+    extra: { candidateCount?: number; cappedCount?: number; docs?: number; chunks?: number; maxSyncMs?: number } = {},
+  ): Promise<T> {
+    const started = Date.now();
+    try {
+      return await fn();
+    } finally {
+      const durationMs = Date.now() - started;
+      const counts =
+        extra.candidateCount != null ? ` candidateCount=${extra.candidateCount}` : "";
+      const capped = extra.cappedCount != null ? ` cappedCount=${extra.cappedCount}` : "";
+      const docs = extra.docs != null ? ` docs=${extra.docs}` : "";
+      const chunks = extra.chunks != null ? ` chunks=${extra.chunks}` : "";
+      const maxSync = extra.maxSyncMs != null ? ` maxSyncMs=${extra.maxSyncMs}` : "";
+      const line = `Analysis run ${runId} phase=${name} durationMs=${durationMs}${counts}${capped}${docs}${chunks}${maxSync}`;
+      if (durationMs >= this.phaseWarnMs) this.logger.warn(line);
+      else this.logger.log(line);
+      await yieldEventLoop();
+    }
+  }
+
+  private async withDeadline<T>(work: Promise<T>, deadlineAt: number, signal?: AbortSignal): Promise<T> {
+    throwIfAborted(signal);
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) throw analysisDeadlineError();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await Promise.race([
+        work,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(analysisDeadlineError()), remaining);
+          signal?.addEventListener(
+            "abort",
+            () => reject(analysisDeadlineError()),
+            { once: true },
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
+  private async finishCompleted(
+    userId: string,
+    runId: string,
+    brain: AnalysisBrain,
+    pattern: AnalysisPattern,
+    setPayload: ReturnType<typeof recommendationPayloadOf> | null,
+  ): Promise<void> {
+    throwIfAborted(this.runControllers.get(runId)?.signal);
+    await analysisTransaction(this.db, async (query) => {
+      if (setPayload) {
+        const inserted = await query(
+          `INSERT INTO app.recommendation_sets (user_id, analysis_run_id, payload)
+           SELECT $1::bigint, $2::bigint, $3::jsonb
+            WHERE EXISTS (
+              SELECT 1
+                FROM app.analysis_runs
+               WHERE id = $2::bigint
+                 AND user_id = $1::bigint
+                 AND status = 'running'
+            )
+           RETURNING id::text AS id`,
+          [userId, runId, JSON.stringify(setPayload)],
+        );
+        if (!inserted.rows[0]) {
+          throw analysisDeadlineError();
+        }
+      }
+      const updated = await query(
         `UPDATE app.analysis_runs
             SET status = 'completed',
                 brain = $3::jsonb,
@@ -340,55 +457,14 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
           RETURNING started_at, completed_at`,
         [runId, userId, JSON.stringify(brain), JSON.stringify(pattern)],
       );
-      this.logger.log(
-        `Analysis run ${runId} completed in ${Date.now() - started}ms (deadlineMs=${this.deadlineMs})`,
-      );
-      void finished;
-    } catch (error) {
-      const reason = mapAnalysisFailureReason(error, phase);
-      this.logger.error(`Analysis run ${runId} failed (${reason}): ${failureDetailForLog(error)}`);
-      await this.markFailed(userId, runId, reason);
-    }
-  }
-
-  private async phase<T>(
-    name: string,
-    runId: string,
-    fn: () => Promise<T>,
-    extra: { candidateCount?: number } = {},
-  ): Promise<T> {
-    const started = Date.now();
-    try {
-      return await fn();
-    } finally {
-      const durationMs = Date.now() - started;
-      const counts =
-        extra.candidateCount != null ? ` candidateCount=${extra.candidateCount}` : "";
-      const line = `Analysis run ${runId} phase=${name} durationMs=${durationMs}${counts}`;
-      if (durationMs >= this.phaseWarnMs) this.logger.warn(line);
-      else this.logger.log(line);
-      await yieldEventLoop();
-    }
-  }
-
-  private async withDeadline<T>(work: Promise<T>, deadlineAt: number): Promise<T> {
-    const remaining = deadlineAt - Date.now();
-    if (remaining <= 0) throw analysisDeadlineError();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        work,
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(() => reject(analysisDeadlineError()), remaining);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+      if (!updated.rows[0]) {
+        throw analysisDeadlineError();
+      }
+    });
   }
 
   private async markRunning(userId: string, runId: string): Promise<void> {
-    await this.db.query(
+    await analysisWriteQuery(this.db)(
       `UPDATE app.analysis_runs
           SET status = 'running',
               started_at = COALESCE(started_at, now())
@@ -400,7 +476,7 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async loadRunRow(userId: string, runId: string): Promise<RunRow | undefined> {
-    const result = await this.db.query<RunRow>(
+    const result = await analysisWriteQuery(this.db)<RunRow>(
       `SELECT id::text AS id, status, input, brain, pattern, created_at,
               started_at, completed_at, failure_reason
        FROM app.analysis_runs
@@ -448,8 +524,12 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
     return result.rows[0];
   }
 
-  private async attachYearlySeries(pattern: AnalysisPattern, input: AnalysisInput): Promise<AnalysisPattern> {
-    const yearlySeries = await this.yearlySeries.build(analysisRegions(input), asOfFrom(input.capturedAt));
+  private async attachYearlySeries(
+    pattern: AnalysisPattern,
+    input: AnalysisInput,
+    signal?: AbortSignal,
+  ): Promise<AnalysisPattern> {
+    const yearlySeries = await this.yearlySeries.build(analysisRegions(input), asOfFrom(input.capturedAt), signal);
     return { ...pattern, yearlySeries };
   }
 
@@ -521,7 +601,7 @@ export class AnalysisService implements OnModuleInit, OnModuleDestroy {
 
   private async markFailed(userId: string, runId: string, reason: AnalysisRunFailureReason): Promise<void> {
     try {
-      await this.db.query(
+      await analysisWriteQuery(this.db)(
         `UPDATE app.analysis_runs
             SET status = 'failed',
                 completed_at = now(),

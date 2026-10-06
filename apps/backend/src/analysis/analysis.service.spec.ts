@@ -143,7 +143,12 @@ describe("AnalysisService", () => {
     expect(search).toHaveBeenCalled();
     expect(derive).toHaveBeenCalled();
     expect(buildSeries).toHaveBeenCalled();
-    expect(createRecommendations).toHaveBeenCalledWith("4", "15");
+    expect(createRecommendations).toHaveBeenCalledWith(
+      "4",
+      "15",
+      expect.any(Date),
+      expect.objectContaining({ persist: false, analysisPool: true, signal: expect.any(AbortSignal) }),
+    );
     expect(query.mock.calls.some((call) => String(call[0]).includes("'running'"))).toBe(true);
     expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(true);
   });
@@ -188,7 +193,12 @@ describe("AnalysisService", () => {
     const queued = await service.createRun("4");
     expect(queued.status).toBe("queued");
     await service.whenIdle();
-    expect(createRecommendations).toHaveBeenCalledWith("4", "15");
+    expect(createRecommendations).toHaveBeenCalledWith(
+      "4",
+      "15",
+      expect.any(Date),
+      expect.objectContaining({ persist: false, analysisPool: true, signal: expect.any(AbortSignal) }),
+    );
     const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
     expect(failed?.[0]).toEqual(expect.stringContaining("'failed'"));
     expect(failed?.[1]?.[2]).toBe("set_save_failed");
@@ -467,7 +477,11 @@ describe("AnalysisService", () => {
     const result = await service.latestPattern("4", "09162000");
     expect(result.pattern.yearlySeries).toEqual([seriesRow("09162000")]);
     expect(result.pattern.criteria).toEqual([]);
-    expect(buildSeries).toHaveBeenCalledWith([expect.objectContaining({ geoKey: "09162000" })], expect.any(Date));
+    expect(buildSeries).toHaveBeenCalledWith(
+      [expect.objectContaining({ geoKey: "09162000" })],
+      expect.any(Date),
+      undefined,
+    );
     expect(buildSeries.mock.calls[0]?.[0]).toHaveLength(1);
   });
 
@@ -608,10 +622,147 @@ describe("AnalysisService", () => {
       await timed.whenIdle();
       const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
       expect(failed?.[1]?.[2]).toBe("timeout");
+      expect(createRecommendations).not.toHaveBeenCalled();
+      expect(query.mock.calls.some((call) => String(call[0]).includes("recommendation_sets"))).toBe(false);
     } finally {
       await timed.whenIdle();
       if (previous === undefined) delete process.env.ANALYSIS_RUN_DEADLINE_MS;
       else process.env.ANALYSIS_RUN_DEADLINE_MS = previous;
+    }
+  });
+
+  it("aborts an in-flight recommendation phase and never stores a set", async () => {
+    const previous = process.env.ANALYSIS_RUN_DEADLINE_MS;
+    process.env.ANALYSIS_RUN_DEADLINE_MS = "40";
+    const afterDeadline = jest.fn();
+    const timed = new AnalysisService(
+      { query } as unknown as DatabaseService,
+      { search } as unknown as BrainSearchService,
+      { derive } as unknown as PatternService,
+      { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
+      { build: buildSeries } as unknown as YearlySeriesService,
+      { create: createRecommendations } as unknown as RecommendationsService,
+    );
+    createRecommendations.mockImplementation(async (_userId: string, _runId: string, _asOf: Date, options?: { signal?: AbortSignal }) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(), 10_000);
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(options.signal?.reason ?? new Error("aborted"));
+          },
+          { once: true },
+        );
+      });
+      afterDeadline();
+      return { id: "should-not-insert" };
+    });
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "42", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "42",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    try {
+      await timed.createRun("4");
+      await timed.whenIdle();
+      const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
+      expect(failed?.[1]?.[2]).toBe("timeout");
+      expect(afterDeadline).not.toHaveBeenCalled();
+      expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT INTO app.recommendation_sets"))).toBe(
+        false,
+      );
+    } finally {
+      await timed.whenIdle();
+      if (previous === undefined) delete process.env.ANALYSIS_RUN_DEADLINE_MS;
+      else process.env.ANALYSIS_RUN_DEADLINE_MS = previous;
+    }
+  });
+
+  it("uses the analysis pool for worker writes and leaves the HTTP query mock for snapshots", async () => {
+    const httpQuery = jest.fn();
+    const analysisQuery = jest.fn();
+    const isolated = new AnalysisService(
+      {
+        query: httpQuery,
+        queryAnalysis: analysisQuery,
+        withAnalysisTransaction: async (fn: (q: typeof analysisQuery) => Promise<unknown>) => fn(analysisQuery),
+      } as unknown as DatabaseService,
+      { search } as unknown as BrainSearchService,
+      { derive } as unknown as PatternService,
+      { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
+      { build: buildSeries } as unknown as YearlySeriesService,
+      { create: createRecommendations } as unknown as RecommendationsService,
+    );
+    const handleSql = async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "50", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs") || text.includes("INSERT INTO app.recommendation_sets")) {
+        return {
+          rows: [
+            {
+              id: "50",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+              started_at: new Date("2026-04-02T00:00:01.000Z"),
+              completed_at: new Date("2026-04-02T00:00:02.000Z"),
+            },
+          ],
+        };
+      }
+      return { rows: [{ started_at: new Date(), completed_at: new Date() }] };
+    };
+    httpQuery.mockImplementation(handleSql);
+    analysisQuery.mockImplementation(handleSql);
+    try {
+      await isolated.createRun("4");
+      await isolated.whenIdle();
+      expect(httpQuery.mock.calls.some((call) => String(call[0]).includes("'queued'"))).toBe(true);
+      expect(analysisQuery.mock.calls.some((call) => String(call[0]).includes("'running'"))).toBe(true);
+      expect(analysisQuery.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(true);
+      expect(httpQuery.mock.calls.some((call) => String(call[0]).includes("'running'"))).toBe(false);
+      expect(httpQuery.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(false);
+    } finally {
+      await isolated.whenIdle();
     }
   });
 });

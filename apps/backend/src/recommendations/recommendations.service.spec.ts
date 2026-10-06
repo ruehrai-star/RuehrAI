@@ -260,6 +260,17 @@ describe("RecommendationsService", () => {
     expect(set.items.every((item) => item.criteriaEvidence.length === 1)).toBe(true);
   });
 
+  it("does not insert a recommendation set when persist is false", async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] });
+    load.mockResolvedValue({ items: [area("ortsteil:osm:1", "Schwabing")], truncated: false });
+    build.mockResolvedValue([]);
+    const set = await service.create("4", "15", asOf, { persist: false, analysisPool: true });
+    expect(set.runId).toBe("15");
+    expect(query.mock.calls.some((call) => String(call[0]).includes("INSERT INTO app.recommendation_sets"))).toBe(
+      false,
+    );
+  });
+
   it("returns an empty list only when no sub-area exists", async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: "15", input: input(), pattern }] })
@@ -301,6 +312,19 @@ describe("RecommendationsService", () => {
     expect(latest.id).toBe("8");
     expect(latest.count).toBe(0);
     expect(String(query.mock.calls.at(-1)?.[0])).toContain("user_id = $1::bigint");
+    expect(String(query.mock.calls.at(-1)?.[0])).toContain("r.status = 'completed'");
+    expect(String(query.mock.calls.at(-1)?.[0])).toContain("analysis_run_id IS NULL");
+  });
+
+  it("never returns a set bound to a failed run as latest", async () => {
+    query.mockResolvedValue({ rows: [] });
+    await expect(service.latest("2")).rejects.toMatchObject({
+      message: RECOMMENDATIONS_NOT_FOUND,
+    });
+    const sql = String(query.mock.calls.at(-1)?.[0]);
+    expect(sql).toContain("LEFT JOIN app.analysis_runs");
+    expect(sql).toContain("r.status = 'completed'");
+    expect(sql).not.toMatch(/status IN \('running',\s*'completed'\)/);
   });
 
   it("reads a stored set by runId and never ranks", async () => {

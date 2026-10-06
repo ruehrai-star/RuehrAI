@@ -9,13 +9,13 @@ import {
 import { officialAgsKey } from "../geo/geo-catalog";
 import { canonicalBerlinBezirkAgs, isOfficialBerlinBezirkAgs } from "../geo/bezirk-ags";
 import { AreaBaselineService } from "./area-baseline.service";
+import { runComputeJob } from "./compute-host";
+import { throwIfAborted } from "./run-abort";
 import {
   RegionSourceKeys,
-  SERIES_METRICS,
   SeriesFeatureRow,
   SeriesRegionInput,
   YearlySeries,
-  buildMetricSeries,
   keysForResolvedPlace,
   kreisAgsFrom,
   municipalityAgsFrom,
@@ -57,22 +57,36 @@ export class YearlySeriesService {
    * Never interpolates. Store revenue is not included. Catalog-listed
    * themes are baselined from `geo.area_baseline` (method on each point).
    */
-  async build(regions: SeriesRegionInput[], asOf = new Date()): Promise<YearlySeries[]> {
+  async build(
+    regions: SeriesRegionInput[],
+    asOf = new Date(),
+    signal?: AbortSignal,
+  ): Promise<YearlySeries[]> {
+    throwIfAborted(signal);
     const resolved = await this.resolveRegions(regions);
+    throwIfAborted(signal);
     if (resolved.length === 0) return [];
     const docs = await this.readFeatureDocs(allLookupKeys(resolved));
-    const series = resolved.flatMap((region) =>
-      SERIES_METRICS.map((metric) =>
-        buildMetricSeries({
-          metricId: metric.id,
-          homeLevel: metric.homeLevel,
-          region,
-          docs,
-          asOf,
-        }),
-      ),
+    throwIfAborted(signal);
+    const computed = await runComputeJob(
+      {
+        type: "yearlySeries",
+        resolved,
+        docs,
+        asOfIso: asOf.toISOString(),
+        catalog: [],
+        rows: [],
+      },
+      signal,
     );
-    return this.areaBaseline.normalize(series);
+    if (computed.type !== "yearlySeries") {
+      throw new Error(`YearlySeries worker returned ${computed.type}`);
+    }
+    this.logger.log(
+      `YearlySeries build regions=${resolved.length} docs=${docs.length} chunks=${computed.stats.chunks} maxSyncMs=${computed.stats.maxSyncMs}`,
+    );
+    throwIfAborted(signal);
+    return this.areaBaseline.normalize(computed.series);
   }
 
   private async resolveRegions(regions: SeriesRegionInput[]): Promise<RegionSourceKeys[]> {

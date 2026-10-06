@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { AnalysisRegion } from "../analysis/types";
+import { throwIfAborted } from "../analysis/run-abort";
 import { toCoord } from "../customer/values";
 import { parseRegionGeometry, RegionGeometry } from "../geo/region-geometry";
 import { DatabaseService, featuresReadQuery } from "../database/database.service";
@@ -9,7 +10,7 @@ import {
   isMissingFeaturesRelation,
 } from "../database/pg-error";
 import { Grain } from "../target-region/dto";
-import { pushAll } from "../common/safe-array";
+import { pushAll, yieldEventLoop } from "../common/safe-array";
 import {
   AREA_CANDIDATE_LIMIT,
   AreaCandidate,
@@ -53,14 +54,16 @@ export class AreaCandidateService {
    * Address is skipped when `geo.geo_ref_address` / Brain has no rows.
    * Berlin 2021 PLR (`lor:plr:*`) wins over 2006 LOR; Köln `koeln:sq:*` is quartier.
    */
-  async load(regions: AnalysisRegion[]): Promise<AreaCandidateLoad> {
+  async load(regions: AnalysisRegion[], signal?: AbortSignal): Promise<AreaCandidateLoad> {
     if (regions.length === 0) return { items: [], truncated: false };
     const seen = new Set<string>();
     const collected: AreaCandidate[] = [];
     let truncated = false;
     try {
       for (const region of regions) {
+        throwIfAborted(signal);
         const loaded = await this.loadRegion(region);
+        await yieldEventLoop();
         if (loaded.truncated) truncated = true;
         pushAll(collected, selectCatalogHits(loaded.items, [region, ...regions]));
       }
@@ -193,6 +196,7 @@ export class AreaCandidateService {
     for (const row of result.rows) {
       const candidate = toCandidate(row);
       if (candidate) items.push(candidate);
+      if (items.length % 50 === 0) await yieldEventLoop();
     }
     return { items, truncated: result.rows.length >= AREA_CANDIDATE_LIMIT };
   }

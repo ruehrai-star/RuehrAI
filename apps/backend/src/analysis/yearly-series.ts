@@ -8,6 +8,7 @@ import {
   SeriesMetricId,
   TopicLevel,
   grainMatchesTopic,
+  sourceThemesForMetric,
   themeMatchesTopic,
 } from "../address-pair/topics";
 import { storedRowValue } from "../address-pair/value";
@@ -68,6 +69,15 @@ export interface SeriesFeatureRow {
   geo_key: string | null;
   metadata: unknown;
   ref_period: string | null;
+}
+
+/** Precomputed lookup: normalized geo keys → rows. Built once per `build()`. */
+export interface SeriesDocIndex {
+  byKey: Map<string, SeriesFeatureRow[]>;
+}
+
+export function isSeriesDocIndex(value: SeriesFeatureRow[] | SeriesDocIndex): value is SeriesDocIndex {
+  return Boolean(value) && !Array.isArray(value) && value.byKey instanceof Map;
 }
 
 export interface ParsedPeriod {
@@ -512,14 +522,38 @@ export function requestedKeyVariants(level: SeriesLevel, geoKey: string): string
   return unique([...base, ...prefixed]);
 }
 
+export function buildAllMetricSeries(
+  resolved: RegionSourceKeys[],
+  docs: SeriesFeatureRow[] | SeriesDocIndex,
+  asOf: Date,
+): YearlySeries[] {
+  const index = isSeriesDocIndex(docs) ? docs : indexSeriesDocs(docs);
+  const series: YearlySeries[] = [];
+  for (const region of resolved) {
+    for (const metric of SERIES_METRICS) {
+      series.push(
+        buildMetricSeries({
+          metricId: metric.id,
+          homeLevel: metric.homeLevel,
+          region,
+          docs: index,
+          asOf,
+        }),
+      );
+    }
+  }
+  return series;
+}
+
 export function buildMetricSeries(input: {
   metricId: SeriesMetricId;
   homeLevel: TopicLevel;
   region: RegionSourceKeys;
-  docs: SeriesFeatureRow[];
+  docs: SeriesFeatureRow[] | SeriesDocIndex;
   asOf: Date;
 }): YearlySeries {
-  const chosen = pickSource(input.metricId, input.homeLevel, input.region, input.docs);
+  const index = isSeriesDocIndex(input.docs) ? input.docs : indexSeriesDocs(input.docs);
+  const chosen = pickSource(input.metricId, input.homeLevel, input.region, index);
   const parsed = chosen.rows
     .map((row) => ({ row, period: parseRefPeriod(row.ref_period) }))
     .filter((item): item is { row: SeriesFeatureRow; period: ParsedPeriod } => item.period !== null);
@@ -563,11 +597,32 @@ export function asOfFrom(capturedAt: string | undefined): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+/**
+ * Index docs once by every normalized key form that `rowKeyHits` would test.
+ * Lookups then collect candidate rows in O(keys) instead of scanning all docs.
+ */
+export function indexSeriesDocs(docs: SeriesFeatureRow[]): SeriesDocIndex {
+  const byKey = new Map<string, SeriesFeatureRow[]>();
+  for (const row of docs) {
+    const seen = new Set<string>();
+    for (const raw of rowIndexKeys(row)) {
+      for (const variant of keyVariants(raw)) {
+        if (seen.has(variant)) continue;
+        seen.add(variant);
+        const list = byKey.get(variant);
+        if (list) list.push(row);
+        else byKey.set(variant, [row]);
+      }
+    }
+  }
+  return { byKey };
+}
+
 function pickSource(
   metricId: SeriesMetricId,
   homeLevel: TopicLevel,
   region: RegionSourceKeys,
-  docs: SeriesFeatureRow[],
+  docs: SeriesDocIndex,
 ): { level: SeriesLevel; geoKey: string; rows: SeriesFeatureRow[] } {
   const attempts: Array<{ level: SeriesLevel; keys: string[]; match: "topic" | "requested" }> = [];
   if (isSmallArea(region.requestedLevel) && region.requested.length > 0) {
@@ -607,9 +662,11 @@ function pickSource(
     });
   }
 
+  const themes = new Set(sourceThemesForMetric(metricId));
   for (const attempt of attempts) {
     if (attempt.keys.length === 0) continue;
-    const rows = docs.filter((row) => rowMatches(row, metricId, attempt));
+    const wanted = attemptKeySet(attempt.keys);
+    const rows = lookupMatchingRows(docs, wanted, metricId, attempt, themes);
     if (rows.length === 0) continue;
     const partitioned = partitionLorVersion(metricId, rows);
     if (partitioned.length === 0) continue;
@@ -623,6 +680,83 @@ function pickSource(
   }
 
   return { level: homeLevel, geoKey: canonicalSourceKey(homeLevel, region), rows: [] };
+}
+
+function lookupMatchingRows(
+  index: SeriesDocIndex,
+  wanted: Set<string>,
+  metricId: SeriesMetricId,
+  attempt: { level: SeriesLevel; keys: string[]; match: "topic" | "requested" },
+  themes: Set<string>,
+): SeriesFeatureRow[] {
+  if (wanted.size === 0) return [];
+  const hits: SeriesFeatureRow[] = [];
+  const seen = new Set<SeriesFeatureRow>();
+  for (const key of wanted) {
+    const list = index.byKey.get(key);
+    if (!list) continue;
+    for (const row of list) {
+      if (seen.has(row)) continue;
+      seen.add(row);
+      if (!rowMatchesIndexed(row, metricId, attempt, themes)) continue;
+      hits.push(row);
+    }
+  }
+  return hits;
+}
+
+function attemptKeySet(keys: string[]): Set<string> {
+  const wanted = new Set<string>();
+  for (const key of keys) {
+    if (!key) continue;
+    for (const variant of keyVariants(key)) wanted.add(variant);
+  }
+  return wanted;
+}
+
+function rowIndexKeys(row: SeriesFeatureRow): string[] {
+  const keys = [
+    row.geo_key,
+    metadataText(row.metadata, "geo_ags"),
+    metadataText(row.metadata, "geo_ags5"),
+    metadataText(row.metadata, "geo_land"),
+  ];
+  return keys.filter((value): value is string => Boolean(value));
+}
+
+function keyVariants(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const stripped = stripPrefixedKey(trimmed);
+  const digitsOnly = digits(stripped);
+  const out = [trimmed];
+  if (stripped && stripped !== trimmed) out.push(stripped);
+  if (digitsOnly) {
+    out.push(digitsOnly);
+    const padded = padDigits(digitsOnly, digitsOnly.length);
+    if (padded !== digitsOnly) out.push(padded);
+  }
+  return out;
+}
+
+function rowMatchesIndexed(
+  row: SeriesFeatureRow,
+  metricId: SeriesMetricId,
+  attempt: { level: SeriesLevel; keys: string[]; match: "topic" | "requested" },
+  themes: Set<string>,
+): boolean {
+  const theme = row.source_theme?.trim() ?? "";
+  if (!theme || !themes.has(theme)) return false;
+  if (attempt.match === "requested") {
+    if (attempt.level !== "grid100" && attempt.level !== "address" && isExcludedGrain(row.grain)) {
+      return false;
+    }
+    if (row.grain === "ags" || row.grain === "ags5") return false;
+    if (isParentFallback(row.metadata)) return false;
+    return true;
+  }
+  if (attempt.level !== "gemeinde" && attempt.level !== "kreis" && attempt.level !== "land") return false;
+  return grainMatchesTopic(row.grain, metricId, attempt.level);
 }
 
 function valuesByPeriod(

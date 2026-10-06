@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DatabaseService } from "../database/database.service";
+import { DatabaseService, featuresReadQuery } from "../database/database.service";
 import {
   isFeaturesAccessDenied,
   isGeoCatalogUnavailable,
@@ -43,7 +43,7 @@ export class AreaBaselineService {
     if (this.catalog) return this.catalog;
     const map = new Map<string, MetricCatalogEntry>();
     try {
-      const result = await this.db.queryReadingFeatures<MetricCatalogSqlRow>(BASELINE_METRIC_CATALOG_SQL, []);
+      const result = await featuresReadQuery(this.db)<MetricCatalogSqlRow>(BASELINE_METRIC_CATALOG_SQL, []);
       for (const row of result.rows) {
         const entry = parseMetricCatalogRow(row);
         if (entry) map.set(entry.sourceTheme, entry);
@@ -63,7 +63,7 @@ export class AreaBaselineService {
   async loadRows(geoKeys: string[]): Promise<AreaBaselineRow[]> {
     if (geoKeys.length === 0) return [];
     try {
-      const result = await this.db.queryReadingFeatures<AreaBaselineSqlRow>(AREA_BASELINE_SQL, [geoKeys]);
+      const result = await featuresReadQuery(this.db)<AreaBaselineSqlRow>(AREA_BASELINE_SQL, [geoKeys]);
       return result.rows.map(parseAreaBaselineRow).filter((row): row is AreaBaselineRow => row !== null);
     } catch (error) {
       if (isCatalogMiss(error)) {

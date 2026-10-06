@@ -155,6 +155,18 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
         }
         return { rows: [{ started_at: runRow.started_at, completed_at: runRow.completed_at }] };
       }
+      // INSERT … SELECT … FROM analysis_runs and latest() JOIN analysis_runs both
+      // mention that table — match recommendation_sets first or the set is never stored.
+      if (String(sql).includes("INSERT INTO app.recommendation_sets")) {
+        const payload = JSON.parse(String(params[2])) as Record<string, unknown>;
+        const stored = { id: `set-${fixture.runId}`, payload, created_at: new Date("2026-10-06T08:00:01.000Z") };
+        sets.set(String(params[1]), stored);
+        return { rows: [{ id: stored.id, created_at: stored.created_at }] };
+      }
+      if (String(sql).includes("FROM app.recommendation_sets")) {
+        const stored = sets.get(String(params[1]));
+        return { rows: stored ? [stored] : [] };
+      }
       if (String(sql).includes("FROM app.analysis_runs")) {
         return {
           rows: [
@@ -176,16 +188,6 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
             },
           ],
         };
-      }
-      if (String(sql).includes("INSERT INTO app.recommendation_sets")) {
-        const payload = JSON.parse(String(params[2])) as Record<string, unknown>;
-        const stored = { id: `set-${fixture.runId}`, payload, created_at: new Date("2026-10-06T08:00:01.000Z") };
-        sets.set(String(params[1]), stored);
-        return { rows: [{ id: stored.id, created_at: stored.created_at }] };
-      }
-      if (String(sql).includes("FROM app.recommendation_sets")) {
-        const stored = sets.get(String(params[1]));
-        return { rows: stored ? [stored] : [] };
       }
       return { rows: [] };
     });
@@ -261,6 +263,15 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
         } else if (text.includes("SET status") && text.includes("'running'")) runStatus = "running";
         return { rows: [{ started_at: new Date("2026-10-06T08:00:00.500Z"), completed_at: new Date() }] };
       }
+      if (text.includes("INSERT INTO app.recommendation_sets")) {
+        throw Object.assign(
+          new Error('bind message supplies 4 parameters, but prepared statement "" requires 3'),
+          { code: "08P01" },
+        );
+      }
+      if (text.includes("FROM app.recommendation_sets")) {
+        return { rows: [] };
+      }
       if (text.includes("FROM app.analysis_runs")) {
         return {
           rows: [
@@ -287,12 +298,6 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
             },
           ],
         };
-      }
-      if (text.includes("INSERT INTO app.recommendation_sets")) {
-        throw Object.assign(
-          new Error('bind message supplies 4 parameters, but prepared statement "" requires 3'),
-          { code: "08P01" },
-        );
       }
       return { rows: [] };
     });
