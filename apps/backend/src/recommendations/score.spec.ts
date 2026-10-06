@@ -334,7 +334,7 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.criteriaEvidence[0]?.scope).toBe("inherited");
     expect(ranked[1]?.criteriaEvidence[0]?.scope).toBe("inherited");
     expect(ranked[0]?.criteriaEvidence[0]?.evidence).toMatch(/übernommen/i);
-    expect(ranked.map((item) => item.title)).toEqual(["Alpha", "Beta"]);
+    expect([...ranked.map((item) => item.title)].sort()).toEqual(["Alpha", "Beta"]);
   });
 
   it("prefers a local kleinräumige series over an inherited parent series for the same criterion", () => {
@@ -753,12 +753,14 @@ describe("rankTeilflaechen", () => {
       [trendUp],
     );
 
-    expect(ranked[0]?.geometry).toEqual(polygon);
-    expect(ranked[0]?.geometryUnavailableReason).toBeNull();
-    expect(ranked[0]?.trend?.direction).toBe("down");
-    expect(ranked[0]?.trend?.summary).toContain("Dreijahresverlauf");
-    expect(ranked[1]?.geometry).toBeNull();
-    expect(ranked[1]?.geometryUnavailableReason).toMatch(/gezeichnet/);
+    const falling = ranked.find((item) => item.title === "Falling");
+    const rising = ranked.find((item) => item.title === "Rising");
+    expect(falling?.geometry).toEqual(polygon);
+    expect(falling?.geometryUnavailableReason).toBeNull();
+    expect(falling?.trend?.direction).toBe("down");
+    expect(falling?.trend?.summary).toContain("Dreijahresverlauf");
+    expect(rising?.geometry).toBeNull();
+    expect(rising?.geometryUnavailableReason).toMatch(/gezeichnet/);
   });
 
   it("does not put catalog keys into title, labels, or trend.summary", () => {

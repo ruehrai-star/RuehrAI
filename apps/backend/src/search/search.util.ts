@@ -1,4 +1,4 @@
-import { officialAgsKey, parentMunicipalityAgs } from "../geo/geo-catalog";
+import { gemeindeDisplayNameFromAgs, officialAgsKey, parentMunicipalityAgs } from "../geo/geo-catalog";
 import { SearchQueryDto } from "./search.dto";
 
 /** LIKE/ILIKE contains-pattern. `%`, `_`, and `\` in the input are matched literally. */
@@ -64,7 +64,11 @@ export function searchTokenPatterns(q?: string): string[] | null {
 
 const AREALESS_ADMIN_LEVELS = new Set(["bezirk", "stadtbezirk", "stadtteil", "ortsteil"]);
 
-/** Feature-view AGS districts (e.g. `05315001`) have no catalog polygon. */
+/**
+ * Feature-view AGS Stadtbezirke of kreisfreie Städte (Köln `05315001`)
+ * have no catalog polygon. A Gemeinde AGS such as Berlingen `07233004`
+ * is not a district even though it does not end in `000`.
+ */
 export function isArealessAdminHit(hit: {
   grain: string;
   geoKey?: string | null;
@@ -74,8 +78,9 @@ export function isArealessAdminHit(hit: {
   if (!AREALESS_ADMIN_LEVELS.has(level)) return false;
   const key = hit.geoKey?.trim() ?? "";
   if (/^(bezirk|stadtbezirk|stadtteil|ortsteil):/i.test(key)) return false;
-  if (/^[0-9]{8}$/.test(key) && !key.endsWith("000")) return true;
-  return hit.grain === "ags" && /^[0-9]{5,8}$/.test(key);
+  const official = officialAgsKey(key);
+  if (!official || official.endsWith("000")) return false;
+  return gemeindeDisplayNameFromAgs(official) != null;
 }
 
 export function normalizeAdminSearchName(label: string, parentLabel?: string | null): string {

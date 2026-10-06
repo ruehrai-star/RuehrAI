@@ -136,13 +136,15 @@ function toOverlap(row: HitOverlapRow): RecommendationOverlap | null {
   const isTarget = isTargetRegionFlag(row.is_target_region);
   if (!geoKey || !label || !isAreaKind(kind) || !Number.isFinite(share)) return null;
   if (looksLikeCatalogKey(label)) return null;
-  if (share < 0 || share > 1) return null;
-  if (!isTarget && share < OVERLAP_MIN_SHARE) return null;
+  // PostGIS area ratios can be 1 + 1 ulp when the hit sits fully inside.
+  if (share < 0 || share > 1.001) return null;
+  const clamped = Math.min(1, Math.max(0, share));
+  if (!isTarget && clamped < OVERLAP_MIN_SHARE) return null;
   return {
     geoKey,
     label,
     kind,
-    share: roundShare(share),
+    share: roundShare(clamped),
     ...(isTarget ? { isTargetRegion: true } : {}),
   };
 }

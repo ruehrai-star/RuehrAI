@@ -1628,10 +1628,10 @@ export function overlapShareSql(hitGeom: string, bezirkGeom: string): string {
       WHEN ST_Dimension(${hitGeom}) = 0
         OR GeometryType(${hitGeom}) IN ('POINT', 'MULTIPOINT')
       THEN CASE WHEN ST_Covers(${bezirkGeom}, ${hitGeom}) THEN 1::float8 ELSE NULL END
-      ELSE (
+      ELSE LEAST(1::float8, GREATEST(0::float8, (
         ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${bezirkGeom})), 3035))
         / NULLIF(ST_Area(ST_Transform(${hitGeom}, 3035)), 0)
-      )::float8
+      )::float8))
     END`;
 }
 
@@ -1706,10 +1706,10 @@ function hasArea(alias: string): string {
 }
 
 export function polygonOverlapShareExpr(hitGeom: string, regionGeom: string): string {
-  return `(
+  return `LEAST(1::float8, GREATEST(0::float8, (
       ST_Area(ST_Transform(ST_MakeValid(ST_Intersection(${hitGeom}, ${regionGeom})), 3035))
       / NULLIF(ST_Area(ST_Transform(ST_MakeValid(${hitGeom}), 3035)), 0)
-    )`;
+    )::float8))`;
 }
 
 function targetOverlapShareSql(hitGeom: string, fallbackWhenNoRegion: "NULL" | "1" = "NULL"): string {

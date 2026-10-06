@@ -91,6 +91,13 @@ describe("arealess admin search hits", () => {
       }),
     ).toBe(false);
     expect(isArealessAdminHit({ grain: "ags", geoKey: "05315000", level: "gemeinde" })).toBe(false);
+    expect(
+      isArealessAdminHit({ grain: "ags", geoKey: "07233004", level: "stadtbezirk" }),
+    ).toBe(false);
+    expect(
+      isArealessAdminHit({ grain: "ags", geoKey: "16061003", level: "stadtbezirk" }),
+    ).toBe(false);
+    expect(isArealessAdminHit({ grain: "ags", geoKey: "09162004", level: "stadtbezirk" })).toBe(true);
   });
 
   it("normalizes Bezirk Köln Innenstadt onto Innenstadt", () => {
