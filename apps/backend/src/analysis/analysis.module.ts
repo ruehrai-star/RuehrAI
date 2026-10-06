@@ -1,6 +1,7 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { DatabaseModule } from "../database/database.module";
 import { GeoModule } from "../geo/geo.module";
+import { RecommendationsModule } from "../recommendations/recommendations.module";
 import { AnalysisController } from "./analysis.controller";
 import { AnalysisService } from "./analysis.service";
 import { BrainSearchService } from "./brain-search.service";
@@ -11,7 +12,7 @@ import { StoreSurroundingsService } from "./store-surroundings.service";
 import { YearlySeriesService } from "./yearly-series.service";
 
 @Module({
-  imports: [DatabaseModule, GeoModule],
+  imports: [DatabaseModule, GeoModule, forwardRef(() => RecommendationsModule)],
   controllers: [AnalysisController],
   providers: [
     OmlxClient,

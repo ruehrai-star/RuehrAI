@@ -15,6 +15,7 @@ import type { AddressPairRequest, AddressPairResult } from "../addresses/types.t
 import type {
   AnalysisPatternQuery,
   AnalysisPatternResponse,
+  RecommendationQuery,
   RecommendationSet,
   SearchResponse,
   Session,
@@ -50,7 +51,7 @@ export interface RuehrApi {
   createAnalysisRun(): Promise<AnalysisRun>;
   getAnalysisRun(id: string): Promise<AnalysisRun>;
   getAnalysisPattern(query?: AnalysisPatternQuery): Promise<AnalysisPatternResponse | null>;
-  getRecommendations(): Promise<RecommendationSet | null>;
+  getRecommendations(query?: RecommendationQuery): Promise<RecommendationSet | null>;
   createRecommendations(body?: RecommendationCreate): Promise<RecommendationSet>;
   evaluateAddressPair(body: AddressPairRequest): Promise<AddressPairResult>;
 }

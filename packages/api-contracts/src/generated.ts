@@ -458,9 +458,10 @@ export interface paths {
          * Snapshot input, search Brain, and persist a pattern
          * @description Same preconditions as `GET /analysis/input`. On success the run is
          *     stored for this user and includes the Brain facts used (region filter,
-         *     plus store postal codes) and the derived pattern. The pattern is the
-         *     input a later Top-3 step can read. This operation does not recommend
-         *     addresses.
+         *     plus store postal codes) and the derived pattern. When Zielregion(en)
+         *     are marked, a recommendation set for those regions is stored and
+         *     bound to this `runId`. `GET /recommendations` never computes a set.
+         *     Marking another Zielregion later does not start a run.
          */
         post: operations["createAnalysisRun"];
         delete?: never;
@@ -521,9 +522,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Latest recommendation set for the signed-in user
-         * @description Returns the newest set stored by `POST /recommendations` for the token
-         *     user. `404` when this user has not computed recommendations yet.
+         * Stored recommendation set for the signed-in user
+         * @description Read-only. Never ranks or inserts a set. Optional `runId` returns the
+         *     newest stored set bound to that analysis run of the token user.
+         *     Omit `runId` to return the newest set of this user. `404` when no
+         *     matching stored set exists. Computing happens only on
+         *     `POST /analysis/runs` (for the marked Zielregion at that time) or
+         *     `POST /recommendations`.
          */
         get: operations["getRecommendations"];
         put?: never;
@@ -1679,6 +1684,12 @@ export interface components {
          *     Omit for the newest completed run of this user.
          */
         AnalysisPatternGeoKey: string;
+        /**
+         * @description Analysis run id as a decimal string. When set, `GET /recommendations`
+         *     returns the stored set for that run of the token user. The lookup
+         *     never computes or inserts a set. Omit for the newest stored set.
+         */
+        RecommendationsRunId: string;
     };
     requestBodies: never;
     headers: never;
@@ -2557,7 +2568,14 @@ export interface operations {
     };
     getRecommendations: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Analysis run id as a decimal string. When set, `GET /recommendations`
+                 *     returns the stored set for that run of the token user. The lookup
+                 *     never computes or inserts a set. Omit for the newest stored set.
+                 */
+                runId?: components["parameters"]["RecommendationsRunId"];
+            };
             header?: never;
             path?: never;
             cookie?: never;

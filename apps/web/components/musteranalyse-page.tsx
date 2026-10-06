@@ -202,7 +202,9 @@ export function MusteranalysePage() {
         <section className="section-card" aria-labelledby="brain-status">
           <h2 id="brain-status">{ANALYSIS_COPY.brainHeading}</h2>
           <p className="summary-line">{brain.mode}</p>
-          {brain.detail ? <p className="message">{brain.detail}</p> : null}
+          {brain.detail ? (
+            <p className={brain.tone === "info" ? "hint" : "message"}>{brain.detail}</p>
+          ) : null}
         </section>
       ) : null}
 

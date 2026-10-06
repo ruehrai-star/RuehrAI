@@ -295,4 +295,40 @@ describe("RecommendationsService", () => {
     expect(latest.count).toBe(0);
     expect(String(query.mock.calls.at(-1)?.[0])).toContain("user_id = $1::bigint");
   });
+
+  it("reads a stored set by runId and never ranks", async () => {
+    query.mockResolvedValue({
+      rows: [
+        {
+          id: "28",
+          created_at: "2026-10-06T07:44:00.000Z",
+          payload: {
+            runId: "31",
+            window: { from: "2023", to: "2025" },
+            count: 1,
+            reason: null,
+            pattern,
+            items: [{ id: "other:ortsteil:osm:1", rank: 1, title: "Altstadt-Nord" }],
+          },
+        },
+      ],
+    });
+    const stored = await service.latest("2", "31");
+    expect(stored.id).toBe("28");
+    expect(stored.runId).toBe("31");
+    expect(String(query.mock.calls.at(-1)?.[0])).toContain("analysis_run_id = $2::bigint");
+    expect(load).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(build).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for a missing runId set without computing", async () => {
+    query.mockResolvedValue({ rows: [] });
+    await expect(service.latest("2", "31")).rejects.toMatchObject({
+      message: RECOMMENDATIONS_NOT_FOUND,
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+  });
 });

@@ -54,6 +54,7 @@ export type {
   RecommendationCreate,
   RecommendationEvidence,
   RecommendationLocation,
+  RecommendationQuery,
   RecommendationSet,
   RecommendationTrend,
   RecommendationWindow,

@@ -8,6 +8,7 @@ import { PatternService } from "./pattern.service";
 import { AnalysisBrain, AnalysisInput, AnalysisPattern, AnalysisRegion } from "./types";
 import { YearlySeries } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
+import { RecommendationsService } from "../recommendations/recommendations.service";
 
 const brainResult: AnalysisBrain = {
   mode: "sql",
@@ -29,6 +30,7 @@ describe("AnalysisService", () => {
   const catalogSearch = jest.fn();
   const derive = jest.fn();
   const buildSeries = jest.fn();
+  const createRecommendations = jest.fn();
   let service: AnalysisService;
 
   beforeEach(() => {
@@ -37,16 +39,19 @@ describe("AnalysisService", () => {
     catalogSearch.mockReset();
     derive.mockReset();
     buildSeries.mockReset();
+    createRecommendations.mockReset();
     search.mockResolvedValue(brainResult);
     catalogSearch.mockResolvedValue([]);
     derive.mockResolvedValue(pattern);
     buildSeries.mockResolvedValue([]);
+    createRecommendations.mockResolvedValue({ id: "28", runId: "15" });
     service = new AnalysisService(
       { query } as unknown as DatabaseService,
       { search } as unknown as BrainSearchService,
       { derive } as unknown as PatternService,
       { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
       { build: buildSeries } as unknown as YearlySeriesService,
+      { create: createRecommendations } as unknown as RecommendationsService,
     );
   });
 
@@ -107,6 +112,26 @@ describe("AnalysisService", () => {
     expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("INSERT INTO app.analysis_runs"));
     expect(query.mock.calls[2]?.[1]?.[0]).toBe("4");
     expect(run.pattern).toEqual({ ...pattern, yearlySeries: [] });
+    expect(createRecommendations).toHaveBeenCalledWith("4", "15");
+  });
+
+  it("still returns the run when ranking the recommendation set fails", async () => {
+    createRecommendations.mockRejectedValue(new Error("catalog missed"));
+    query
+      .mockResolvedValueOnce({ rows: [regionRow()] })
+      .mockResolvedValueOnce({
+        rows: [
+          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+          storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }],
+      });
+
+    const run = await service.createRun("4");
+    expect(run.id).toBe("15");
+    expect(createRecommendations).toHaveBeenCalledWith("4", "15");
   });
 
   it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {

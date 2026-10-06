@@ -14,7 +14,7 @@ test("openapi yaml and json stay in sync", () => {
 test("v0.12 covers health, auth, search, layers, customer inputs, analysis, recommendations, the target-region list, and address-pair", () => {
   const doc = JSON.parse(jsonText);
   assert.equal(doc.openapi.startsWith("3."), true);
-  assert.equal(doc.info.version, "0.18.0");
+  assert.equal(doc.info.version, "0.18.1");
   assert.ok(doc.servers.some((server) => server.url === "http://localhost:3000"));
   assert.deepEqual(doc.paths["/health"].get.security, []);
   assert.deepEqual(doc.paths["/auth/login"].post.security, []);
@@ -91,6 +91,17 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
   assert.ok(doc.info.description.includes("0.15.0"));
   assert.ok(doc.info.description.includes("0.16.0"));
   assert.ok(doc.info.description.includes("0.18.0"));
+  assert.ok(doc.info.description.includes("0.18.1"));
+  assert.ok(doc.paths["/recommendations"].get.description.includes("never computes") ||
+    doc.paths["/recommendations"].get.description.includes("Never ranks"));
+  assert.equal(
+    doc.paths["/recommendations"].get.parameters[0].$ref,
+    "#/components/parameters/RecommendationsRunId",
+  );
+  assert.equal(doc.components.parameters.RecommendationsRunId.name, "runId");
+  assert.equal(doc.components.parameters.RecommendationsRunId.in, "query");
+  assert.equal(doc.components.parameters.RecommendationsRunId.required, false);
+  assert.ok(doc.paths["/analysis/runs"].post.description.includes("recommendation set"));
   assert.ok(doc.info.description.includes("official_zensus2022_grid"));
   assert.ok(doc.info.description.includes("estimate_zensus2022_grid_sum"));
   assert.ok(doc.info.description.includes("geo.area_baseline"));

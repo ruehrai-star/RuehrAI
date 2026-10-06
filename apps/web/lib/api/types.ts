@@ -86,6 +86,11 @@ export interface AnalysisPatternQuery {
   geoKey?: string | null;
 }
 
+/** Query for `GET /recommendations`. `runId` selects a stored set; omit for latest. */
+export interface RecommendationQuery {
+  runId?: string | null;
+}
+
 /**
  * Region stamp on a pattern response. Matches OpenAPI `AnalysisPatternRegion`
  * (`geoKey` is required and nullable). `region` itself stays optional so older

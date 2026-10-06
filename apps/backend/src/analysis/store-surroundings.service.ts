@@ -27,6 +27,8 @@ export interface StoreSurroundings {
 @Injectable()
 export class StoreSurroundingsService {
   private readonly logger = new Logger(StoreSurroundingsService.name);
+  /** `unknown` until probed; `skip` when no usable address key exists. */
+  private addressLookup: "unknown" | "skip" | AddressLookupPlan = "unknown";
 
   constructor(private readonly db: DatabaseService) {}
 
@@ -116,16 +118,20 @@ export class StoreSurroundingsService {
   /**
    * Official address at the store point (`geo.geo_ref_address`). Skip when
    * the table/columns are missing or empty — never invent an address.
+   * STAGE may lack `geo_key`; probe information_schema and use `geo_addr_id`
+   * (or skip to Raster/LOR/Ortsteil) without per-store error logs.
    */
   private async readAddressAtPoints(stores: AnalysisStoreInput[]): Promise<GeoKeyRow[]> {
     if (stores.length === 0) return [];
+    const plan = await this.resolveAddressLookup();
+    if (!plan) return [];
     const rows: GeoKeyRow[] = [];
     for (const store of stores) {
       const found = await this.readCatalog<GeoKeyRow>(
-        `SELECT COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_key::text) AS geo_key,
-                NULLIF(btrim(a.geo_ags::text), '') AS geo_ags
+        `SELECT ${plan.selectKey} AS geo_key,
+                ${plan.selectAgs} AS geo_ags
            FROM geo.geo_ref_address a
-          WHERE NULLIF(btrim(a.geo_key::text), '') IS NOT NULL
+          WHERE ${plan.notNull}
             AND a.geom IS NOT NULL AND NOT ST_IsEmpty(a.geom)
             AND ST_Intersects(
               CASE
@@ -134,13 +140,64 @@ export class StoreSurroundingsService {
               END,
               ST_SetSRID(ST_Point($1::float8, $2::float8), 4326)
             )
-          ORDER BY a.geo_key ASC
+          ORDER BY ${plan.orderBy}
           LIMIT 1`,
         [store.lon, store.lat],
+        { onUndefinedColumn: "skip-address" },
       );
+      if (this.addressLookup === "skip") return [];
       rows.push(...found);
     }
     return rows;
+  }
+
+  private async resolveAddressLookup(): Promise<AddressLookupPlan | null> {
+    if (this.addressLookup === "skip") return null;
+    if (this.addressLookup !== "unknown") return this.addressLookup;
+
+    const columns = await this.readAddressColumns();
+    if (columns && columns.size > 0) {
+      const keyColumn = pickAddressKeyColumn(columns);
+      if (!keyColumn) {
+        this.skipAddress("no key column on geo.geo_ref_address");
+        return null;
+      }
+      this.addressLookup = addressPlan(keyColumn, columns.has("geo_ags"));
+      return this.addressLookup;
+    }
+
+    this.addressLookup = addressPlan("geo_key", true);
+    return this.addressLookup;
+  }
+
+  private async readAddressColumns(): Promise<ReadonlySet<string> | null> {
+    try {
+      const result = await this.db.queryReadingFeatures<{ column_name: string }>(
+        `SELECT column_name
+           FROM information_schema.columns
+          WHERE table_schema = 'geo'
+            AND table_name = $1`,
+        ["geo_ref_address"],
+      );
+      if (result.rows.length === 0) return null;
+      return new Set(result.rows.map((row) => row.column_name));
+    } catch (error) {
+      if (
+        isGeoCatalogUnavailable(error) ||
+        isMissingFeaturesRelation(error) ||
+        isFeaturesAccessDenied(error) ||
+        isUndefinedColumn(error)
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private skipAddress(reason: string): void {
+    if (this.addressLookup === "skip") return;
+    this.addressLookup = "skip";
+    this.logger.log(`Store-surroundings skip address level (${reason}).`);
   }
 
   private async readGridAtPoints(stores: AnalysisStoreInput[]): Promise<GeoKeyRow[]> {
@@ -292,11 +349,22 @@ export class StoreSurroundingsService {
     return rows;
   }
 
-  private async readCatalog<T extends object>(sql: string, params: unknown[]): Promise<T[]> {
+  private async readCatalog<T extends object>(
+    sql: string,
+    params: unknown[],
+    options?: { onUndefinedColumn?: "skip-address" },
+  ): Promise<T[]> {
     try {
       const result = await this.db.queryReadingFeatures<T>(sql, params);
       return result.rows;
     } catch (error) {
+      if (
+        options?.onUndefinedColumn === "skip-address" &&
+        (isUndefinedColumn(error) || isMissingFeaturesRelation(error) || isGeoCatalogUnavailable(error))
+      ) {
+        this.skipAddress(messageOf(error));
+        return [];
+      }
       if (
         isGeoCatalogUnavailable(error) ||
         isMissingFeaturesRelation(error) ||
@@ -353,6 +421,40 @@ function unique(values: Array<string | null | undefined>): string[] {
     out.push(value);
   }
   return out;
+}
+
+interface AddressLookupPlan {
+  selectKey: string;
+  selectAgs: string;
+  notNull: string;
+  orderBy: string;
+}
+
+const ADDRESS_KEY_COLUMNS = ["geo_key", "geo_addr_id", "id"] as const;
+
+function pickAddressKeyColumn(columns: ReadonlySet<string>): (typeof ADDRESS_KEY_COLUMNS)[number] | null {
+  for (const column of ADDRESS_KEY_COLUMNS) {
+    if (columns.has(column)) return column;
+  }
+  return null;
+}
+
+function addressPlan(keyColumn: (typeof ADDRESS_KEY_COLUMNS)[number], hasAgs: boolean): AddressLookupPlan {
+  const selectAgs = hasAgs ? "NULLIF(btrim(a.geo_ags::text), '')" : "NULL::text";
+  if (keyColumn === "geo_key") {
+    return {
+      selectKey: "COALESCE(NULLIF(btrim(a.geo_key::text), ''), 'address:' || a.geo_key::text)",
+      selectAgs,
+      notNull: "NULLIF(btrim(a.geo_key::text), '') IS NOT NULL",
+      orderBy: "a.geo_key ASC",
+    };
+  }
+  return {
+    selectKey: `'address:' || a.${keyColumn}::text`,
+    selectAgs,
+    notNull: `NULLIF(btrim(a.${keyColumn}::text), '') IS NOT NULL`,
+    orderBy: `a.${keyColumn} ASC`,
+  };
 }
 
 function isUndefinedColumn(error: unknown): boolean {

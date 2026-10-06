@@ -69,8 +69,8 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
         authorization: new Headers(init?.headers).get("authorization"),
         body: typeof init?.body === "string" ? init.body : undefined,
       });
-      if (url.endsWith("/recommendations") && init?.method === "POST") return json(set, 201);
-      if (url.endsWith("/recommendations")) return json(set);
+      if (url.includes("/recommendations") && init?.method === "POST") return json(set, 201);
+      if (url.includes("/recommendations")) return json(set);
       return json({ statusCode: 500, message: url }, 500);
     },
   });
@@ -84,6 +84,8 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
   assert.equal(created.items[0]?.rank, 1);
   const pinned = await api.createRecommendations({ runId: "15" });
   assert.equal(pinned.runId, "15");
+  const byRun = await api.getRecommendations({ runId: "15" });
+  assert.equal(byRun?.runId, "15");
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.url}`),
@@ -91,6 +93,7 @@ test("recommendation calls send the bearer token and follow the OpenAPI paths", 
       "GET http://backend.test/recommendations",
       "POST http://backend.test/recommendations",
       "POST http://backend.test/recommendations",
+      "GET http://backend.test/recommendations?runId=15",
     ],
   );
   assert.equal(calls.every((call) => call.authorization === "Bearer jwt-1"), true);

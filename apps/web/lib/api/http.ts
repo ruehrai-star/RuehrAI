@@ -39,6 +39,7 @@ import {
   type AnalysisPatternRegion,
   type AnalysisPatternResponse,
   type Recommendation,
+  type RecommendationQuery,
   type RecommendationSet,
   type SearchHit,
   type SearchResponse,
@@ -251,10 +252,12 @@ export function createHttpApi(options: HttpApiOptions = {}): RuehrApi {
       return body ? parseAnalysisPatternResponse(body) : null;
     },
 
-    async getRecommendations(): Promise<RecommendationSet | null> {
+    async getRecommendations(query?: RecommendationQuery): Promise<RecommendationSet | null> {
+      const runId = trimQueryValue(query?.runId);
       const body = await request<RecommendationSet | null>("/recommendations", {
         auth: true,
         nullOn404: true,
+        query: runId ? { runId } : undefined,
       });
       return body ? parseRecommendationSet(body) : null;
     },
