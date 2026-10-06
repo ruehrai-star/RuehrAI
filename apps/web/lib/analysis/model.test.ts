@@ -125,3 +125,13 @@ test("Musteranalyse shows embedding notes as info, not as an error", () => {
   assert.match(page, /brain\.tone === "info" \? "hint"/);
   assert.doesNotMatch(page, /brain\.detail[\s\S]{0,80}message-error/);
 });
+
+test("Musteranalyse start uses the same lock as Empfehlungen while a run is in flight", () => {
+  const page = readFileSync(new URL("../../components/musteranalyse-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /analysisStartLocked/);
+  assert.match(page, /disabled=\{startLocked\}/);
+  assert.match(page, /startGate\.current/);
+  const startFn = page.slice(page.indexOf("async function onStart"), page.indexOf("if (!session)"));
+  assert.match(startFn, /if \(startGate\.current \|\| startLocked\) return/);
+  assert.match(startFn, /createAnalysisRun/);
+});

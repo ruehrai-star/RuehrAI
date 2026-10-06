@@ -55,7 +55,9 @@ export function runRegionEntries(regions: readonly RunRegionSource[] | null | un
 }
 
 /**
- * Run label for Stand, header, and history.
+ * Run label for the Stand line (`Stand: Lauf vom … für …`) and the
+ * Musteranalyse summary. Not the Trefferliste heading — that stays
+ * singular for the currently marked Zielregion.
  * One region: the entry. Several: first + remaining count, with `entries` for the list.
  */
 export function formatRunRegionLabel(

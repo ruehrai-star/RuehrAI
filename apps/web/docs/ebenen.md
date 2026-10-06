@@ -14,8 +14,9 @@ Code: `hitBadge` / `areaKindBadge` / `SERIES_LEVEL_BADGE` in `lib/recommendation
 
 `GET /analysis/runs/{id}` is polled until `completed` or `failed`, or until client `POLL_DEADLINE` **180 s** from start or resume.
 
-- Interval starts at **2 s** and, after 502 / 504 / network / fetch abort, backs off toward **~10 s** with jitter.
+- Interval starts at **2 s** and, after 502 / 504 / `NetworkError` from `fetch` / fetch abort, backs off toward **~10 s** with jitter.
 - Those GET errors are not a final state. The UI keeps **Analyse läuft …** with no error flicker.
+- A `TypeError` from parsing or rendering is **not** a network error. It ends the run and is not retried.
 - **Analyse fehlgeschlagen: Die Berechnung hat zu lange gedauert.** only for backend `failureReason=timeout` or after the 180 s deadline.
 - 404 (unknown run) and a definitive `failed` status stay final.
 - The STAGE gateway idle limit is about **60 s**, not 150 s. A 504 on GET is expected on a long run and is retried.

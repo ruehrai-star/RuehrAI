@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AnalysisRun } from "@ruehrai/api-contracts";
-import { ApiError } from "../api/types.ts";
+import { ApiError, NetworkError } from "../api/types.ts";
 import { ANALYSIS_FAILURE_COPY, analysisFailureMessage, clientDeadlineMessage } from "./failure.ts";
 import {
   POLL_BACKOFF_MAX_MS,
@@ -221,7 +221,7 @@ test("502, 504, and network errors keep polling and do not use the timeout sente
         step += 1;
         if (step === 1) throw new ApiError("Bad Gateway", 502);
         if (step === 2) throw new ApiError("Gateway Time-out", 504);
-        if (step === 3) throw new TypeError("fetch failed");
+        if (step === 3) throw new NetworkError("Backend nicht erreichbar (http://backend.test).");
         seen.push("completed");
         return completed;
       },
@@ -246,6 +246,33 @@ test("502, 504, and network errors keep polling and do not use the timeout sente
   assert.equal(isTransientPollError(new ApiError("Gateway Time-out", 504)), true);
   assert.equal(isTransientPollError(new ApiError("Backend nicht erreichbar.", 0)), true);
   assert.equal(isTransientPollError(new ApiError("Die Analyse wurde nicht gefunden.", 404)), false);
+  assert.equal(isTransientPollError(new NetworkError("Backend nicht erreichbar.")), true);
+  assert.equal(isTransientPollError(new TypeError("fetch failed")), false);
+});
+
+test("a TypeError from parsing or rendering is a final error and is not retried", async () => {
+  let calls = 0;
+  const parseError = new TypeError("Cannot read properties of undefined (reading 'status')");
+  await assert.rejects(
+    () =>
+      pollAnalysisRun(
+        {
+          getAnalysisRun: async () => {
+            calls += 1;
+            throw parseError;
+          },
+        },
+        "9",
+        { sleep: async () => {}, now: () => 0, deadlineMs: 60_000 },
+      ),
+    (error: unknown) => {
+      assert.equal(error, parseError);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+  assert.equal(isTransientPollError(parseError), false);
+  assert.equal(isTransientPollError(new TypeError("Failed to execute 'json' on 'Response'")), false);
 });
 
 test("a fetch abort that is not the poll signal is transient", async () => {

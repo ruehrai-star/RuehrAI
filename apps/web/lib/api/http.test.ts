@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { buildKarte } from "../map/karte.ts";
 import { apiBaseUrl, createHttpApi, DEFAULT_API_BASE_URL, toMapFeatureCollection } from "./http.ts";
-import { ApiError } from "./types.ts";
+import { ApiError, NetworkError } from "./types.ts";
 
 function withPublicApiBase<T>(value: string | undefined, run: () => T): T {
   const key = "NEXT_PUBLIC_API_BASE_URL";
@@ -602,6 +602,28 @@ test("GET /stores keeps Filialadressen coordinates and GET /target-region keeps 
     assert.equal(model.camera.bounds.east, 13.413);
     assert.equal(model.camera.bounds.north, 52.522);
   }
+});
+
+test("a fetch failure throws NetworkError from the client, not a raw TypeError", async () => {
+  const api = createHttpApi({
+    baseUrl: "http://backend.test",
+    fetch: async () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  await assert.rejects(
+    () => api.health(),
+    (error: unknown) => {
+      assert.equal(error instanceof NetworkError, true);
+      assert.equal(error instanceof ApiError, true);
+      if (error instanceof NetworkError) {
+        assert.equal(error.status, 0);
+        assert.match(error.message, /Backend nicht erreichbar/);
+        assert.equal(error.name, "NetworkError");
+      }
+      return true;
+    },
+  );
 });
 
 test("GET /stores keeps numeric-string coordinates and does not treat them as missing", async () => {

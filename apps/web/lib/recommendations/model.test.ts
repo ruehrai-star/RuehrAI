@@ -170,17 +170,38 @@ test("UX-Gate labels for Empfehlungen stay exact", () => {
   assert.equal(recommendationEmptyCopy(2), "Keine passenden Standorte in der Zielregion.");
   assert.equal(recommendationSubtitle("Berlin, Gemeinde"), "Top 3 in Ihrer Zielregion Berlin, Gemeinde");
   assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin");
-  assert.equal(
-    headingForMarkedRegion(null, [
-      { label: "Innenstadt", geoKey: "a", parentLabel: "Köln" },
-      { label: "Rodenkirchen", geoKey: "b", parentLabel: "Köln" },
-      { label: "Lindenthal", geoKey: "c", parentLabel: "Köln" },
-      { label: "Ehrenfeld", geoKey: "d", parentLabel: "Köln" },
-      { label: "Nippes", geoKey: "e", parentLabel: "Köln" },
-      { label: "Chorweiler", geoKey: "f", parentLabel: "Köln" },
-    ]),
-    "Top 3 in Ihren Zielregionen Innenstadt (Köln) + 5 weitere",
-  );
+  assert.equal(headingForMarkedRegion(null), null);
+});
+
+test("Trefferliste heading is always singular for the currently marked Zielregion", () => {
+  const markedRodenkirchen = {
+    label: "Rodenkirchen",
+    geoKey: "stadtbezirk:koeln:rodenkirchen",
+    grain: "ags" as const,
+    level: "gemeinde" as const,
+    parentLabel: "Köln",
+  };
+  assert.equal(headingForMarkedRegion(markedRodenkirchen), "Top 3 in Ihrer Zielregion Rodenkirchen (Köln)");
+  assert.equal(headingForMarkedRegion(markedGemeinde), "Top 3 in Ihrer Zielregion Berlin");
+  assert.equal(RECOMMENDATION_COPY.subtitle, "Top 3 in Ihrer Zielregion");
+  assert.equal(RECOMMENDATION_COPY.subtitlePlural, "Top 3 in Ihren Zielregionen");
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("Zielregionen"), false);
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("weitere"), false);
+  assert.equal(headingForMarkedRegion(markedRodenkirchen)?.includes("Innenstadt"), false);
+
+  const page = readFileSync(new URL("../../components/empfehlungen-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /headingForMarkedRegion\(marked\)/);
+  assert.equal(page.includes("subtitlePlural"), false);
+  assert.match(page, /<h1>\{heading \?\? RECOMMENDATION_COPY\.title\}<\/h1>/);
+  const afterStand = page.slice(page.indexOf("standPrefix"));
+  const headingBlock = afterStand.slice(afterStand.indexOf("<h1>"), afterStand.indexOf("</h1>") + 5);
+  assert.match(headingBlock, /heading \?\? RECOMMENDATION_COPY\.title/);
+  assert.equal(headingBlock.includes("RunRegionLabel"), false);
+  assert.equal(headingBlock.includes("formatRunRegionLabel"), false);
+  const standBlock = page.slice(page.indexOf("standPrefix"), page.indexOf("<h1>{heading"));
+  assert.match(standBlock, /RunRegionLabel/);
+  assert.match(page, /RECOMMENDATION_COPY\.empty/);
+  assert.equal(page.includes("emptyPlural"), false);
 });
 
 test("a card address, score, window, and short criteria stay in German", () => {
@@ -612,6 +633,13 @@ test("Musteranalyse starten and Erneut starten stay disabled while a run is in f
   assert.match(page, /disabled=\{startLocked\}/);
   assert.match(page, /RECOMMENDATION_COPY\.startAnalysis/);
   assert.match(page, /RECOMMENDATION_COPY\.restartAnalysis/);
+  assert.match(page, /startGate\.current/);
+  const emptyBlock = page.slice(page.indexOf("showEmptyRun"), page.indexOf("showRestart"));
+  assert.match(emptyBlock, /RECOMMENDATION_COPY\.startAnalysis/);
+  assert.match(emptyBlock, /disabled=\{startLocked\}/);
+  const startFn = page.slice(page.indexOf("async function onStartAnalysis"), page.indexOf("const karte"));
+  assert.match(startFn, /startGate\.current/);
+  assert.match(startFn, /analysisStartLocked/);
 });
 
 test("pattern profile lists datasets without ids or method codes", () => {

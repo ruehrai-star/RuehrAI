@@ -6,7 +6,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendationSet, TargetRegion } from "@/lib/api";
 import { ApiError } from "@/lib/api/types";
 import { getAnalysisApi } from "@/lib/analysis/api";
-import { formatRunRegionLabel } from "@/lib/analysis/run-label";
 import { analysisFailureFromHttp } from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus } from "@/lib/analysis/poll";
 import { ensureMarkedKey, markedRegion, regionListKey } from "@/lib/locations/regions";
@@ -61,6 +60,7 @@ export function EmpfehlungenPage() {
   const bindRequest = useRef(0);
   const inflightByKey = useRef(new Map<string, string>());
   const pollAbort = useRef<AbortController | null>(null);
+  const startGate = useRef(false);
 
   const visible = Boolean(session && loadedEmail === session.email && pagePhase !== "loading");
   const visibleRegions = visible ? regions : [];
@@ -105,7 +105,7 @@ export function EmpfehlungenPage() {
   const runRegions = bindPhase === "ready" && !inFlight && bound ? standRegionsOf(bound) : [];
   const standPrefix =
     bindPhase === "ready" && !inFlight && bound ? formatStandPrefix(bound.createdAt) : null;
-  const heading = headingForMarkedRegion(marked, runRegions);
+  const heading = headingForMarkedRegion(marked);
   const showEmptyRun =
     visible &&
     pagePhase === "idle" &&
@@ -272,7 +272,17 @@ export function EmpfehlungenPage() {
     const current = markedRegion(regions, markedKey);
     const key = current ? regionListKey(current) : null;
     if (!current || !key) return;
-    if (starting || inflightByKey.current.size > 0 || runPhase === "queued" || runPhase === "running") return;
+    if (
+      startGate.current ||
+      analysisStartLocked({
+        starting,
+        runStatus: runPhase,
+        otherInFlight: inflightByKey.current.size > 0,
+      })
+    ) {
+      return;
+    }
+    startGate.current = true;
     const token = bindRequest.current + 1;
     bindRequest.current = token;
     stopPolling();
@@ -357,6 +367,8 @@ export function EmpfehlungenPage() {
       const message = caught instanceof ApiError ? caught.message : null;
       setRunError(analysisFailureFromHttp(status, message));
       setBoundKey(key);
+    } finally {
+      startGate.current = false;
     }
   }
 
@@ -424,18 +436,7 @@ export function EmpfehlungenPage() {
             <RunRegionLabel regions={runRegions} />
           </div>
         ) : null}
-        {bindPhase === "ready" && !inFlight && runRegions.length > 0 ? (
-          <h1>
-            {formatRunRegionLabel(runRegions).expandable
-              ? RECOMMENDATION_COPY.subtitlePlural
-              : RECOMMENDATION_COPY.subtitle}{" "}
-            <RunRegionLabel regions={runRegions} />
-          </h1>
-        ) : heading && bindPhase === "ready" && !inFlight ? (
-          <h1>{heading}</h1>
-        ) : (
-          <h1>{RECOMMENDATION_COPY.title}</h1>
-        )}
+        <h1>{heading ?? RECOMMENDATION_COPY.title}</h1>
 
         {status.text ? (
           <p

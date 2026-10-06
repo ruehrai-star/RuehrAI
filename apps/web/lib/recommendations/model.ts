@@ -17,7 +17,6 @@ import { catalogBadge, catalogParentName, grainLabel, isCatalogKey } from "../fo
 import { readRegionGeometry } from "../map/karte.ts";
 import { samePlace, type PlaceRef } from "../locations/regions.ts";
 import { standRegionLabel } from "../verlauf/bind.ts";
-import { formatRunRegionLabel, type RunRegionSource } from "../analysis/run-label.ts";
 
 /** UX-Gate labels for the Empfehlungen / Trefferliste page (Variante A). */
 export const RECOMMENDATION_COPY = {
@@ -30,6 +29,7 @@ export const RECOMMENDATION_COPY = {
   details: "Details",
   empty: "Keine passenden Standorte in der Zielregion.",
   emptyPlural: "Keine passenden Standorte in den Zielregionen.",
+  /** Not used on Trefferliste. The heading is always singular for the marked region. */
   subtitlePlural: "Top 3 in Ihren Zielregionen",
   thin: "Die Zielregion ist dünn besetzt.",
   compute: "Empfehlungen berechnen",
@@ -472,17 +472,15 @@ export function buildTrefferlisteCards(
   return topHits(set.items, marked).map((item) => buildTrefferCard(item, set.patternByDataset, marked));
 }
 
+/**
+ * Trefferliste heading: always `Top 3 in Ihrer Zielregion [markierte Region]`.
+ * Singular, and always the currently marked Zielregion — never the run's
+ * first/latest region and never `X (Stadt) + N weitere`. That collapsed
+ * run label belongs only on the Stand line.
+ */
 export function headingForMarkedRegion(
   region: (TargetRegion & { level?: unknown; grain?: unknown; ags?: unknown }) | null | undefined,
-  runRegions?: readonly RunRegionSource[] | null,
 ): string | null {
-  const runLabel = formatRunRegionLabel(runRegions ?? []);
-  if (runLabel.summary) {
-    const heading = runLabel.expandable
-      ? `${RECOMMENDATION_COPY.subtitlePlural} ${runLabel.summary}`
-      : top3Heading(runLabel.summary);
-    return heading;
-  }
   if (!region) return null;
   const name = standRegionLabel(region);
   return name ? top3Heading(name) : RECOMMENDATION_COPY.subtitle;

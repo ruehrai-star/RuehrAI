@@ -1,6 +1,6 @@
 import type { AnalysisRun, AnalysisRunStatus } from "@ruehrai/api-contracts";
 import type { RuehrApi } from "../api/client.ts";
-import { ApiError } from "../api/types.ts";
+import { ApiError, NetworkError } from "../api/types.ts";
 import { analysisFailureFromHttp, analysisFailureMessage, clientDeadlineMessage } from "./failure.ts";
 
 /** Official 0.19.0 poll interval. Backoff after transient GET errors rises toward this. */
@@ -39,16 +39,18 @@ export function deadlineExceeded(elapsedMs: number, deadlineMs = POLL_DEADLINE_M
 }
 
 /**
- * GET `/analysis/runs/{id}` 502/504, a network failure, or an abort of the
- * fetch (not the poll `signal`) is not a terminal run state.
+ * GET `/analysis/runs/{id}` 502/504, a network failure from `fetch` itself, or
+ * an abort of the fetch (not the poll `signal`) is not a terminal run state.
+ * A TypeError from parsing or rendering is a normal error and is not retried.
  */
 export function isTransientPollError(error: unknown): boolean {
+  if (error instanceof NetworkError) return true;
   if (error instanceof ApiError) {
     return error.status === 502 || error.status === 504 || error.status === 0;
   }
   if (!error || typeof error !== "object") return false;
   const name = "name" in error ? String(error.name) : "";
-  return name === "AbortError" || name === "TypeError";
+  return name === "AbortError";
 }
 
 /** 2 s while the run is in flight. After transient errors, double toward ~10 s with jitter. */
@@ -94,9 +96,10 @@ export async function sleepMs(ms: number, signal?: AbortSignal): Promise<void> {
  * Read `GET /analysis/runs/{id}` until the run is terminal, the 180 s client
  * `POLL_DEADLINE` from start or resume elapses, or `signal` aborts.
  *
- * Steady interval is ~2 s. 502, 504, and network/abort errors keep the poll
- * alive with backoff up to ~10 s plus jitter. The UI must keep showing
- * `Analyse läuft …` for those — they are not `failed`.
+ * Steady interval is ~2 s. 502, 504, `NetworkError` from `fetch`, and fetch
+ * abort errors keep the poll alive with backoff up to ~10 s plus jitter. The
+ * UI must keep showing `Analyse läuft …` for those — they are not `failed`.
+ * A TypeError from parsing or rendering is not retried.
  *
  * Timeout copy is only for backend `failureReason=timeout` or this deadline.
  * 404 (unknown run) and a definitive `failed` status stay final.
