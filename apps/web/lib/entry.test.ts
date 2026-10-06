@@ -64,6 +64,9 @@ test("Karte lives at /karte; login and / share the entry helper", () => {
   assert.match(header, /href: "\/verlauf", label: "Verlauf"/);
   assert.match(header, /href: "\/standorte"/);
   assert.match(login, /resolveSignedInEntryHref/);
+  assert.match(login, /LOGIN_EXPIRED_COPY/);
+  const loginPage = readFileSync(new URL("../app/login/page.tsx", import.meta.url), "utf8");
+  assert.match(loginPage, /abgelaufen/);
   assert.match(register, /resolveSignedInEntryHref/);
   assert.match(panel, /MAP_HREF/);
   assert.match(placeholder, /MAP_HREF/);
