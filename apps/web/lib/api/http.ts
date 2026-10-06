@@ -526,8 +526,16 @@ function parseAnalysisRun(body: AnalysisRun): AnalysisRun {
   if (!body || typeof body.id !== "string" || !ANALYSIS_RUN_STATUSES.has(body.status) || typeof body.createdAt !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
-  if (body.failureReason != null && typeof body.failureReason !== "string") {
-    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  if (body.failureReason != null) {
+    if (
+      body.failureReason !== "timeout" &&
+      body.failureReason !== "pattern_failed" &&
+      body.failureReason !== "set_save_failed" &&
+      body.failureReason !== "interrupted" &&
+      body.failureReason !== "internal_error"
+    ) {
+      throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+    }
   }
   if (body.startedAt != null && typeof body.startedAt !== "string") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);

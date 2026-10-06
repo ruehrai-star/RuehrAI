@@ -7,6 +7,7 @@ import { configureApp } from "../configure-app";
 import { DatabaseService } from "../database/database.service";
 import { GeoCatalogService } from "../geo/geo-catalog.service";
 import { BrainSearchService } from "../analysis/brain-search.service";
+import { AnalysisService } from "../analysis/analysis.service";
 import { highestSqlPlaceholder } from "./area-candidates";
 
 /**
@@ -204,9 +205,16 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
     const created = await request(app.getHttpServer())
       .post("/analysis/runs")
       .set("authorization", `Bearer ${token}`)
-      .expect(201);
+      .expect(202);
     expect(created.body.id).toBe(fixture.runId);
-    expect(created.body.status).toBe("completed");
+    expect(created.body.status).toBe("queued");
+    await app.get(AnalysisService).whenIdle();
+
+    const run = await request(app.getHttpServer())
+      .get(`/analysis/runs/${fixture.runId}`)
+      .set("authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(run.body.status).toBe("completed");
     expect(sets.has(fixture.runId)).toBe(true);
 
     const listed = await request(app.getHttpServer())
@@ -221,6 +229,7 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
   it("marks the run failed when the recommendation set is not stored", async () => {
     const runId = "34";
     let runStatus = "queued";
+    let failureReason: string | null = null;
     query.mockReset();
     queryReadingFeatures.mockReset();
     query.mockImplementation(async (sql: string, params: unknown[] = []) => {
@@ -239,12 +248,17 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       }
       if (text.includes("INSERT INTO app.analysis_runs")) {
         runStatus = "queued";
+        failureReason = null;
         return { rows: [{ id: runId, created_at: new Date("2026-10-06T08:00:00.000Z") }] };
       }
       if (text.includes("UPDATE app.analysis_runs")) {
-        if (text.includes("'failed'")) runStatus = "failed";
-        else if (text.includes("'completed'")) runStatus = "completed";
-        else if (text.includes("SET status") && text.includes("'running'")) runStatus = "running";
+        if (text.includes("'failed'")) {
+          runStatus = "failed";
+          failureReason = typeof params[2] === "string" ? params[2] : null;
+        } else if (text.includes("'completed'")) {
+          runStatus = "completed";
+          failureReason = null;
+        } else if (text.includes("SET status") && text.includes("'running'")) runStatus = "running";
         return { rows: [{ started_at: new Date("2026-10-06T08:00:00.500Z"), completed_at: new Date() }] };
       }
       if (text.includes("FROM app.analysis_runs")) {
@@ -269,7 +283,7 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
               created_at: new Date("2026-10-06T08:00:00.000Z"),
               started_at: new Date("2026-10-06T08:00:00.500Z"),
               completed_at: runStatus === "failed" ? new Date("2026-10-06T08:00:01.500Z") : null,
-              failure_reason: runStatus === "failed" ? "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen." : null,
+              failure_reason: failureReason,
             },
           ],
         };
@@ -303,10 +317,12 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       return { rows: [] };
     });
 
-    await request(app.getHttpServer())
+    const created = await request(app.getHttpServer())
       .post("/analysis/runs")
       .set("authorization", `Bearer ${token}`)
-      .expect(500);
+      .expect(202);
+    expect(created.body.status).toBe("queued");
+    await app.get(AnalysisService).whenIdle();
     expect(query.mock.calls.some((call) => /SET\s+status\s*=\s*'failed'/.test(String(call[0])))).toBe(true);
     expect(query.mock.calls.some((call) => /SET\s+status\s*=\s*'completed'/.test(String(call[0])))).toBe(false);
 
@@ -315,7 +331,7 @@ describe("POST /analysis/runs binds GET /recommendations?runId=", () => {
       .set("authorization", `Bearer ${token}`)
       .expect(200);
     expect(run.body.status).toBe("failed");
-    expect(run.body.failureReason).toBe("Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.");
+    expect(run.body.failureReason).toBe("set_save_failed");
 
     await request(app.getHttpServer())
       .get("/recommendations")

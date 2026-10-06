@@ -173,19 +173,21 @@ export function kindFromCoverage(coverage: SeriesCoverage): CriterionKind | null
   return null;
 }
 
-export function metricLabel(metricId: string, sourceLevel?: SeriesLevel): string {
+export function metricLabel(metricId: string, sourceLevel?: SeriesLevel, sourceGeoKey?: string): string {
   const base = METRIC_LABELS[metricId] ?? displayMetricLabel(metricId);
-  const noun = frameNoun(sourceLevel);
+  const noun = frameNoun(sourceLevel, sourceGeoKey);
   return noun ? `${base} (${noun})` : base;
 }
 
-export function frameNoun(level: SeriesLevel | string | undefined): string | null {
+export function frameNoun(level: SeriesLevel | string | undefined, sourceGeoKey?: string): string | null {
+  if (sourceGeoKey && /^lor:plr:/i.test(sourceGeoKey)) return "Planungsraum";
+  if (sourceGeoKey && /^koeln:sq:/i.test(sourceGeoKey)) return "Quartier";
   if (level === "kreis") return "Kreis";
   if (level === "land") return "Land";
   if (level === "gemeinde") return "Gemeinde";
   if (level === "plz") return "PLZ";
   if (level === "ortsteil" || level === "stadtteil") return "Ortsteil";
-  if (level === "lor") return "LOR";
+  if (level === "lor") return "Planungsraum";
   if (level === "quartier") return "Quartier";
   if (level === "bezirk" || level === "stadtbezirk") return "Bezirk";
   if (level === "grid100") return "100-m-Raster";
@@ -208,7 +210,7 @@ export function seriesEvidence(
   direction: CriterionDirection,
   baseline?: SeriesBaseline,
 ): string {
-  const label = metricLabel(series.metricId, series.sourceLevel);
+  const label = metricLabel(series.metricId, series.sourceLevel, series.sourceGeoKey);
   const present = presentPoints(series.points);
   if (present.length === 0) return `${label} liegt nicht vor.`;
   const usedBaseline = baseline ?? baselineForMetric(series.metricId, series.valueKey);
@@ -290,7 +292,7 @@ function toCriterion(series: YearlySeries): PatternCriterion {
     normalized.length >= 2
       ? "trend"
       : kindFromCoverage(series.coverage) ?? (direction === "unknown" ? "stichtag" : "trend");
-  const label = metricLabel(series.metricId, series.sourceLevel);
+  const label = metricLabel(series.metricId, series.sourceLevel, series.sourceGeoKey);
   return {
     key: series.metricId,
     metricId: series.metricId,

@@ -1,4 +1,4 @@
-import { criteriaFromYearlySeries, directionFromPoints, seriesEvidence } from "./series-criteria";
+import { criteriaFromYearlySeries, directionFromPoints, frameNoun, seriesEvidence } from "./series-criteria";
 import { YearlySeries } from "./yearly-series";
 
 function series(overrides: Partial<YearlySeries> & Pick<YearlySeries, "metricId">): YearlySeries {
@@ -79,6 +79,12 @@ describe("criteriaFromYearlySeries", () => {
     expect(stichtag?.evidence).toContain("Stichtag");
     expect(criteria.find((item) => item.key === "breitband")).toBeUndefined();
     expect(criteria.find((item) => item.key === "bevoelkerung")).toBeUndefined();
+  });
+
+  it("labels LOR Planungsraum and Köln Quartier", () => {
+    expect(frameNoun("lor", "lor:plr:07400720")).toBe("Planungsraum");
+    expect(frameNoun("lor")).toBe("Planungsraum");
+    expect(frameNoun("quartier", "koeln:sq:1")).toBe("Quartier");
   });
 
   it("uses a kleinräumige count theme, not the Einwohner stock, as the relative dataset", () => {

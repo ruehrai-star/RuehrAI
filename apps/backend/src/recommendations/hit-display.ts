@@ -27,8 +27,9 @@ export function hitParentLabel(
   hit: AreaCandidate,
   pool: AreaCandidate[],
   regions: AnalysisRegion[],
+  byGroup?: Map<string, AreaCandidate[]>,
 ): string | null {
-  const fromPool = nearestCoarserName(hit, pool);
+  const fromPool = nearestCoarserName(hit, pool, byGroup);
   if (fromPool) return fromPool;
   const region = matchingParentRegion(hit, regions);
   if (!region) return null;
@@ -48,23 +49,26 @@ export function areaGroupKey(item: { geoKey?: string | null; ags?: string | null
   return `key:${item.geoKey?.trim() ?? ""}`;
 }
 
-function nearestCoarserName(hit: AreaCandidate, pool: AreaCandidate[]): string | null {
-  const group = areaGroupKey(hit);
-  const named = pool
-    .filter(
-      (candidate) =>
-        candidate.geoKey !== hit.geoKey &&
-        areaGroupKey(candidate) === group &&
-        areaKindRank(candidate.kind) > areaKindRank(hit.kind),
-    )
-    .map((candidate) => ({
-      rank: areaKindRank(candidate.kind),
-      name: visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title),
-    }))
-    .filter((candidate): candidate is { rank: number; name: string } => Boolean(candidate.name));
-  if (named.length === 0) return null;
-  named.sort((left, right) => left.rank - right.rank);
-  return named[0]?.name ?? null;
+function nearestCoarserName(
+  hit: AreaCandidate,
+  pool: AreaCandidate[],
+  byGroup?: Map<string, AreaCandidate[]>,
+): string | null {
+  const group = byGroup?.get(areaGroupKey(hit)) ?? pool.filter((candidate) => areaGroupKey(candidate) === areaGroupKey(hit));
+  let bestRank = Infinity;
+  let bestName: string | null = null;
+  for (const candidate of group) {
+    if (candidate.geoKey === hit.geoKey) continue;
+    const rank = areaKindRank(candidate.kind);
+    if (rank <= areaKindRank(hit.kind)) continue;
+    const name = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
+    if (!name) continue;
+    if (rank < bestRank) {
+      bestRank = rank;
+      bestName = name;
+    }
+  }
+  return bestName;
 }
 
 function matchingParentRegion(hit: AreaCandidate, regions: AnalysisRegion[]): AnalysisRegion | undefined {

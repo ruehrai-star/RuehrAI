@@ -18,6 +18,7 @@ import {
   isInternalCatalogKeyQuery,
   isPlzHit,
   searchFilterParams,
+  searchQueryTokens,
 } from "./search.util";
 
 export interface SearchHit {
@@ -160,8 +161,10 @@ function toHit(row: HitRow): SearchHit | null {
 function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): SearchHit[] {
   const keepPlz = allowPlzHits(q);
   const needle = q?.trim().toLowerCase() ?? "";
+  const tokens = searchQueryTokens(q).map((token) => token.toLocaleLowerCase("de"));
   const candidates = [...catalog, ...existing]
     .filter((hit) => hasVisibleLabel(hit.label) && (keepPlz || !isPlzHit(hit)))
+    .filter((hit) => matchesSearchTokens(hit, tokens))
     .sort((left, right) => compareSearchHits(left, right, needle));
   const seen = new Set<string>();
   const merged: SearchHit[] = [];
@@ -172,6 +175,16 @@ function mergeHits(catalog: SearchHit[], existing: SearchHit[], q?: string): Sea
     merged.push(hit);
   }
   return merged.slice(0, 50);
+}
+
+function matchesSearchTokens(hit: SearchHit, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const haystack = `${hit.label} ${hit.parentLabel ?? ""}`.toLocaleLowerCase("de");
+  return tokens.every((token) => {
+    const needle = token.replace(/[%_]/g, "").trim();
+    if (!needle) return true;
+    return haystack.includes(needle);
+  });
 }
 
 function compareSearchHits(left: SearchHit, right: SearchHit, needle: string): number {
@@ -203,6 +216,20 @@ const TEXT_MATCH = `
   OR title ILIKE $4 ESCAPE '\\'
 `;
 
+const TOKEN_AND_FEATURE = `
+  CASE
+    WHEN $9::text[] IS NOT NULL AND cardinality($9::text[]) > 0 THEN
+      (
+        SELECT bool_and(
+          name ILIKE tok ESCAPE '\\'
+          OR title ILIKE tok ESCAPE '\\'
+        )
+        FROM unnest($9::text[]) AS tok
+      )
+    ELSE (${TEXT_MATCH})
+  END
+`;
+
 const HAS_FEATURE_NAME = `
   NULLIF(btrim(name), '') IS NOT NULL
   OR NULLIF(btrim(title), '') IS NOT NULL
@@ -232,29 +259,48 @@ const FEATURE_SEARCH_SQL = `
     AND ($7::text IS NULL OR grain = $7)
     AND ($8::boolean OR grain NOT IN ('plz5', 'plz8'))
     AND (
-      $4::text IS NULL
+      $4::text IS NULL AND $9::text[] IS NULL
       OR (
         $5::text = 'ags'
         AND grain = 'ags'
-        AND (${TEXT_MATCH})
+        AND (${TOKEN_AND_FEATURE})
       )
       OR (
         $5::text = 'plz'
         AND grain IN ('plz5', 'plz8')
-        AND (${TEXT_MATCH})
+        AND (${TOKEN_AND_FEATURE})
       )
       OR (
         $5::text = 'address'
         AND grain = 'address'
-        AND (${TEXT_MATCH})
+        AND (${TOKEN_AND_FEATURE})
       )
       OR (
         $5::text IS NULL
-        AND (${TEXT_MATCH})
+        AND (${TOKEN_AND_FEATURE})
       )
     )
   ORDER BY label ASC, id ASC
   LIMIT 50
+`;
+
+const SEED_TOKEN_MATCH = `
+  CASE
+    WHEN $9::text[] IS NOT NULL AND cardinality($9::text[]) > 0 THEN
+      (
+        SELECT bool_and(
+          label ILIKE tok ESCAPE '\\'
+          OR COALESCE(plz, '') ILIKE tok ESCAPE '\\'
+          OR COALESCE(address, '') ILIKE tok ESCAPE '\\'
+        )
+        FROM unnest($9::text[]) AS tok
+      )
+    ELSE (
+      label ILIKE $4 ESCAPE '\\'
+      OR COALESCE(plz, '') ILIKE $4 ESCAPE '\\'
+      OR COALESCE(address, '') ILIKE $4 ESCAPE '\\'
+    )
+  END
 `;
 
 const SEED_SEARCH_SQL = `
@@ -281,30 +327,20 @@ const SEED_SEARCH_SQL = `
     AND ($7::text IS NULL OR grain = $7)
     AND ($8::boolean OR grain NOT IN ('plz5', 'plz8'))
     AND (
-      $4::text IS NULL
-      OR ($5::text = 'ags' AND grain IN ('ags', 'ags5') AND label ILIKE $4 ESCAPE '\\')
+      $4::text IS NULL AND $9::text[] IS NULL
+      OR ($5::text = 'ags' AND grain IN ('ags', 'ags5') AND (${SEED_TOKEN_MATCH}))
       OR (
         $5::text = 'plz'
         AND grain IN ('plz5', 'plz8')
-        AND (
-          label ILIKE $4 ESCAPE '\\'
-          OR COALESCE(plz, '') ILIKE $4 ESCAPE '\\'
-        )
+        AND (${SEED_TOKEN_MATCH})
       )
       OR (
         $5::text = 'address'
-        AND (
-          address ILIKE $4 ESCAPE '\\'
-          OR label ILIKE $4 ESCAPE '\\'
-        )
+        AND (${SEED_TOKEN_MATCH})
       )
       OR (
         $5::text IS NULL
-        AND (
-          label ILIKE $4 ESCAPE '\\'
-          OR COALESCE(plz, '') ILIKE $4 ESCAPE '\\'
-          OR COALESCE(address, '') ILIKE $4 ESCAPE '\\'
-        )
+        AND (${SEED_TOKEN_MATCH})
       )
     )
   ORDER BY label ASC, id ASC

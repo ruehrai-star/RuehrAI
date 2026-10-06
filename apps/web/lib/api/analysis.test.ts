@@ -88,7 +88,7 @@ test("analysis calls send the bearer token and follow the OpenAPI paths", async 
         body: typeof init?.body === "string" ? init.body : undefined,
       });
       if (url.endsWith("/analysis/input")) return json(input);
-      if (url.endsWith("/analysis/runs") && init?.method === "POST") return json(run, 201);
+      if (url.endsWith("/analysis/runs") && init?.method === "POST") return json({ ...run, status: "queued" }, 202);
       if (url.endsWith("/analysis/runs/7")) return json(run);
       if (url.endsWith("/analysis/pattern")) {
         return json({ runId: "7", createdAt: run.createdAt, pattern });
@@ -103,7 +103,7 @@ test("analysis calls send the bearer token and follow the OpenAPI paths", async 
 
   const created = await api.createAnalysisRun();
   assert.equal(created.id, "7");
-  assert.equal(created.status, "completed");
+  assert.equal(created.status, "queued");
   assert.equal(created.brain.mode, "sql");
   assert.equal(created.pattern.summary, pattern.summary);
 
@@ -187,7 +187,7 @@ test("GET /analysis/runs accepts queued, running, and failed when the payload is
         ...run,
         id: "10",
         status: "failed",
-        failureReason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+        failureReason: "timeout",
         startedAt: run.createdAt,
         completedAt: run.createdAt,
       });
@@ -197,7 +197,7 @@ test("GET /analysis/runs accepts queued, running, and failed when the payload is
   assert.equal((await api.getAnalysisRun("9")).status, "running");
   const failed = await api.getAnalysisRun("10");
   assert.equal(failed.status, "failed");
-  assert.equal(failed.failureReason, "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.");
+  assert.equal(failed.failureReason, "timeout");
 });
 
 test("GET /analysis/pattern accepts an old run without yearlySeries", async () => {

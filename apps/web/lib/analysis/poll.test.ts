@@ -86,7 +86,7 @@ test("poll stops on a failed run and surfaces failureReason", async () => {
           ({
             ...run,
             status: "failed",
-            failureReason: "Die Brain-Suche ist fehlgeschlagen.",
+            failureReason: "pattern_failed",
           }) as AnalysisRun,
       },
       "9",
@@ -94,7 +94,7 @@ test("poll stops on a failed run and surfaces failureReason", async () => {
     ),
     (error: unknown) => {
       assert.ok(error instanceof ApiError);
-      assert.equal(error.message, "Die Brain-Suche ist fehlgeschlagen.");
+      assert.equal(error.message, "pattern_failed");
       return true;
     },
   );

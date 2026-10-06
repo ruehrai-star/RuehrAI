@@ -1,5 +1,6 @@
 import { AnalysisRegion, PatternCriterion } from "../analysis/types";
 import { emptyToNull } from "../customer/values";
+import { minNumber, pushAll } from "../common/safe-array";
 import {
   absentEvidence,
   directionFromPoints,
@@ -32,6 +33,8 @@ import {
   ScoredLocation,
 } from "./types";
 
+export const MAX_RANKED_ITEMS = 200;
+
 /**
  * Rank Teilflächen against the store-surroundings **dataset** pattern.
  * Trends use normalized values (e.g. je 1.000 Einwohner). Inherited
@@ -49,6 +52,7 @@ export function rankTeilflaechen(
   const normalized = attachNormalizedValues(series);
   const hits = selectDatasetHits(candidates, normalized, criteria);
   const byGeoKey = groupSeries(normalized);
+  const byGroup = indexByGroup(candidates);
   const scored: ScoredLocation[] = [];
 
   for (const candidate of hits) {
@@ -64,8 +68,8 @@ export function rankTeilflaechen(
       baselineMatch: entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline),
     }));
     const name = visibleAreaName(candidate.name) ?? visibleAreaName(candidate.title);
-    const parentLabel = hitParentLabel(candidate, candidates, regions);
-    const intersectionOf = intersectionParts(candidate, candidates, normalized, criteria);
+    const parentLabel = hitParentLabel(candidate, candidates, regions, byGroup);
+    const intersectionOf = intersectionParts(candidate, byGroup, byGeoKey, criteria);
     scored.push({
       id: candidate.id,
       title: candidate.title,
@@ -104,7 +108,7 @@ export function rankTeilflaechen(
     if (byTitle !== 0) return byTitle;
     return left.id.localeCompare(right.id, "de");
   });
-  return scored;
+  return scored.slice(0, MAX_RANKED_ITEMS);
 }
 
 /**
@@ -140,8 +144,11 @@ export function selectDatasetHits(
   }
   const hits: AreaCandidate[] = [];
   for (const group of groups.values()) {
-    const finest = Math.min(...group.map((candidate) => areaKindRank(candidate.kind)));
-    hits.push(...group.filter((candidate) => areaKindRank(candidate.kind) === finest));
+    const finest = minNumber(group.map((candidate) => areaKindRank(candidate.kind)));
+    pushAll(
+      hits,
+      group.filter((candidate) => areaKindRank(candidate.kind) === finest),
+    );
   }
   return hits;
 }
@@ -150,29 +157,44 @@ function datasetHitGroup(candidate: AreaCandidate): string {
   return areaGroupKey(candidate);
 }
 
+function indexByGroup(pool: AreaCandidate[]): Map<string, AreaCandidate[]> {
+  const grouped = new Map<string, AreaCandidate[]>();
+  for (const candidate of pool) {
+    const key = datasetHitGroup(candidate);
+    const list = grouped.get(key) ?? [];
+    list.push(candidate);
+    grouped.set(key, list);
+  }
+  return grouped;
+}
+
 function intersectionParts(
   hit: AreaCandidate,
-  pool: AreaCandidate[],
-  series: YearlySeries[],
+  byGroup: Map<string, AreaCandidate[]>,
+  byGeoKey: Map<string, YearlySeries[]>,
   criteria: PatternCriterion[],
 ): RecommendationIntersectionPart[] {
-  const group = pool.filter((candidate) => datasetHitGroup(candidate) === datasetHitGroup(hit));
-  const byGeoKey = groupSeries(series);
+  const group = byGroup.get(datasetHitGroup(hit)) ?? [];
   const parts: RecommendationIntersectionPart[] = [];
   const seen = new Set<string>();
   for (const criterion of criteria) {
     const wanted = new Set(metricIdsForCriterion(criterion.key));
-    const matches = group.filter((candidate) => {
+    const matches: AreaCandidate[] = [];
+    for (const candidate of group) {
       const local = byGeoKey.get(candidate.geoKey) ?? [];
-      return local.some(
-        (item) =>
-          wanted.has(item.metricId) &&
-          evidenceScope(candidate.kind, item.sourceLevel) === "local" &&
-          presentPoints(item.points).length > 0,
-      );
-    });
+      if (
+        local.some(
+          (item) =>
+            wanted.has(item.metricId) &&
+            evidenceScope(candidate.kind, item.sourceLevel) === "local" &&
+            presentPoints(item.points).length > 0,
+        )
+      ) {
+        matches.push(candidate);
+      }
+    }
     if (matches.length === 0) continue;
-    const finest = Math.min(...matches.map((candidate) => areaKindRank(candidate.kind)));
+    const finest = minNumber(matches.map((candidate) => areaKindRank(candidate.kind)));
     const chosen = matches.find((candidate) => areaKindRank(candidate.kind) === finest);
     if (!chosen) continue;
     const name = visibleAreaName(chosen.name) ?? visibleAreaName(chosen.title);
@@ -217,7 +239,7 @@ function evidenceForCandidate(
   const present = presentPoints(series.points);
   if (present.length === 0) {
     return {
-      ...absentEvidenceRow(criterion, metricLabel(series.metricId, series.sourceLevel), baseline, scope),
+      ...absentEvidenceRow(criterion, metricLabel(series.metricId, series.sourceLevel, series.sourceGeoKey), baseline, scope),
       coverage: series.coverage,
       sourceLevel: series.sourceLevel,
       sourceGeoKey: series.sourceGeoKey,
@@ -237,7 +259,7 @@ function evidenceForCandidate(
     return {
       key: criterion.key,
       metricId: criterion.metricId ?? series.metricId,
-      label: metricLabel(series.metricId, series.sourceLevel),
+      label: metricLabel(series.metricId, series.sourceLevel, series.sourceGeoKey),
       direction: "unknown",
       patternDirection: criterion.direction,
       evidence: withScopeNote(absentEvidence(criterion.key, label), scope, series.sourceLevel),
@@ -269,7 +291,7 @@ function evidenceForCandidate(
   return {
     key: criterion.key,
     metricId: criterion.metricId ?? series.metricId,
-    label: metricLabel(series.metricId, series.sourceLevel),
+    label: metricLabel(series.metricId, series.sourceLevel, series.sourceGeoKey),
     direction,
     patternDirection: criterion.direction,
     evidence: withScopeNote(seriesEvidence(series, direction, baseline), scope, series.sourceLevel),

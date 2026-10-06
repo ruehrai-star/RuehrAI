@@ -27,6 +27,7 @@ import {
   parentMemberships,
   selectCatalogHits,
   selectFinestHits,
+  skipAddressAndGridForRegion,
   clippedHitGeoJsonSql,
   teilCatalogQuery,
 } from "./area-candidates";
@@ -102,7 +103,9 @@ describe("area candidate SQL", () => {
     expect(lor).not.toContain("<=>");
     expect(lor).not.toMatch(/embedding/i);
     expect(plrCatalog).toContain("geo.geo_ref_lor");
-    expect(plrCatalog).toContain("lor:plr:%");
+    expect(plrCatalog).toContain("lor:plr:");
+    expect(plrCatalog).toContain("geo_lor_id");
+    expect(plrCatalog).not.toContain("l.geo_key");
     expect(plrCatalog).toContain("ST_Intersection");
     expect(plrCatalog).toContain("geometry_geojson");
     expect(plrFeature).toContain("lor:plr:%");
@@ -110,6 +113,9 @@ describe("area candidate SQL", () => {
     expect(quartier).toContain("koeln:sq:%");
     expect(quartier).toContain("parent_fallback");
     expect(geoAddress).toContain("geo.geo_ref_address");
+    expect(geoAddress).toContain("geo_addr_id");
+    expect(geoAddress).toContain("geom_3035");
+    expect(geoAddress).not.toContain("a.name");
     expect(geoAddress).not.toMatch(/embedding/i);
     expect(hamburg).toContain("hamburg_stadtteil_regionalstatistik");
     expect(teil).toMatch(/child_grain\)\) IN \('lor', 'lor_plr'\)/);
@@ -441,6 +447,16 @@ describe("selectCatalogHits", () => {
       [region()],
     );
     expect(hits.map((item) => item.kind)).toEqual(["plz", "ortsteil"]);
+  });
+
+  it("skips address and grid scans for Bezirk and Gemeinde Zielregionen", () => {
+    expect(skipAddressAndGridForRegion(region({ level: "bezirk", grain: "other", geoKey: "bezirk:osm:1" }))).toBe(true);
+    expect(skipAddressAndGridForRegion(region({ level: "gemeinde", grain: "ags" }))).toBe(false);
+    expect(
+      skipAddressAndGridForRegion(
+        region({ level: "ortsteil", grain: "other", geoKey: "ortsteil:osm:1" }),
+      ),
+    ).toBe(false);
   });
 });
 

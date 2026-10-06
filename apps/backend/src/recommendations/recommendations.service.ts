@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
 import { PATTERN_NOT_FOUND, RUN_NOT_FOUND } from "../analysis/messages";
 import { buildPatternByDataset, buildPatternByLevel } from "../analysis/pattern-profile";
 import { StoreSurroundingsService } from "../analysis/store-surroundings.service";
@@ -15,6 +15,7 @@ import { rankTeilflaechen } from "./score";
 import { visibleAreaName } from "./hit-display";
 import { RecommendationItem, RecommendationPayload, RecommendationSet } from "./types";
 import { threeYearWindow } from "./window";
+import { yieldEventLoop } from "../common/safe-array";
 
 interface RunRow {
   id: string;
@@ -30,6 +31,8 @@ interface SetRow {
 
 @Injectable()
 export class RecommendationsService {
+  private readonly logger = new Logger(RecommendationsService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly areas: AreaCandidateService,
@@ -59,9 +62,15 @@ export class RecommendationsService {
     };
 
     const loaded = await this.areas.load(analysisRegions(run.input));
+    this.logger.log(
+      `Recommendation set for run ${run.id}: candidateCount=${loaded.items.length} truncated=${loaded.truncated}`,
+    );
+    await yieldEventLoop();
     const candidateSeries =
       loaded.items.length === 0 ? [] : await this.yearlySeries.build(loaded.items.map(toSeriesRegion), asOfDate);
+    await yieldEventLoop();
     const ranked = rankTeilflaechen(loaded.items, candidateSeries, pattern.criteria, analysisRegions(run.input));
+    await yieldEventLoop();
     const window = threeYearWindow(asOfDate, yearsFrom(storeSeries, candidateSeries));
     const written = await this.rationales.write(pattern, window, ranked);
     const payload: RecommendationPayload = {

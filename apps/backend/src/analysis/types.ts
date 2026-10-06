@@ -140,13 +140,20 @@ export interface AnalysisPattern {
 
 export type AnalysisRunStatus = "queued" | "running" | "completed" | "failed";
 
+export type AnalysisRunFailureReason =
+  | "timeout"
+  | "pattern_failed"
+  | "set_save_failed"
+  | "interrupted"
+  | "internal_error";
+
 export interface AnalysisRun {
   id: string;
   status: AnalysisRunStatus;
   createdAt: string;
   startedAt?: string | null;
   completedAt?: string | null;
-  failureReason?: string | null;
+  failureReason?: AnalysisRunFailureReason | null;
   input: AnalysisInput;
   brain: AnalysisBrain;
   pattern: AnalysisPattern;

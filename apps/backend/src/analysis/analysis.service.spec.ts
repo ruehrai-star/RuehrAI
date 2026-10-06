@@ -55,6 +55,10 @@ describe("AnalysisService", () => {
     );
   });
 
+  afterEach(async () => {
+    await service.whenIdle();
+  });
+
   it("answers 404 when the user has no target region", async () => {
     query.mockResolvedValue({ rows: [] });
     await expect(service.getInput("4")).rejects.toMatchObject({
@@ -76,36 +80,46 @@ describe("AnalysisService", () => {
     );
   });
 
-  it("snapshots the caller's input and stores the pattern on a run", async () => {
-    query
-      .mockResolvedValueOnce({ rows: [regionRow()] })
-      .mockResolvedValueOnce({
-        rows: [
-          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
-          storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
-      })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            started_at: new Date("2026-04-02T00:00:01.000Z"),
-            completed_at: new Date("2026-04-02T00:00:02.000Z"),
-          },
-        ],
-      });
+  it("snapshots the caller's input as queued and completes the run in the background", async () => {
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "15",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern: { ...pattern, yearlySeries: [] },
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+              started_at: new Date("2026-04-02T00:00:01.000Z"),
+              completed_at: new Date("2026-04-02T00:00:02.000Z"),
+              failure_reason: null,
+            },
+          ],
+        };
+      }
+      return { rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z"), completed_at: new Date("2026-04-02T00:00:02.000Z") }] };
+    });
 
     const run = await service.createRun("4");
     expect(run.id).toBe("15");
-    expect(run.status).toBe("completed");
-    expect(run.startedAt).toBe("2026-04-02T00:00:01.000Z");
-    expect(run.completedAt).toBe("2026-04-02T00:00:02.000Z");
+    expect(run.status).toBe("queued");
+    expect(run.startedAt).toBeNull();
+    expect(run.completedAt).toBeNull();
     expect(run.failureReason).toBeNull();
     expect(run.input.revenueDirection).toBe("up");
     expect(run.input.regions).toEqual([
@@ -121,21 +135,17 @@ describe("AnalysisService", () => {
     expect(run.input.stores[0]?.changes).toEqual([
       expect.objectContaining({ changeEur: 30.5 }),
     ]);
-    expect(search).toHaveBeenCalledWith(run.input);
-    expect(derive).toHaveBeenCalledWith(run.input, []);
-    expect(buildSeries).toHaveBeenCalledWith(run.input.regions, expect.any(Date));
     expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("INSERT INTO app.analysis_runs"));
     expect(query.mock.calls[2]?.[0]).toEqual(expect.stringContaining("'queued'"));
     expect(query.mock.calls[2]?.[1]?.[0]).toBe("4");
-    expect(query.mock.calls[3]?.[0]).toEqual(expect.stringContaining("'running'"));
-    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("SET brain"));
-    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("status = 'running'"));
-    expect(query.mock.calls[5]?.[0]).toEqual(expect.stringContaining("'completed'"));
-    expect(run.pattern).toEqual({ ...pattern, yearlySeries: [] });
+
+    await service.whenIdle();
+    expect(search).toHaveBeenCalled();
+    expect(derive).toHaveBeenCalled();
+    expect(buildSeries).toHaveBeenCalled();
     expect(createRecommendations).toHaveBeenCalledWith("4", "15");
-    expect(createRecommendations.mock.invocationCallOrder[0]).toBeLessThan(
-      query.mock.invocationCallOrder[5],
-    );
+    expect(query.mock.calls.some((call) => String(call[0]).includes("'running'"))).toBe(true);
+    expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(true);
   });
 
   it("marks the run failed when ranking the recommendation set throws", async () => {
@@ -144,52 +154,86 @@ describe("AnalysisService", () => {
         code: "08P01",
       }),
     );
-    query
-      .mockResolvedValueOnce({ rows: [regionRow()] })
-      .mockResolvedValueOnce({
-        rows: [
-          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
-          storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
-      })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "15", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "15",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
 
-    await expect(service.createRun("4")).rejects.toThrow("requires 3");
+    const queued = await service.createRun("4");
+    expect(queued.status).toBe("queued");
+    await service.whenIdle();
     expect(createRecommendations).toHaveBeenCalledWith("4", "15");
-    expect(query.mock.calls[5]?.[0]).toEqual(expect.stringContaining("'failed'"));
+    const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
+    expect(failed?.[0]).toEqual(expect.stringContaining("'failed'"));
+    expect(failed?.[1]?.[2]).toBe("set_save_failed");
     expect(query.mock.calls.some((call) => String(call[0]).includes("'completed'"))).toBe(false);
   });
 
-  it("marks the run failed when Brain work throws and rethrows", async () => {
+  it("marks the run failed when Brain work throws without failing POST", async () => {
     search.mockRejectedValue(new Error("embeddings exploded"));
-    query
-      .mockResolvedValueOnce({ rows: [regionRow()] })
-      .mockResolvedValueOnce({
-        rows: [
-          storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
-          storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ id: "16", created_at: new Date("2026-04-02T00:00:00.000Z") }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ started_at: new Date("2026-04-02T00:00:01.000Z") }],
-      })
-      .mockResolvedValueOnce({ rows: [] });
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "16", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "16",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
 
-    await expect(service.createRun("4")).rejects.toThrow("embeddings exploded");
-    expect(query.mock.calls[4]?.[0]).toEqual(expect.stringContaining("'failed'"));
-    expect(query.mock.calls[4]?.[1]?.[2]).toBe(
-      "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
-    );
+    const queued = await service.createRun("4");
+    expect(queued.status).toBe("queued");
+    await service.whenIdle();
+    const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
+    expect(failed?.[0]).toEqual(expect.stringContaining("'failed'"));
+    expect(failed?.[1]?.[2]).toBe("pattern_failed");
   });
 
   it("recomputes yearlySeries on GET even when the stored pattern already has the field", async () => {
@@ -260,7 +304,7 @@ describe("AnalysisService", () => {
           created_at: new Date("2026-04-02T00:00:00.000Z"),
           started_at: new Date("2026-04-02T00:00:01.000Z"),
           completed_at: new Date("2026-04-02T00:00:02.000Z"),
-          failure_reason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+          failure_reason: "timeout",
         },
       ],
     });
@@ -269,7 +313,7 @@ describe("AnalysisService", () => {
       status: "failed",
       startedAt: "2026-04-02T00:00:01.000Z",
       completedAt: "2026-04-02T00:00:02.000Z",
-      failureReason: "Die Analyse ist fehlgeschlagen. Bitte erneut versuchen.",
+      failureReason: "timeout",
     });
   });
 
@@ -459,6 +503,116 @@ describe("AnalysisService", () => {
       parentLabel: "München",
     });
     expect(catalogSearch).toHaveBeenCalledWith({ geoKey: "80331" });
+  });
+
+  it("marks stale queued and running rows interrupted on startup", async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: "9" }, { id: "10" }] });
+    await service.onModuleInit();
+    expect(query.mock.calls[0]?.[0]).toEqual(expect.stringContaining("interrupted"));
+    expect(query.mock.calls[0]?.[0]).toEqual(expect.stringContaining("'queued'"));
+    expect(query.mock.calls[0]?.[0]).toEqual(expect.stringContaining("'running'"));
+  });
+
+  it("answers GET while a large run is in flight", async () => {
+    let resolveSearch!: (value: AnalysisBrain) => void;
+    const searchPending = new Promise<AnalysisBrain>((resolve) => {
+      resolveSearch = resolve;
+    });
+    search.mockImplementation(() => searchPending);
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "40", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "40",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+              started_at: new Date("2026-04-02T00:00:01.000Z"),
+              completed_at: null,
+              failure_reason: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const queued = await service.createRun("4");
+    expect(queued.status).toBe("queued");
+    await expect(service.getRun("4", "40")).resolves.toMatchObject({ status: "running", id: "40" });
+    resolveSearch(brainResult);
+    await service.whenIdle();
+  });
+
+  it("marks the run failed with timeout when the overall deadline elapses", async () => {
+    const previous = process.env.ANALYSIS_RUN_DEADLINE_MS;
+    process.env.ANALYSIS_RUN_DEADLINE_MS = "30";
+    const timed = new AnalysisService(
+      { query } as unknown as DatabaseService,
+      { search } as unknown as BrainSearchService,
+      { derive } as unknown as PatternService,
+      { search: catalogSearch, lookupAdminNames: async () => new Map() } as unknown as GeoCatalogService,
+      { build: buildSeries } as unknown as YearlySeriesService,
+      { create: createRecommendations } as unknown as RecommendationsService,
+    );
+    search.mockImplementation(() => new Promise(() => undefined));
+    query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("FROM app.target_regions")) return { rows: [regionRow()] };
+      if (text.includes("FROM app.store_locations")) {
+        return {
+          rows: [
+            storeRow({ year: 2025, month: 1, revenue_eur: "100.00" }),
+            storeRow({ year: 2025, month: 2, revenue_eur: "130.50" }),
+          ],
+        };
+      }
+      if (text.includes("INSERT INTO app.analysis_runs")) {
+        return { rows: [{ id: "41", created_at: new Date("2026-04-02T00:00:00.000Z") }] };
+      }
+      if (text.includes("FROM app.analysis_runs")) {
+        return {
+          rows: [
+            {
+              id: "41",
+              status: "running",
+              input: runInput(snapshotRegion()),
+              brain: brainResult,
+              pattern,
+              created_at: new Date("2026-04-02T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    try {
+      const queued = await timed.createRun("4");
+      expect(queued.status).toBe("queued");
+      await timed.whenIdle();
+      const failed = query.mock.calls.find((call) => String(call[0]).includes("'failed'"));
+      expect(failed?.[1]?.[2]).toBe("timeout");
+    } finally {
+      await timed.whenIdle();
+      if (previous === undefined) delete process.env.ANALYSIS_RUN_DEADLINE_MS;
+      else process.env.ANALYSIS_RUN_DEADLINE_MS = previous;
+    }
   });
 });
 

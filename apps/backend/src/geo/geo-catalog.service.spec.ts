@@ -45,6 +45,7 @@ describe("GeoCatalogService", () => {
     expect(queryReadingFeatures.mock.calls[0]?.[0]).toBe(GEO_CATALOG_SEARCH_SQL);
     expect(queryReadingFeatures.mock.calls[0]?.[1]?.[3]).toBe("%Neustadt%");
     expect(queryReadingFeatures.mock.calls[0]?.[1]?.[7]).toBe(false);
+    expect(queryReadingFeatures.mock.calls[0]?.[1]?.[8]).toEqual(["%Neustadt%"]);
   });
 
   it("allows PLZ rows only for an all-digit q and drops a nameless row", async () => {

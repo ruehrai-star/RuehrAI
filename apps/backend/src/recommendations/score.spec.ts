@@ -566,6 +566,35 @@ describe("rankTeilflaechen", () => {
     expect(ranked[0]?.score).toBe(0);
     expect(ranked[0]?.trend).toEqual({ direction: "unknown", summary: "" });
   });
+
+  it("ranks a Bezirk-scale candidate pool without RangeError and under a few seconds", () => {
+    const started = Date.now();
+    const pool: AreaCandidate[] = [];
+    for (let index = 0; index < 8_000; index += 1) {
+      pool.push(
+        candidate({
+          geoKey: `ortsteil:osm:${index}`,
+          kind: "ortsteil",
+          title: `Teil ${index}`,
+          name: `Teil ${index}`,
+          ags: "05315000",
+        }),
+      );
+    }
+    const yearly: YearlySeries[] = pool.slice(0, 50).map((item) =>
+      series({
+        metricId: "unfallatlas",
+        requestedGeoKey: item.geoKey,
+        requestedLevel: "ortsteil",
+        sourceLevel: "ortsteil",
+        sourceGeoKey: item.geoKey,
+      }),
+    );
+    const ranked = rankTeilflaechen(pool, yearly, [trendUp]);
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked.length).toBeLessThanOrEqual(200);
+    expect(Date.now() - started).toBeLessThan(4_000);
+  });
 });
 
 describe("recommendationReason", () => {

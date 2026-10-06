@@ -293,6 +293,24 @@ test("v0.12 covers health, auth, search, layers, customer inputs, analysis, reco
     doc.components.schemas.AnalysisRun.properties.status.$ref,
     "#/components/schemas/AnalysisRunStatus",
   );
+  assert.ok(doc.info.description.includes("202 Accepted"));
+  assert.ok(doc.info.description.includes("every ~2 s"));
+  assert.ok(doc.info.description.includes("ANALYSIS_RUN_DEADLINE_MS"));
+  assert.ok(doc.paths["/analysis/runs"].post.responses["202"]);
+  assert.equal(doc.paths["/analysis/runs"].post.responses["201"], undefined);
+  assert.ok(doc.paths["/analysis/runs"].post.description.includes("every ~2 s"));
+  assert.ok(doc.paths["/analysis/runs/{id}"].get.description.includes("404"));
+  assert.deepEqual(doc.components.schemas.AnalysisRunFailureReason.enum, [
+    "timeout",
+    "pattern_failed",
+    "set_save_failed",
+    "interrupted",
+    "internal_error",
+  ]);
+  assert.equal(
+    doc.components.schemas.AnalysisRun.properties.failureReason.allOf[0].$ref,
+    "#/components/schemas/AnalysisRunFailureReason",
+  );
   assert.equal(doc.components.schemas.AnalysisRun.properties.failureReason.nullable, true);
   assert.equal(doc.components.schemas.AnalysisRun.properties.startedAt.nullable, true);
   assert.equal(doc.components.schemas.AnalysisRun.properties.completedAt.nullable, true);

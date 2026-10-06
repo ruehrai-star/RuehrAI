@@ -455,17 +455,19 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Snapshot input, search Brain, and persist a pattern
-         * @description Same preconditions as `GET /analysis/input`. The call is
-         *     synchronous. The row is `queued` when inserted, `running` during
-         *     Brain search, pattern work, and recommendation-set ranking, then
-         *     `completed` only after that set is stored, or `failed`.
-         *     On success the run includes the Brain facts used (region filter,
-         *     plus store postal codes) and the derived pattern. When
-         *     Zielregion(en) are marked, a recommendation set for those regions
-         *     is stored and bound to this `runId`. `GET /recommendations` never
-         *     computes a set. Marking another Zielregion later does not start
-         *     a run. Failed runs keep `failureReason` and stay readable on
+         * Snapshot input, enqueue Brain search, and persist a pattern
+         * @description Same preconditions as `GET /analysis/input`. The call answers
+         *     `202 Accepted` with the full `AnalysisRun` (`status` `queued`)
+         *     and the same schema as `GET /analysis/runs/{id}`. Computation
+         *     continues in the background (`running`, then `completed` after
+         *     the recommendation set is stored, or `failed`). Clients poll
+         *     `GET /analysis/runs/{id}` every ~2 s until `completed` or
+         *     `failed`. The overall deadline is `ANALYSIS_RUN_DEADLINE_MS`
+         *     (default 120000). When Zielregion(en) are marked, a
+         *     recommendation set for those regions is stored and bound to
+         *     this `runId`. `GET /recommendations` never computes a set.
+         *     Marking another Zielregion later does not start a run. Failed
+         *     runs keep `failureReason` (closed enum) and stay readable on
          *     `GET /analysis/runs/{id}`.
          */
         post: operations["createAnalysisRun"];
@@ -482,7 +484,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read one analysis run of the signed-in user */
+        /**
+         * Read one analysis run of the signed-in user
+         * @description Returns the full `AnalysisRun` (`id`, `status`
+         *     `queued` | `running` | `completed` | `failed`, optional
+         *     `failureReason`, `startedAt`, `completedAt`, plus input, Brain,
+         *     and pattern). Clients poll this path every ~2 s after
+         *     `POST /analysis/runs` until `completed` or `failed`. Unknown
+         *     ids and another user's runs are `404`.
+         */
         get: operations["getAnalysisRun"];
         put?: never;
         post?: never;
@@ -1062,13 +1072,26 @@ export interface components {
          */
         EvidenceScope: "local" | "inherited";
         /**
-         * @description Lifecycle of a Musteranalyse run. `POST /analysis/runs` is
-         *     synchronous: the row is `queued` when inserted, `running` while
-         *     Brain and pattern are computed, then `completed` or `failed`.
+         * @description Lifecycle of a Musteranalyse run. `POST /analysis/runs` answers
+         *     `202` with `queued`. The row becomes `running` while Brain,
+         *     pattern, and recommendation-set ranking run, then `completed`
+         *     or `failed`. Clients poll `GET /analysis/runs/{id}` every ~2 s.
          *     Older stored rows are `completed`.
          * @enum {string}
          */
         AnalysisRunStatus: "queued" | "running" | "completed" | "failed";
+        /**
+         * @description Closed reason when `status` is `failed`. Null otherwise.
+         *     `timeout` — overall run deadline (`ANALYSIS_RUN_DEADLINE_MS`,
+         *     default 120000) or a statement timeout. `pattern_failed` —
+         *     Brain search or pattern derivation. `set_save_failed` —
+         *     recommendation-set computation or persist. `interrupted` —
+         *     a `queued`/`running` row still open at process start.
+         *     `internal_error` — anything else. Technical detail stays in
+         *     the server log, never in this field.
+         * @enum {string}
+         */
+        AnalysisRunFailureReason: "timeout" | "pattern_failed" | "set_save_failed" | "interrupted" | "internal_error";
         AnalysisRun: {
             /** @description Run id as a decimal string. */
             id: string;
@@ -1089,10 +1112,10 @@ export interface components {
              */
             completedAt?: string | null;
             /**
-             * @description German reason when `status` is `failed`. Null otherwise.
-             *     Missing values stay null — never a key or `0`.
+             * @description Closed enum when `status` is `failed`. Null otherwise.
+             *     Missing values stay null — never a key, German sentence, or `0`.
              */
-            failureReason?: string | null;
+            failureReason?: components["schemas"]["AnalysisRunFailureReason"] | null;
             input: components["schemas"]["AnalysisInput"];
             brain: components["schemas"]["AnalysisBrain"];
             pattern: components["schemas"]["AnalysisPattern"];
@@ -2539,8 +2562,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Analysis run after computation (`completed`, or `failed` when work did not finish). */
-            201: {
+            /**
+             * @description Accepted. Body is the full `AnalysisRun` with `status`
+             *     `queued`. Poll `GET /analysis/runs/{id}` every ~2 s.
+             */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

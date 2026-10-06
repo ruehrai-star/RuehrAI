@@ -949,6 +949,41 @@ describe("Tempelhof Brain series (inventory 2026-10-05)", () => {
     expect(gemeindeOnly.sourceGeoKey).toBe("11000000");
     expect(gemeindeOnly.coverage).toBe("series");
   });
+
+  it("prefers unfaelle_je_1000_ew on lor:plr Unfallatlas Gebiet", () => {
+    const plr = keysForResolvedPlace("lor", "lor:plr:07400720", "11000000", "11000", "11", {
+      bezirkOfficial: "11000007",
+    });
+    const series = buildMetricSeries({
+      metricId: "unfallatlas",
+      homeLevel: "gemeinde",
+      region: plr,
+      docs: [
+        feature({
+          theme: "unfallatlas_gebiet",
+          grain: "lor_plr",
+          key: "lor:plr:07400720",
+          period: "2024",
+          metadata: { unfaelle_gesamt: 40, unfaelle_je_1000_ew: 3.1 },
+        }),
+        feature({
+          theme: "unfallatlas_gebiet",
+          grain: "lor_plr",
+          key: "lor:plr:07400720",
+          period: "2025",
+          metadata: { unfaelle_gesamt: 42, unfaelle_je_1000_ew: 3.4 },
+        }),
+      ],
+      asOf,
+    });
+    expect(series).toMatchObject({
+      sourceLevel: "lor",
+      sourceGeoKey: "lor:plr:07400720",
+      valueKey: "unfaelle_je_1000_ew",
+      coverage: "series",
+    });
+    expect(series.points.find((point) => point.period === "2025")?.value).toBe(3.4);
+  });
 });
 
 describe("yearlySeries STAGE display bugs (Tempelhof / Berlin)", () => {

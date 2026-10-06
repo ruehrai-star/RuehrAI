@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
+import { readPgAnalysisPoolMax, readPgStatementTimeoutMs } from "../analysis/analysis-env";
 import { isFeaturesRoleUnusable } from "./pg-error";
 import { readPgPoolOptions } from "./pool-options";
 
@@ -16,6 +17,8 @@ export const FEATURES_READ_ROLE = "backend_ro_features";
 export class DatabaseService implements OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
   private readonly pool: Pool;
+  private readonly analysisPool: Pool;
+  private readonly statementTimeoutMs: number;
   /** `role` uses SET LOCAL ROLE; `direct` means the role is missing and the connected user reads. */
   private featuresAccess: "unknown" | "role" | "direct" = "unknown";
 
@@ -25,13 +28,26 @@ export class DatabaseService implements OnModuleDestroy {
       throw new Error("DATABASE_URL is required");
     }
 
+    const poolOptions = readPgPoolOptions((key) => config.get<string>(key));
     this.pool = new Pool({
       connectionString,
       application_name: "ruehrai-backend",
-      ...readPgPoolOptions((key) => config.get<string>(key)),
+      ...poolOptions,
     });
     this.pool.on("error", (error) => {
       this.logger.error("Unexpected Postgres client error", error.stack);
+    });
+
+    const analysisMax = readPgAnalysisPoolMax((key) => config.get<string>(key));
+    this.statementTimeoutMs = readPgStatementTimeoutMs((key) => config.get<string>(key));
+    this.analysisPool = new Pool({
+      connectionString,
+      application_name: "ruehrai-backend-analysis",
+      ...poolOptions,
+      max: analysisMax,
+    });
+    this.analysisPool.on("error", (error) => {
+      this.logger.error("Unexpected analysis Postgres client error", error.stack);
     });
   }
 
@@ -69,12 +85,36 @@ export class DatabaseService implements OnModuleDestroy {
     text: string,
     params: unknown[] = [],
   ): Promise<QueryResult<T>> {
-    const client = await this.pool.connect();
+    return this.runFeaturesQuery(this.pool, text, params, false);
+  }
+
+  /**
+   * Brain geo/feature reads for Musteranalyse. Separate small pool plus
+   * `SET LOCAL statement_timeout` so a long analysis query cannot fill the
+   * main HTTP pool. Falls back to `queryReadingFeatures` semantics.
+   */
+  async queryAnalysisFeatures<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    return this.runFeaturesQuery(this.analysisPool, text, params, true);
+  }
+
+  private async runFeaturesQuery<T extends QueryResultRow>(
+    pool: Pool,
+    text: string,
+    params: unknown[],
+    withStatementTimeout: boolean,
+  ): Promise<QueryResult<T>> {
+    const client = await pool.connect();
     try {
       const mode = await this.resolveFeaturesAccess(client);
       await client.query("BEGIN");
       if (mode === "role") {
         await client.query(`SET LOCAL ROLE ${FEATURES_READ_ROLE}`);
+      }
+      if (withStatementTimeout) {
+        await client.query(`SET LOCAL statement_timeout = ${this.statementTimeoutMs}`);
       }
       const result = await client.query<T>(text, params);
       await client.query("COMMIT");
@@ -106,6 +146,18 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
+    await Promise.all([this.pool.end(), this.analysisPool.end()]);
   }
+}
+
+/** Prefer the analysis pool when the mock/service exposes it. */
+export function featuresReadQuery(
+  db: Pick<DatabaseService, "queryReadingFeatures"> & {
+    queryAnalysisFeatures?: DatabaseService["queryAnalysisFeatures"];
+  },
+): DatabaseService["queryReadingFeatures"] {
+  if (typeof db.queryAnalysisFeatures === "function") {
+    return (text, params) => db.queryAnalysisFeatures!(text, params);
+  }
+  return (text, params) => db.queryReadingFeatures(text, params);
 }
