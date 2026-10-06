@@ -13,6 +13,7 @@ import {
   seriesLevelRank,
 } from "../analysis/series-criteria";
 import type { BaselineMethod } from "../analysis/area-baseline";
+import { PatternDatasetProfile } from "../analysis/pattern-profile";
 import {
   attachNormalizedValues,
   baselineForMetric,
@@ -26,6 +27,17 @@ import { SeriesPoint, YearlySeries, isSeriesCoverage } from "../analysis/yearly-
 import { AreaCandidate, AreaKind, areaKindRank } from "./area-candidates";
 import { areaGroupKey, displayAreaName, hitParentLabel } from "./hit-display";
 import {
+  canonicalScoreLevel,
+  combineCandidateScore,
+  datasetCloseness,
+  grainWeight,
+  patternRefForCriterion,
+  readScoreFormulaConfig,
+  robustSpread,
+  sampleFromPoints,
+  ScoreFormulaConfig,
+} from "./score-formula";
+import {
   EvidenceScope,
   RecommendationEvidence,
   RecommendationIntersectionPart,
@@ -33,6 +45,11 @@ import {
   RecommendationTrend,
   ScoredLocation,
 } from "./types";
+
+export interface RankTeilflaechenOptions {
+  patternByDataset?: PatternDatasetProfile[];
+  config?: ScoreFormulaConfig;
+}
 
 export const MAX_RANKED_ITEMS = 200;
 /** Ranking / analysis accepts at most this many Zielregionen. No silent drop. */
@@ -62,64 +79,102 @@ export function rankedSlotsPerTargetRegion(regionCount: number): number {
 
 /**
  * Rank Teilflächen against the store-surroundings **dataset** pattern.
- * Trends use normalized values (e.g. je 1.000 Einwohner). Inherited
- * parent-level series are labeled and do not differentiate siblings.
- * The listed Fläche is the smallest common hit: finest kind that still
- * has local data for a pattern dataset, grouped so mixed Zielregionen
- * (Berlin Bezirk + Köln PLZ) can coexist.
+ * Score is closeness to the Musterwert on the baseline (trend before
+ * niveau), not a binary direction match. Inherited parent-level series
+ * are labeled and stay neutral. The listed Fläche is the smallest common
+ * hit: finest kind that still has local data for a pattern dataset.
  */
 export function rankTeilflaechen(
   candidates: AreaCandidate[],
   series: YearlySeries[],
   criteria: PatternCriterion[],
   regions: AnalysisRegion[] = [],
+  options: RankTeilflaechenOptions = {},
 ): ScoredLocation[] {
+  const config = options.config ?? readScoreFormulaConfig();
+  const patternByDataset = options.patternByDataset ?? [];
   const normalized = attachNormalizedValues(series);
   const hits = selectDatasetHits(candidates, normalized, criteria);
   const byGeoKey = groupSeries(normalized);
   const byGroup = indexByGroup(candidates);
-  const scored: ScoredLocation[] = [];
+  const patternRefs = new Map(
+    criteria.map((criterion) => [criterion.key, patternRefForCriterion(criterion, patternByDataset)] as const),
+  );
 
-  for (const candidate of hits) {
+  const pending = hits.map((candidate) => {
     const local = byGeoKey.get(candidate.geoKey) ?? [];
     const evidence = criteria.map((criterion) => evidenceForCandidate(criterion, local, candidate.kind));
-    const localTrend = evidence.filter(
-      (entry, index) => isTrendCriterion(criteria[index]!) && entry.scope !== "inherited",
-    );
-    const matched = localTrend.filter((entry) => entry.match).length;
-    const score = localTrend.length === 0 ? 0 : roundScore(matched / localTrend.length);
-    const withBaseline = evidence.map((entry) => ({
-      ...entry,
-      baselineMatch: entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline),
-    }));
-    const name = displayAreaName(candidate);
-    const parentLabel = hitParentLabel(candidate, candidates, regions, byGroup);
-    const intersectionOf = intersectionParts(candidate, byGroup, byGeoKey, criteria);
-    const targetRegionGeoKey = candidate.targetRegionGeoKey?.trim() ?? "";
+    return { candidate, evidence };
+  });
+
+  const niveauBuckets = new Map<string, number[]>();
+  const trendBuckets = new Map<string, number[]>();
+  for (const item of pending) {
+    for (const entry of item.evidence) {
+      const sample = sampleFromEvidence(entry);
+      const bucket = spreadKey(entry.key, entry.sourceLevel ?? item.candidate.kind);
+      if (sample.niveau != null) pushNumber(niveauBuckets, bucket, sample.niveau);
+      if (sample.trend != null) pushNumber(trendBuckets, bucket, sample.trend);
+    }
+  }
+  const niveauSpread = spreadMap(niveauBuckets, config.minDispersionN);
+  const trendSpread = spreadMap(trendBuckets, config.minDispersionN);
+
+  const scored: ScoredLocation[] = [];
+  for (const item of pending) {
+    const parts: Array<{ closeness: number; weight: number }> = [];
+    const withBaseline = item.evidence.map((entry) => {
+      const baselineMatch =
+        entry.baselineMatch ?? baselinesMatch(entry.baseline, criteria.find((c) => c.key === entry.key)?.baseline);
+      const sample = sampleFromEvidence(entry);
+      const bucket = spreadKey(entry.key, entry.sourceLevel ?? item.candidate.kind);
+      const closeness = datasetCloseness(
+        sample,
+        patternRefs.get(entry.key) ?? { niveau: null, trend: null },
+        {
+          niveau: niveauSpread.get(bucket) ?? null,
+          trend: trendSpread.get(bucket) ?? null,
+        },
+        config,
+      );
+      if (closeness != null) {
+        parts.push({ closeness, weight: grainWeight(entry.sourceLevel ?? item.candidate.kind) });
+      }
+      return {
+        ...entry,
+        baselineMatch,
+        ...(closeness != null ? { proximity: roundScore(closeness) } : {}),
+      };
+    });
+    const combined = combineCandidateScore(parts, config);
+    const name = displayAreaName(item.candidate);
+    const parentLabel = hitParentLabel(item.candidate, candidates, regions, byGroup);
+    const intersectionOf = intersectionParts(item.candidate, byGroup, byGeoKey, criteria);
+    const targetRegionGeoKey = item.candidate.targetRegionGeoKey?.trim() ?? "";
     scored.push({
-      id: candidate.id,
+      id: item.candidate.id,
       title: name,
-      kind: candidate.kind,
-      grain: candidate.grain,
+      kind: item.candidate.kind,
+      grain: item.candidate.grain,
       name,
       parentLabel,
       ...(intersectionOf.length >= 2 ? { intersectionOf } : {}),
       targetRegionGeoKey,
       dataAsOf: dataAsOfFromEvidence(withBaseline),
       location: {
-        geoKey: candidate.geoKey,
-        grain: candidate.grain,
-        lon: candidate.lon,
-        lat: candidate.lat,
+        geoKey: item.candidate.geoKey,
+        grain: item.candidate.grain,
+        lon: item.candidate.lon,
+        lat: item.candidate.lat,
         name,
       },
-      score,
+      score: combined.score,
       criteriaEvidence: withBaseline,
-      geometry: candidate.geometry ?? null,
+      geometry: item.candidate.geometry ?? null,
       geometryUnavailableReason:
-        candidate.geometry
+        item.candidate.geometry
           ? null
-          : candidate.geometryUnavailableReason ?? "Die Fläche kann noch nicht gezeichnet werden.",
+          : item.candidate.geometryUnavailableReason ?? "Die Fläche kann noch nicht gezeichnet werden.",
       trend: buildHitTrend(withBaseline),
     });
   }
@@ -142,16 +197,18 @@ export function dataAsOfFromEvidence(evidence: RecommendationEvidence[]): string
   return latest;
 }
 
+/**
+ * Tie-break: score, then coverage (active datasets), then overlaps-share,
+ * then stable id. Never the visible name.
+ */
 export function compareScoredLocations(left: ScoredLocation, right: ScoredLocation): number {
   if (right.score !== left.score) return right.score - left.score;
-  const leftKind = areaKindRank(left.kind);
-  const rightKind = areaKindRank(right.kind);
-  if (leftKind !== rightKind) return leftKind - rightKind;
-  const leftPresent = presentEvidenceCount(left.criteriaEvidence);
-  const rightPresent = presentEvidenceCount(right.criteriaEvidence);
-  if (rightPresent !== leftPresent) return rightPresent - leftPresent;
-  const byTitle = left.title.localeCompare(right.title, "de");
-  if (byTitle !== 0) return byTitle;
+  const leftCoverage = activeCoverageCount(left.criteriaEvidence);
+  const rightCoverage = activeCoverageCount(right.criteriaEvidence);
+  if (rightCoverage !== leftCoverage) return rightCoverage - leftCoverage;
+  const leftShare = maxOverlapShare(left);
+  const rightShare = maxOverlapShare(right);
+  if (rightShare !== leftShare) return rightShare - leftShare;
   return left.id.localeCompare(right.id, "de");
 }
 
@@ -511,8 +568,39 @@ function withoutInventedZero(points: SeriesPoint[]): SeriesPoint[] {
   });
 }
 
-function presentEvidenceCount(evidence: RecommendationEvidence[]): number {
-  return evidence.filter((entry) => entry.status === "present" || (!entry.status && entry.kind !== "absent")).length;
+function activeCoverageCount(evidence: RecommendationEvidence[]): number {
+  return evidence.filter((entry) => typeof entry.proximity === "number").length;
+}
+
+function maxOverlapShare(item: Pick<ScoredLocation, "overlaps">): number {
+  const shares = item.overlaps?.map((part) => part.share) ?? [];
+  if (shares.length === 0) return 0;
+  return Math.max(...shares);
+}
+
+function sampleFromEvidence(entry: RecommendationEvidence) {
+  if (entry.scope === "inherited") return { niveau: null, trend: null };
+  if (entry.kind === "absent" || entry.status === "absent") return { niveau: null, trend: null };
+  if (entry.baselineMatch === false) return { niveau: null, trend: null };
+  return sampleFromPoints(entry.points ?? [], entry.coverage);
+}
+
+function spreadKey(criterionKey: string, level: string): string {
+  return `${criterionKey}::${canonicalScoreLevel(level)}`;
+}
+
+function pushNumber(map: Map<string, number[]>, key: string, value: number): void {
+  const list = map.get(key) ?? [];
+  list.push(value);
+  map.set(key, list);
+}
+
+function spreadMap(buckets: Map<string, number[]>, minN: number): Map<string, number | null> {
+  const result = new Map<string, number | null>();
+  for (const [key, values] of buckets) {
+    result.set(key, robustSpread(values, minN));
+  }
+  return result;
 }
 
 function roundScore(value: number): number {

@@ -10,6 +10,10 @@ export const ANALYSIS_ENV_DEFAULTS = {
   analysisPoolMax: 2,
   seriesCandidateCap: 400,
   yieldMs: 20,
+  scoreTrendWeight: 0.6,
+  scoreNiveauWeight: 0.4,
+  scoreMinActiveDatasets: 2,
+  scoreMinDispersionN: 3,
 } as const;
 
 export function readAnalysisRunDeadlineMs(

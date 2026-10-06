@@ -9,6 +9,9 @@ import {
 describe("analysis env defaults", () => {
   it("uses 120s run deadline and a small analysis pool when unset", () => {
     expect(readAnalysisRunDeadlineMs(() => undefined)).toBe(120_000);
+    expect(ANALYSIS_ENV_DEFAULTS.scoreTrendWeight).toBe(0.6);
+    expect(ANALYSIS_ENV_DEFAULTS.scoreNiveauWeight).toBe(0.4);
+    expect(ANALYSIS_ENV_DEFAULTS.scoreMinActiveDatasets).toBe(2);
     expect(ANALYSIS_ENV_DEFAULTS.runDeadlineMs).toBe(120_000);
     expect(ANALYSIS_ENV_DEFAULTS.runDeadlineMs).toBeLessThan(150_000);
     expect(readPgAnalysisPoolMax(() => undefined)).toBe(2);

@@ -64,6 +64,12 @@ export interface RecommendationEvidence {
   baselineMethod?: BaselineMethod;
   /** Same Bezugsgröße as Muster patternByDataset for this metric. */
   baselineMatch?: boolean;
+  /**
+   * Closeness of this dataset to the store pattern on the baseline (0..1).
+   * Omitted when the dataset is absent, inherited, or statistically neutral.
+   * Additive; missing data is never stored as `0`.
+   */
+  proximity?: number;
 }
 
 export interface ScoredLocation {

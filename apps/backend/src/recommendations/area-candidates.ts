@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AnalysisRegion } from "../analysis/types";
 import { RegionGeometry } from "../geo/region-geometry";
 import { isKreisPlace, kreisAgsFrom, municipalityAgsFrom } from "../analysis/yearly-series";
@@ -206,6 +207,17 @@ function finestKindOrderSql(): string {
 /** ~1 km WGS84 cells. Round-robin per cell so SQL LIMIT is not alphabetical. */
 export const SPATIAL_SAMPLE_CELL_DEG = 0.01;
 
+/** Same digest as Postgres `md5(text)` (hex). Deterministic, not alphabetical. */
+export function spatialMd5(geoKey: string): string {
+  return createHash("md5").update(geoKey, "utf8").digest("hex");
+}
+
+export function compareSpatialGeoKey(left: string, right: string): number {
+  const byHash = spatialMd5(left).localeCompare(spatialMd5(right));
+  if (byHash !== 0) return byHash;
+  return left.localeCompare(right);
+}
+
 const CANDIDATE_RESULT_COLUMNS =
   "geo_key, grain, kind, name, ags, plz, lon, lat, geometry_geojson";
 
@@ -218,8 +230,8 @@ export function spatialEvenHitsLimitSql(
 ): string {
   const from = options.from ?? "hits";
   const order = options.preferFinestKind
-    ? `${finestKindOrderSql()}, spatial_rank ASC, geo_key ASC`
-    : `spatial_rank ASC, geo_key ASC`;
+    ? `${finestKindOrderSql()}, spatial_rank ASC, md5(geo_key), geo_key`
+    : `spatial_rank ASC, md5(geo_key), geo_key`;
   return `
 SELECT ${CANDIDATE_RESULT_COLUMNS}
   FROM (
@@ -230,7 +242,7 @@ SELECT ${CANDIDATE_RESULT_COLUMNS}
           ${from}.kind,
           ${spatialCellExpr(`${from}.lon`)},
           ${spatialCellExpr(`${from}.lat`)}
-        ORDER BY ${from}.geo_key ASC
+        ORDER BY md5(${from}.geo_key), ${from}.geo_key
       ) AS spatial_rank
     FROM ${from}
   ) sampled

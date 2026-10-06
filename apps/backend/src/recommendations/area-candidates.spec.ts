@@ -33,7 +33,9 @@ import {
   selectCatalogHits,
   selectFinestHits,
   skipAddressAndGridForRegion,
+  compareSpatialGeoKey,
   spatialEvenHitsLimitSql,
+  spatialMd5,
   SPATIAL_SAMPLE_CELL_DEG,
   clipToRegionSql,
   clippedHitGeoJsonSql,
@@ -117,7 +119,9 @@ describe("area candidate SQL", () => {
     const wrap = spatialEvenHitsLimitSql();
     expect(wrap).toContain("spatial_rank");
     expect(wrap).toContain(`floor(hits.lon / ${SPATIAL_SAMPLE_CELL_DEG})`);
-    expect(wrap).toContain("ORDER BY spatial_rank ASC, geo_key ASC");
+    expect(wrap).toContain("ORDER BY spatial_rank ASC, md5(geo_key), geo_key");
+    expect(wrap).toContain("ORDER BY md5(hits.geo_key), hits.geo_key");
+    expect(wrap).not.toMatch(/ORDER BY spatial_rank ASC, geo_key ASC/);
     expect(wrap).toContain(`LIMIT ${AREA_CANDIDATE_LIMIT}`);
     for (const sql of [
       buildAddressCandidateSql(),
@@ -126,10 +130,32 @@ describe("area candidate SQL", () => {
       buildTeilCatalogSql(),
       buildAreaCandidateSql(),
     ]) {
+      expect(sql).toContain("md5(");
       expect(sql).toContain("spatial_rank");
       expect(sql).toContain("row_number() OVER");
       expect(sql).toMatch(/ORDER BY[\s\S]*spatial_rank ASC/);
       expect(sql).not.toMatch(/ORDER BY[\s\S]*name ASC NULLS LAST[\s\S]*geo_key ASC\s+LIMIT/);
+      expect(sql).not.toMatch(/ORDER BY \$\{from\}\.geo_key ASC/);
+    }
+  });
+
+  it("orders spatial ties by md5(geo_key), not alphabetically", () => {
+    const keys = ["address:zulu", "lor:plr:01100310", "plz:10115", "plz:14195", "zzz:last", "aaa:first"];
+    const alpha = [...keys].sort((left, right) => left.localeCompare(right));
+    const hashed = [...keys].sort(compareSpatialGeoKey);
+    expect(hashed).not.toEqual(alpha);
+    expect(spatialMd5("plz:10115")).toMatch(/^[0-9a-f]{32}$/);
+    expect(spatialMd5("aaa:first") < spatialMd5("zzz:last") || "aaa:first" < "zzz:last").toBe(true);
+    for (const sql of [
+      spatialEvenHitsLimitSql(),
+      buildAddressCandidateSql(),
+      buildGrid100CandidateSql(),
+      buildGeoAddressCandidateSql(),
+      buildTeilCatalogSql(),
+      buildAreaCandidateSql(),
+    ]) {
+      expect(sql).toMatch(/ORDER BY md5\(/);
+      expect(sql).not.toMatch(/PARTITION BY[\s\S]*ORDER BY [^\n]*geo_key ASC/);
     }
   });
 

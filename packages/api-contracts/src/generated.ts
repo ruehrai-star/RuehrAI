@@ -592,14 +592,14 @@ export interface paths {
          *     differentiate sibling Teilflächen. `scope: local` is native to
          *     that hit.
          *
-         *     Ranking uses the three-year trend where a **local** series exists
-         *     at the hit's own Ebene (`hamburg_stadtteil_regionalstatistik` on
-         *     Ortsteil, `muenchen_indikatorenatlas` on Stadtbezirk,
-         *     `berlin_lor_ewr_bevoelkerung` on LOR PLR, Köln/Leipzig/Düsseldorf/
-         *     Essen/Frankfurt kleinräumige themes, plus `unfallatlas_gebiet`
-         *     on Ortsteil/Bezirk/PLZ). Snapshot values are labeled `stichtag`.
-         *     Missing cells are `absent` (`liegt nicht vor`), never `0`.
-         *     Kleinräumige yearlySeries rows may have a null embedding.
+         *     Ranking uses closeness to the store-surroundings Musterwert on
+         *     the baseline (`0.19.4`): trend before niveau, robust spread
+         *     (MAD/IQR) per dataset and Ebene, inherited and under-dispersed
+         *     series neutral, coverage factor so one dataset never yields
+         *     1.0. Snapshot values are labeled `stichtag`. Missing cells are
+         *     `absent` (`liegt nicht vor`), never `0`. Kleinräumige
+         *     yearlySeries rows may have a null embedding. Additive
+         *     `criteriaEvidence[].proximity` is the per-dataset closeness.
          *
          *     `rank` is 1-based and gapless **je Zielregion**
          *     (`items[].targetRegionGeoKey`), all Ebenen together by score
@@ -1704,14 +1704,18 @@ export interface components {
             location: components["schemas"]["RecommendationLocation"];
             /**
              * Format: double
-             * @description Share of **local** three-year trend criteria whose **normalized**
-             *     direction matches the store-surroundings pattern of the **same
-             *     dataset** (`metricId`). Different Ebenen may still match when
-             *     both are baselined (Berlin Bezirk vs Köln PLZ). Inherited
-             *     parent-level trends and Kreis-frame series do not change this
-             *     score. Stichtag criteria are labeled and do not drive this
-             *     score. Missing Bezugsgröße is absent and does not match. 1 is
-             *     a full local trend fit.
+             * @description Closeness of this Teilfläche to the store-surroundings pattern
+             *     on the shared baseline (0..1). Per local dataset: proximity =
+             *     1 − min(1, |Kandidat − Muster| / robuste Streuung) with MAD
+             *     (IQR fallback) over candidates of that dataset and Ebene.
+             *     Trend (weight 0.6) before niveau (0.4); coverage `single` is
+             *     not a trend. Inherited or under-dispersed datasets are
+             *     neutral (omitted). Grain weights prefer the finer Ebene the
+             *     dataset is present on. Coverage factor
+             *     min(1, nAktiv / kMin) with kMin default 2 so a single
+             *     dataset never yields 1.0. Missing cells stay absent, never
+             *     `0`. Additive `criteriaEvidence[].proximity` is the
+             *     per-dataset closeness before the item coverage factor.
              */
             score: number;
             /**
@@ -1826,6 +1830,9 @@ export interface components {
          *     Fläche, or `inherited` when it was taken from a coarser parent.
          *     `metricId`, `baseline`, `rawValue`, `normalizedValue`, and
          *     `sourceLevel` (Flächenebene) describe the dataset compare.
+         *     Additive `proximity` (0.19.4) is closeness to the Musterwert on
+         *     the baseline; omitted when the dataset is absent, inherited, or
+         *     statistically neutral.
          */
         RecommendationEvidence: {
             key: string;
@@ -1866,6 +1873,16 @@ export interface components {
              *     („liegt nicht vor“) and does not drive compare. Additive.
              */
             baselineMatch?: boolean;
+            /**
+             * Format: double
+             * @description Additive 0.19.4. Closeness of this dataset to the store
+             *     pattern on the shared baseline (trend and/or niveau, 0..1).
+             *     Omitted when the dataset is absent, inherited, or has too
+             *     few distinct local values to score (neutral). Missing data
+             *     is never stored as `0`. Does not include the item-level
+             *     coverage factor.
+             */
+            proximity?: number;
         };
         AddressPairRequest: {
             left: components["schemas"]["AddressInput"];

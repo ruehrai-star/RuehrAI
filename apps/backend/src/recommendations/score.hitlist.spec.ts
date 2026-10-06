@@ -1,4 +1,5 @@
 import { PatternCriterion } from "../analysis/types";
+import { buildPatternByDataset } from "../analysis/pattern-profile";
 import { SeriesLevel, YearlySeries } from "../analysis/yearly-series";
 import { AreaCandidate, AreaKind, selectCatalogHits } from "./area-candidates";
 import { rankTeilflaechen } from "./score";
@@ -173,12 +174,17 @@ describe("Trefferliste fixtures (Köln Innenstadt, Tempelhof, Lichterfelde)", ()
     });
     const loaded = selectCatalogHits([...koelnOrtsteile, ...quartiere, parent], [koelnInnenstadt]);
     const yearly: YearlySeries[] = [];
-    for (const item of koelnOrtsteile) {
-      yearly.push(localUnfall(item.geoKey, 8, 20), inhabitants(item.geoKey));
+    koelnOrtsteile.forEach((item, index) => {
+      yearly.push(localUnfall(item.geoKey, 8 + index * 4, 20 - index * 3), inhabitants(item.geoKey));
       yearly.push(inherited(item.geoKey, "wanderungen", "gemeinde", koelnAgs));
       yearly.push(inherited(item.geoKey, "destatis_bevoelkerung_alter", "kreis", "05315"));
-    }
-    const ranked = rankTeilflaechen(loaded, yearly, pattern);
+    });
+    const ranked = rankTeilflaechen(loaded, yearly, pattern, [], {
+      patternByDataset: buildPatternByDataset([
+        localUnfall(koelnOrtsteile[0]!.geoKey, 8, 20),
+        inhabitants(koelnOrtsteile[0]!.geoKey),
+      ]),
+    });
     expect(ranked.length).toBeGreaterThanOrEqual(1);
     expect(ranked).toHaveLength(5);
     expect(ranked.every((item) => item.kind === "ortsteil")).toBe(true);
