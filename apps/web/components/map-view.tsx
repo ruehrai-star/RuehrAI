@@ -400,7 +400,7 @@ export function MapView({
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
           "fill-color": REGION_FILL,
-          "fill-opacity": regionFrameOnly ? 0 : ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
+          "fill-opacity": ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
         },
       });
       map.addLayer({
@@ -410,9 +410,7 @@ export function MapView({
         filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
         paint: {
           "line-color": ["case", ["==", ["get", "marked"], true], "#0f2a4d", REGION_LINE],
-          "line-width": regionFrameOnly
-            ? 1.25
-            : ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
+          "line-width": ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
         },
       });
       map.addSource("treffer", { type: "geojson", data: hitsRef.current, promoteId: "id" });
@@ -527,7 +525,21 @@ export function MapView({
     if (!map || !mapReady) return;
     const source = map.getSource("zielregion");
     if (source && "setData" in source) (source as GeoJSONSource).setData(region);
-  }, [region, regionKey, mapReady]);
+    if (map.getLayer("zielregion-fill")) {
+      map.setPaintProperty(
+        "zielregion-fill",
+        "fill-opacity",
+        regionFrameOnly ? 0 : ["case", ["==", ["get", "marked"], true], 0.44, REGION_FILL_OPACITY],
+      );
+    }
+    if (map.getLayer("zielregion-line")) {
+      map.setPaintProperty(
+        "zielregion-line",
+        "line-width",
+        regionFrameOnly ? 1.25 : ["case", ["==", ["get", "marked"], true], 3.25, 1.5],
+      );
+    }
+  }, [region, regionKey, regionFrameOnly, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -274,7 +274,7 @@ export function hitBadge(item: Recommendation): string {
   if (item.location.grain === "grid100") return "Raster";
   if (item.location.grain === "address") return "Adresse";
   if (item.location.grain === "plz5" || item.location.grain === "plz8") return "PLZ";
-  return catalogBadge(item.location) || (item.location.grain ? grainLabel(item.location.grain, item.location.geoKey) : "");
+  return catalogBadge(item.location) || (item.location.grain ? grainLabel(item.location.grain, locationKey(item)) : "");
 }
 
 export function areaKindBadge(kind: AreaKind): string {
@@ -314,7 +314,9 @@ export function areaRankOf(source: {
   if (/lor:plr:|koeln:sq:/i.test(blob)) return AREA_RANK.lor;
   if (source.kind && source.kind in AREA_RANK) return AREA_RANK[source.kind] ?? 9;
   if (source.level && source.level in AREA_RANK) return AREA_RANK[source.level] ?? 9;
-  if (source.grain === "ags" && catalogBadge(source) === "Bezirk") return AREA_RANK.bezirk;
+  if (source.grain === "ags" && catalogBadge({ grain: "ags", geoKey: source.geoKey, ags: source.ags, id: source.id }) === "Bezirk") {
+    return AREA_RANK.bezirk;
+  }
   if (source.grain && source.grain in AREA_RANK) return AREA_RANK[source.grain] ?? 9;
   if (/lor:/i.test(blob)) return AREA_RANK.lor;
   return 9;
@@ -492,6 +494,7 @@ function toCriterionRow(
   const value =
     coverage === "single" && evidence?.normalizedValue != null ? formatNumber(evidence.normalizedValue) : null;
   const missing = missingValue || (coverage === "single" && value == null && !stichtagYear);
+  const shownCoverage: "series" | "single" | "none" = missing && coverage !== "single" ? "none" : coverage;
 
   return {
     key,
@@ -499,9 +502,9 @@ function toCriterionRow(
     inherited,
     inheritedLabel: inherited ? inheritedLabel(evidence?.sourceLevel ?? profile?.sourceLevel) : null,
     missing,
-    coverage: missing && coverage !== "single" ? "none" : coverage,
-    direction: missing || coverage === "single" || coverage === "none" ? null : direction,
-    series: coverage === "series" && !missing ? series : [],
+    coverage: shownCoverage,
+    direction: shownCoverage === "series" && !missing ? direction : null,
+    series: shownCoverage === "series" && !missing ? series : [],
     patternSeries,
     patternMissing,
     stichtagValue: coverage === "single" && !missing ? value : null,

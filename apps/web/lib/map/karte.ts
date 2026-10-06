@@ -185,8 +185,8 @@ export function hitOutlines(items: readonly Recommendation[]): {
       properties: { id: item.id, rank: item.rank, name: title, marked: false },
       geometry:
         geometry.type === "Polygon"
-          ? { type: "Polygon", coordinates: geometry.coordinates }
-          : { type: "MultiPolygon", coordinates: geometry.coordinates },
+          ? { type: "Polygon" as const, coordinates: geometry.coordinates as Polygon["coordinates"] }
+          : { type: "MultiPolygon" as const, coordinates: geometry.coordinates as Polygon["coordinates"][] },
     });
     for (const position of positionsOf(geometry)) {
       bounds = extendBounds(bounds, position.lon, position.lat);
