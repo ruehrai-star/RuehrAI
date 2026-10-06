@@ -11,10 +11,13 @@ import {
   analysisFailureMessage,
   clientDeadlineMessage,
   isAnalysisRunFailureReason,
+  isMarkedTargetRegionMissingCopy,
   isMarkedTargetRegionNotFound,
   isMarkedTargetRegionNotFoundCode,
+  markedTargetRegionMissingMessage,
 } from "./failure.ts";
 import { ApiError } from "../api/types.ts";
+import { containsInternalKey } from "../format.ts";
 
 function line(detail: string): string {
   return `${ANALYSIS_FAILURE_COPY.prefix}${detail}`;
@@ -141,6 +144,37 @@ test("POST /analysis/runs 404 with marked_target_region_not_found is a dedicated
   );
 });
 
+test("a known Zielregion name is quoted in the missing-mark sentence; unknown or key-like values keep the generic text", () => {
+  const generic = ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  assert.equal(markedTargetRegionMissingMessage(null), generic);
+  assert.equal(markedTargetRegionMissingMessage(""), generic);
+  assert.equal(markedTargetRegionMissingMessage("   "), generic);
+  assert.equal(markedTargetRegionMissingMessage("ortsteil:osm:162894"), generic);
+  assert.equal(markedTargetRegionMissingMessage("lor:plr:07400823"), generic);
+  assert.equal(markedTargetRegionMissingMessage("ags:09162000"), generic);
+  assert.equal(
+    markedTargetRegionMissingMessage("Tempelhof"),
+    "Die Zielregion „Tempelhof“ ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  );
+  assert.equal(
+    markedTargetRegionMissingMessage("Tempelhof (Berlin)"),
+    "Die Zielregion „Tempelhof (Berlin)“ ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  );
+  assert.equal(
+    markedTargetRegionMissingMessage("Tempelhof (ortsteil:osm:162894)"),
+    "Die Zielregion „Tempelhof“ ist nicht mehr gespeichert. Bitte wählen Sie sie neu.",
+  );
+  const named = markedTargetRegionMissingMessage("Tempelhof");
+  assert.equal(named.includes("ortsteil"), false);
+  assert.equal(named.includes("geoKey"), false);
+  assert.equal(named.includes("162894"), false);
+  assert.equal(containsInternalKey(named), false);
+  assert.equal(isMarkedTargetRegionMissingCopy(generic), true);
+  assert.equal(isMarkedTargetRegionMissingCopy(named), true);
+  assert.equal(isMarkedTargetRegionMissingCopy(line(ANALYSIS_FAILURE_COPY.unexpected)), false);
+  assert.equal(isMarkedTargetRegionMissingCopy("Die Analyse wurde nicht gefunden."), false);
+});
+
 test("other 404s and errors stay on the generic mapping", () => {
   const unexpected = line(ANALYSIS_FAILURE_COPY.unexpected);
   assert.equal(analysisFailureFromHttp(404), unexpected);
@@ -162,16 +196,20 @@ test("Empfehlungen and Musteranalyse show the dedicated sentence plus Zielregion
   const region = readFileSync(new URL("../../components/region-section.tsx", import.meta.url), "utf8");
   assert.equal(CHOOSE_TARGET_REGION_HREF, "/standorte#zielregion");
   assert.equal(ANALYSIS_FAILURE_COPY.chooseTargetRegion, "Zielregion wählen");
-  assert.match(notice, /ANALYSIS_FAILURE_COPY\.markedTargetRegionMissing/);
+  assert.match(notice, /markedTargetRegionMissingMessage/);
   assert.match(notice, /href=\{CHOOSE_TARGET_REGION_HREF\}/);
   assert.match(notice, /ANALYSIS_FAILURE_COPY\.chooseTargetRegion/);
   assert.match(empfehlungen, /isMarkedTargetRegionNotFound\(caught\)/);
   assert.match(empfehlungen, /clearMarkedKey\(\)/);
-  assert.match(empfehlungen, /<MarkedRegionMissingNotice \/>/);
-  assert.match(empfehlungen, /runError !== ANALYSIS_FAILURE_COPY\.markedTargetRegionMissing/);
+  assert.match(empfehlungen, /markedTargetRegionMissingMessage/);
+  assert.match(empfehlungen, /runRegionEntryLabel\(current, regions\)/);
+  assert.match(empfehlungen, /<MarkedRegionMissingNotice message=\{runError\} \/>/);
+  assert.match(empfehlungen, /isMarkedTargetRegionMissingCopy\(runError\)/);
   assert.match(muster, /isMarkedTargetRegionNotFound\(caught\)/);
   assert.match(muster, /clearMarkedKey\(\)/);
-  assert.match(muster, /<MarkedRegionMissingNotice \/>/);
+  assert.match(muster, /markedTargetRegionMissingMessage/);
+  assert.match(muster, /<MarkedRegionMissingNotice message=\{actionError\} \/>/);
+  assert.match(muster, /isMarkedTargetRegionMissingCopy\(actionError\)/);
   assert.match(muster, /showMarkedRegionMissing \? null/);
   assert.match(region, /hash === "#zielregion"/);
   assert.match(region, /searchRef\.current\?\.focus\(\)/);

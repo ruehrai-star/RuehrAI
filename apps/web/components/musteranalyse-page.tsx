@@ -11,6 +11,7 @@ import { markedRegion } from "@/lib/locations/regions";
 import { getLocationApi } from "@/lib/locations/api";
 import { visiblePlaceText } from "@/lib/format";
 import { loadPatternForMarkedRegion, patternQueryGeoKey } from "@/lib/verlauf/bind";
+import { runRegionEntryLabel } from "@/lib/analysis/run-label";
 import { targetRegionKeyOf } from "@/lib/recommendations/target-region-key";
 import {
   ANALYSIS_COPY,
@@ -20,7 +21,13 @@ import {
   revenueDirectionLabel,
   revenueMonthCount,
 } from "@/lib/analysis/model";
-import { analysisFailureFromHttp, analysisFailureMessage, ANALYSIS_FAILURE_COPY, isMarkedTargetRegionNotFound } from "@/lib/analysis/failure";
+import {
+  analysisFailureFromHttp,
+  analysisFailureMessage,
+  isMarkedTargetRegionMissingCopy,
+  isMarkedTargetRegionNotFound,
+  markedTargetRegionMissingMessage,
+} from "@/lib/analysis/failure";
 import { analysisStartLocked, isInFlightStatus, pollAnalysisRun } from "@/lib/analysis/poll";
 import { errorText } from "@/lib/user-message";
 import { RunRegionLabel } from "./run-region-label";
@@ -54,8 +61,7 @@ export function MusteranalysePage() {
   const visibleRun = visible && phase !== "running" ? run : null;
   const visiblePattern = visible && phase !== "running" ? pattern : null;
   const status = statusText(phase, visible, Boolean(visiblePattern));
-  const showMarkedRegionMissing =
-    phase === "failed" && actionError === ANALYSIS_FAILURE_COPY.markedTargetRegionMissing;
+  const showMarkedRegionMissing = phase === "failed" && isMarkedTargetRegionMissingCopy(actionError);
   const startLocked = analysisStartLocked({
     starting: phase === "loading",
     runStatus: phase === "running" ? "running" : "idle",
@@ -173,8 +179,9 @@ export function MusteranalysePage() {
     } catch (caught) {
       if (request.current !== token) return;
       if (isMarkedTargetRegionNotFound(caught)) {
+        const regionName = runRegionEntryLabel(marked, regions) || runRegionEntryLabel(input?.region, regions);
         clearMarkedKey();
-        setActionError(ANALYSIS_FAILURE_COPY.markedTargetRegionMissing);
+        setActionError(markedTargetRegionMissingMessage(regionName));
       } else {
         const status = caught instanceof Error && "status" in caught ? Number((caught as { status: number }).status) : 0;
         const code = caught instanceof Error && "code" in caught ? String((caught as { code?: string }).code ?? "") : null;
@@ -243,11 +250,11 @@ export function MusteranalysePage() {
           {status}
         </p>
       ) : null}
-      {showMarkedRegionMissing ? <MarkedRegionMissingNotice /> : null}
+      {showMarkedRegionMissing ? <MarkedRegionMissingNotice message={actionError} /> : null}
       {phase === "failed" &&
       actionError &&
       actionError !== ANALYSIS_COPY.failed &&
-      actionError !== ANALYSIS_FAILURE_COPY.markedTargetRegionMissing ? (
+      !isMarkedTargetRegionMissingCopy(actionError) ? (
         <p className="message message-error">{actionError}</p>
       ) : null}
       {visible && readError ? (
