@@ -547,21 +547,23 @@ test("map hover hint carries rank, name, badge and Lage-Satz; outlines have no e
   hit.name = "PLZ 81541";
   hit.geometry = MUNICH_BOX;
   hit.overlaps = [
-    { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 0.62 },
+    { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 0.62, isTargetRegion: true },
     { geoKey: "stadtbezirk:og", label: "Obergiesing-Fasangarten", kind: "stadtbezirk", share: 0.38 },
   ];
   const model = buildTrefferlisteKarte({ region: region({ geometry: MUNICH_BOX, geoKey: "09162000" }), items: [hit] });
-  assert.equal(model.hitMarkers[0]?.lage, "Liegt zu 62 % in Au-Haidhausen und zu 38 % in Obergiesing-Fasangarten.");
+  assert.equal(model.hitMarkers[0]?.lage, "Liegt in Au-Haidhausen und Obergiesing-Fasangarten.");
   assert.match(model.hitMarkers[0]?.hint ?? "", /Rang 1/);
   assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ 81541/);
   assert.match(model.hitMarkers[0]?.hint ?? "", /PLZ/);
-  assert.match(model.hitMarkers[0]?.hint ?? "", /Liegt zu 62 %/);
+  assert.match(model.hitMarkers[0]?.hint ?? "", /Liegt in Au-Haidhausen und Obergiesing-Fasangarten/);
+  assert.equal((model.hitMarkers[0]?.hint ?? "").includes("%"), false);
+  assert.equal((model.hitMarkers[0]?.lage ?? "").includes("%"), false);
   const numbered = recommendation("plz5:12247", "PLZ 12247", null, null);
   numbered.kind = "plz";
   numbered.name = "PLZ 12247";
   numbered.geometry = MUNICH_BOX;
   numbered.overlaps = [
-    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor", share: 0.55 },
+    { geoKey: "lor:plr:07400720", label: "Planungsraum 07400720", kind: "lor", share: 0.55, isTargetRegion: true },
     { geoKey: "koeln:sq:101", label: "Quartier 101", kind: "quartier", share: 0.45 },
   ];
   const numberedModel = buildTrefferlisteKarte({
@@ -570,10 +572,24 @@ test("map hover hint carries rank, name, badge and Lage-Satz; outlines have no e
   });
   assert.equal(
     numberedModel.hitMarkers[0]?.lage,
-    "Liegt zu 55 % in Planungsraum ohne Namen und zu 45 % in Quartier ohne Namen.",
+    "Liegt in Planungsraum ohne Namen und Quartier ohne Namen.",
   );
   assert.equal(numberedModel.hitMarkers[0]?.lage.includes("07400720"), false);
   assert.equal(numberedModel.hitMarkers[0]?.lage.includes("101"), false);
+  const legacy = recommendation("plz5:81542", "81542", null, null);
+  legacy.kind = "plz";
+  legacy.name = "PLZ 81542";
+  legacy.geometry = MUNICH_BOX;
+  legacy.overlaps = [
+    { geoKey: "stadtbezirk:au", label: "Au-Haidhausen", kind: "stadtbezirk", share: 0.62 },
+    { geoKey: "stadtbezirk:og", label: "Obergiesing-Fasangarten", kind: "stadtbezirk", share: 0.38 },
+  ];
+  const legacyModel = buildTrefferlisteKarte({
+    region: region({ geometry: MUNICH_BOX, geoKey: "09162000" }),
+    items: [legacy],
+  });
+  assert.equal(legacyModel.hitMarkers[0]?.lage, null);
+  assert.equal((legacyModel.hitMarkers[0]?.hint ?? "").includes("Liegt"), false);
   assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("62"), false);
   assert.equal(JSON.stringify(model.hits.features[0]?.properties ?? {}).includes("share"), false);
   assert.equal(model.region.features.length, 1);

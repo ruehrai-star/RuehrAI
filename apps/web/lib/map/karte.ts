@@ -2,7 +2,7 @@ import type { Recommendation, RegionGeometry, StoreLocation, TargetRegion } from
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { coordinatesOf } from "../api/geo.ts";
 import { regionListKey } from "../locations/regions.ts";
-import { hitBadge, hitMapHint, hitName, overlapLageSentence } from "../recommendations/hit-copy.ts";
+import { hitBadge, hitMapHint, hitName, overlapLageMapHint } from "../recommendations/hit-copy.ts";
 
 /**
  * Map model for the Karte page (KAN-48, KAN-50, KAN-51) on OpenAPI 0.5.0.
@@ -209,7 +209,7 @@ export function hitOutlines(items: readonly Recommendation[]): {
         rank: item.rank,
         title,
         badge,
-        lage: overlapLageSentence(item.overlaps),
+        lage: overlapLageMapHint(item.overlaps),
         hint,
         ariaLabel: hint,
         lon: label.lon,

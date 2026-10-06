@@ -954,6 +954,9 @@ function parseRecommendation(body: Recommendation, route: string): Recommendatio
       ) {
         throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
       }
+      if (part.isTargetRegion !== undefined && typeof part.isTargetRegion !== "boolean") {
+        throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+      }
     }
   }
   const rawLocation = body.location as Recommendation["location"] & { level?: unknown; parentLabel?: unknown };
@@ -994,6 +997,21 @@ function parseRecommendationEvidence(body: RecommendationEvidence, route: string
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.kind !== undefined && !EVIDENCE_KINDS.has(body.kind)) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (
+    body.proximity !== undefined &&
+    (typeof body.proximity !== "number" || body.proximity < 0 || body.proximity > 1)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (
+    body.trendYears !== undefined &&
+    (!Number.isInteger(body.trendYears) || body.trendYears < 2)
+  ) {
+    throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
+  }
+  if (body.trendFromTwoYears !== undefined && typeof body.trendFromTwoYears !== "boolean") {
     throw new ApiError(`Antwort von ${route} ist ungültig.`, 502);
   }
   if (body.sourceLevel !== undefined && !isSeriesLevel(body.sourceLevel)) {

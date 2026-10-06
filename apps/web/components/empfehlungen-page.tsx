@@ -626,8 +626,15 @@ function TrefferCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const cardClass = [
+    "section-card rec-card",
+    selected ? "is-selected" : "",
+    card.inactive ? "is-inactive" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <article className={selected ? "section-card rec-card is-selected" : "section-card rec-card"}>
+    <article className={cardClass}>
       <button type="button" className="treffer-card-head" onClick={onSelect}>
         <p className="treffer-rank">{rankLabel(card.rank)}</p>
         <h2>{card.name}</h2>
@@ -641,13 +648,14 @@ function TrefferCard({
       {card.stichtagLabel ? <p className="treffer-stichtag">{card.stichtagLabel}</p> : null}
       {card.trendSummary ? <p className="summary-line">{card.trendSummary}</p> : null}
       <p className="message">{card.rationale}</p>
+      {card.inactiveHint ? <p className="message treffer-inactive-hint">{card.inactiveHint}</p> : null}
       {card.geometryHint ? <p className="hint">{card.geometryHint}</p> : null}
       <ul className="treffer-criteria">
         {card.criteria.map((row) => (
-          <CriterionRow key={row.key} row={row} />
+          <CriterionRow key={row.key} row={row} inactive={card.inactive} />
         ))}
         {card.inherited.map((row) => (
-          <CriterionRow key={row.key} row={row} inherited />
+          <CriterionRow key={row.key} row={row} inherited inactive={card.inactive} />
         ))}
       </ul>
       <details>
@@ -684,24 +692,38 @@ function TrefferCard({
   );
 }
 
-function CriterionRow({ row, inherited = false }: { row: TrefferCriterionRow; inherited?: boolean }) {
+function CriterionRow({
+  row,
+  inherited = false,
+  inactive = false,
+}: {
+  row: TrefferCriterionRow;
+  inherited?: boolean;
+  inactive?: boolean;
+}) {
+  const hideMissingCopy = inactive;
   return (
     <li className={inherited ? "treffer-criterion is-inherited" : "treffer-criterion"}>
       <div className="treffer-criterion-charts">
         {row.missing ? (
-          <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
+          hideMissingCopy ? null : (
+            <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
+          )
         ) : row.coverage === "series" ? (
           <Sparkline points={row.series} tone="hit" />
         ) : row.coverage === "single" ? (
           <p className="treffer-stichtag">{stichtagCopy(row.stichtagValue, row.stichtagYear)}</p>
-        ) : (
+        ) : hideMissingCopy ? null : (
           <p className="message">{RECOMMENDATION_COPY.missingValue}</p>
         )}
         {row.direction === "up" ? <span aria-label="steigend">↑</span> : null}
         {row.direction === "down" ? <span aria-label="fallend">↓</span> : null}
         {row.direction === "flat" ? <span aria-label="gleichbleibend">→</span> : null}
+        {row.twoYearTrendLabel ? <p className="hint treffer-two-year">{row.twoYearTrendLabel}</p> : null}
         {row.patternMissing ? (
-          <p className="hint treffer-pattern-missing">{RECOMMENDATION_COPY.missingValue}</p>
+          hideMissingCopy ? null : (
+            <p className="hint treffer-pattern-missing">{RECOMMENDATION_COPY.missingValue}</p>
+          )
         ) : (
           <Sparkline points={row.patternSeries} tone="pattern" />
         )}
@@ -713,6 +735,7 @@ function CriterionRow({ row, inherited = false }: { row: TrefferCriterionRow; in
             .filter(Boolean)
             .join(" · ")}
         </p>
+        {row.proximityLabel ? <p className="hint treffer-proximity">{row.proximityLabel}</p> : null}
       </div>
     </li>
   );
