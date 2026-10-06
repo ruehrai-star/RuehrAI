@@ -11,6 +11,7 @@ import { getRecommendationApi } from "@/lib/recommendations/api";
 import { recommendationStatus } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
 import { formatStandLine, loadPatternForMarkedRegion, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
 import {
   POST_STANDORTE_HREF,
   SELECTABLE_AREA_LEVELS,
@@ -71,7 +72,11 @@ export function VerlaufPage() {
       : null;
   const revenueCount = optionalRevenueCount(revenue);
   const standLine = bindPhase === "ready" && bound ? formatStandLine(bound.createdAt, bound.region) : null;
-  const showEmpty = visible && pagePhase === "idle" && bindPhase === "empty" && visibleRegions.length > 0;
+  const showEmpty =
+    visible &&
+    pagePhase === "idle" &&
+    visibleRegions.length > 0 &&
+    (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations && recPhase === "idle"));
 
   useEffect(() => {
     if (!session) return;
@@ -91,13 +96,11 @@ export function VerlaufPage() {
       setLoadError(null);
       setActionError(null);
       try {
-        const [nextSet, nextRegions, nextStores] = await Promise.all([
-          recommendationApi.getRecommendations(),
+        const [nextRegions, nextStores] = await Promise.all([
           locationApi.listTargetRegions(),
           locationApi.listStores(),
         ]);
         if (cancelled) return;
-        setRecommendationSet(nextSet);
         setRegions(nextRegions);
         setMarkedKey(ensureMarkedKey(nextRegions, null));
         setStores(nextStores);
@@ -125,7 +128,7 @@ export function VerlaufPage() {
       request.current += 1;
       bindRequest.current += 1;
     };
-  }, [session, recommendationApi, locationApi]);
+  }, [session, locationApi]);
 
   useEffect(() => {
     if (!session || pagePhase !== "idle") return;
@@ -137,18 +140,21 @@ export function VerlaufPage() {
     void (async () => {
       try {
         const next = await loadPatternForMarkedRegion(analysisApi, current);
+        const recs = next ? await loadRecommendationsForRun(recommendationApi, next.runId) : null;
         if (bindRequest.current !== token) return;
         setBound(next);
+        setRecommendationSet(recs);
         setBoundKey(key);
         setBindFailed(false);
       } catch {
         if (bindRequest.current !== token) return;
         setBound(null);
+        setRecommendationSet(null);
         setBoundKey(key);
         setBindFailed(true);
       }
     })();
-  }, [session, pagePhase, regions, markedKey, analysisApi]);
+  }, [session, pagePhase, regions, markedKey, analysisApi, recommendationApi]);
 
   async function onCreate() {
     if (!bound || bindPhase !== "ready") return;
@@ -363,9 +369,6 @@ export function VerlaufPage() {
           </section>
         ) : null}
 
-        {visible && !boundRecommendations && bindPhase === "ready" && recPhase === "idle" ? (
-          <p className="message">{VERLAUF_COPY.noneYet}</p>
-        ) : null}
         {status?.thin ? <p className="banner">{VERLAUF_COPY.thin}</p> : null}
         {status?.empty ? (
           <p className="message" role="status">

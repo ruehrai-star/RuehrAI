@@ -54,20 +54,24 @@ export function patternSourceLabel(source: AnalysisPattern["source"]): string {
 export interface BrainStatusText {
   mode: string;
   detail: string | null;
+  tone: "info" | "status";
 }
 
 /**
  * German status for `AnalysisBrain`. OpenAPI 0.3.0 has no running/failed run
  * status — only `completed`, plus `mode` `vector` | `sql` and an optional reason.
+ * Embedding notes are informational; they do not block analysis or Treffer.
  */
 export function brainStatusText(brain: AnalysisBrain): BrainStatusText {
   const facts = brain.factCount === 1 ? "1 Fakt" : `${brain.factCount} Fakten`;
   if (brain.mode === "vector") {
-    return { mode: `Vektorsuche · ${facts}`, detail: null };
+    return { mode: `Vektorsuche · ${facts}`, detail: null, tone: "status" };
   }
+  const detail = reasonLabel(brain.vectorUnavailableReason);
   return {
     mode: `Filter ohne Vektor · ${facts}`,
-    detail: reasonLabel(brain.vectorUnavailableReason),
+    detail,
+    tone: detail ? "info" : "status",
   };
 }
 

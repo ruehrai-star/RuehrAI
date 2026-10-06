@@ -21,6 +21,7 @@ import {
 } from "@/lib/recommendations/model";
 import { errorText } from "@/lib/user-message";
 import { formatStandLine, loadPatternForMarkedRegion, type BoundVerlauf } from "@/lib/verlauf/bind";
+import { loadRecommendationsForRun } from "@/lib/recommendations/bind";
 import { regionView } from "@/lib/verlauf/model";
 import { CatalogParentName } from "./catalog-parent-name";
 import { useSession } from "./session-provider";
@@ -76,8 +77,12 @@ export function EmpfehlungenPage() {
   );
   const standLine = bindPhase === "ready" && bound ? formatStandLine(bound.createdAt, bound.region) : null;
   const heading = headingForMarkedRegion(marked);
-  const showEmptyRun = visible && pagePhase === "idle" && bindPhase === "empty" && visibleRegions.length > 0;
-  const showEmptyHits = bindPhase === "ready" && cards.length === 0;
+  const showEmptyRun =
+    visible &&
+    pagePhase === "idle" &&
+    (bindPhase === "empty" || (bindPhase === "ready" && !boundRecommendations)) &&
+    visibleRegions.length > 0;
+  const showEmptyHits = bindPhase === "ready" && Boolean(boundRecommendations) && cards.length === 0;
 
   useEffect(() => {
     if (!session) return;
@@ -94,12 +99,8 @@ export function EmpfehlungenPage() {
       setMarkedKey(null);
       setLoadError(null);
       try {
-        const [nextSet, nextRegions] = await Promise.all([
-          recommendationApi.getRecommendations(),
-          locationApi.listTargetRegions(),
-        ]);
+        const nextRegions = await locationApi.listTargetRegions();
         if (cancelled) return;
-        setRecommendationSet(nextSet);
         setRegions(nextRegions);
         setMarkedKey(ensureMarkedKey(nextRegions, null));
         setLoadedEmail(email);
@@ -116,7 +117,7 @@ export function EmpfehlungenPage() {
       cancelled = true;
       bindRequest.current += 1;
     };
-  }, [session, recommendationApi, locationApi]);
+  }, [session, locationApi]);
 
   useEffect(() => {
     if (!session || pagePhase !== "idle") return;
@@ -128,20 +129,23 @@ export function EmpfehlungenPage() {
     void (async () => {
       try {
         const next = await loadPatternForMarkedRegion(analysisApi, current);
+        const recs = next ? await loadRecommendationsForRun(recommendationApi, next.runId) : null;
         if (bindRequest.current !== token) return;
         setBound(next);
+        setRecommendationSet(recs);
         setBoundKey(key);
         setBindFailed(false);
         setSelectedHitId(null);
       } catch {
         if (bindRequest.current !== token) return;
         setBound(null);
+        setRecommendationSet(null);
         setBoundKey(key);
         setBindFailed(true);
         setSelectedHitId(null);
       }
     })();
-  }, [session, pagePhase, regions, markedKey, analysisApi]);
+  }, [session, pagePhase, regions, markedKey, analysisApi, recommendationApi]);
 
   const karte = useMemo(
     () =>

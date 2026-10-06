@@ -1,14 +1,16 @@
+import { Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { StoreSurroundingsService } from "./store-surroundings.service";
 
 describe("StoreSurroundingsService", () => {
   const queryReadingFeatures = jest.fn();
-  const service = new StoreSurroundingsService({
-    queryReadingFeatures,
-  } as unknown as DatabaseService);
+  let service: StoreSurroundingsService;
 
   beforeEach(() => {
     queryReadingFeatures.mockReset();
+    service = new StoreSurroundingsService({
+      queryReadingFeatures,
+    } as unknown as DatabaseService);
   });
 
   it("resolves PLZ, Gemeinde and Kreis of the store, not the Zielregion", async () => {
@@ -91,6 +93,107 @@ describe("StoreSurroundingsService", () => {
     expect(resolved.regions.find((item) => item.level === "quartier")).toBeUndefined();
   });
 
+  it("uses geo_addr_id when geo.geo_ref_address has no geo_key column", async () => {
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("information_schema.columns")) {
+        return { rows: [{ column_name: "geo_addr_id" }, { column_name: "geo_ags" }, { column_name: "geom" }] };
+      }
+      if (text.includes("geo_ref_plz")) {
+        return { rows: [{ plz: "12247", geo_ags: "11000000", geo_ags5: "11000" }] };
+      }
+      if (text.includes("geo_ref_address")) {
+        expect(text).toContain("geo_addr_id");
+        expect(text).not.toMatch(/a\.geo_key/);
+        return { rows: [{ geo_key: "address:510721", geo_ags: "11000000" }] };
+      }
+      return { rows: [] };
+    });
+    const resolved = await service.resolve([
+      berlinStore("7", 13.35, 52.43),
+      berlinStore("8", 13.36, 52.44),
+      berlinStore("9", 13.34, 52.42),
+    ]);
+    expect(resolved.regions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ geoKey: "address:510721", level: "address" })]),
+    );
+  });
+
+  it("skips address without per-store geo_key error logs and still resolves Raster/Ortsteil", async () => {
+    const log = jest.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("information_schema.columns")) {
+        return { rows: [{ column_name: "geom" }, { column_name: "geo_ags" }] };
+      }
+      if (text.includes("geo_ref_plz")) {
+        return { rows: [{ plz: "12247", geo_ags: "11000000", geo_ags5: "11000" }] };
+      }
+      if (text.includes("geo_ref_address")) {
+        throw Object.assign(new Error("column a.geo_key does not exist"), { code: "42703" });
+      }
+      if (text.includes("geo_ref_ortsteil")) {
+        return { rows: [{ geo_key: "ortsteil:osm:55737", geo_ags: "11000000" }] };
+      }
+      return { rows: [] };
+    });
+    const resolved = await service.resolve([
+      berlinStore("7", 13.35, 52.43),
+      berlinStore("8", 13.36, 52.44),
+      berlinStore("9", 13.34, 52.42),
+    ]);
+    expect(resolved.regions.find((item) => item.level === "address")).toBeUndefined();
+    expect(resolved.regions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ geoKey: "ortsteil:osm:55737", level: "ortsteil" }),
+        expect.objectContaining({ geoKey: "12247", level: "plz" }),
+      ]),
+    );
+    const spam = log.mock.calls.filter((call) => String(call[0]).includes("catalog read missed"));
+    expect(spam).toHaveLength(0);
+    expect(log.mock.calls.some((call) => String(call[0]).includes("no key column"))).toBe(true);
+    expect(queryReadingFeatures.mock.calls.filter((call) => String(call[0]).includes("FROM geo.geo_ref_address"))).toHaveLength(
+      0,
+    );
+    log.mockRestore();
+  });
+
+  it("treats a missing geo_key column as a single skip, not three catalog errors", async () => {
+    const log = jest.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    queryReadingFeatures.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("information_schema.columns")) {
+        return { rows: [] };
+      }
+      if (text.includes("geo_ref_plz")) {
+        return { rows: [{ plz: "12247", geo_ags: "11000000", geo_ags5: "11000" }] };
+      }
+      if (text.includes("FROM geo.geo_ref_address")) {
+        throw Object.assign(new Error("column a.geo_key does not exist"), { code: "42703" });
+      }
+      if (text.includes("geo_ref_ortsteil")) {
+        return { rows: [{ geo_key: "ortsteil:osm:55737", geo_ags: "11000000" }] };
+      }
+      return { rows: [] };
+    });
+    const resolved = await service.resolve([
+      berlinStore("7", 13.35, 52.43),
+      berlinStore("8", 13.36, 52.44),
+      berlinStore("9", 13.34, 52.42),
+    ]);
+    expect(resolved.regions.find((item) => item.level === "address")).toBeUndefined();
+    expect(resolved.regions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ geoKey: "ortsteil:osm:55737", level: "ortsteil" })]),
+    );
+    const addressQueries = queryReadingFeatures.mock.calls.filter((call) =>
+      String(call[0]).includes("FROM geo.geo_ref_address"),
+    );
+    expect(addressQueries).toHaveLength(1);
+    expect(log.mock.calls.filter((call) => String(call[0]).includes("skip address level"))).toHaveLength(1);
+    expect(log.mock.calls.filter((call) => String(call[0]).includes("catalog read missed"))).toHaveLength(0);
+    log.mockRestore();
+  });
+
   it("skips missing geo_ref_address and still resolves coarser Ebenen", async () => {
     queryReadingFeatures.mockImplementation(async (sql: string) => {
       const text = String(sql);
@@ -160,3 +263,17 @@ describe("StoreSurroundingsService", () => {
     );
   });
 });
+
+function berlinStore(id: string, lon: number, lat: number) {
+  return {
+    id,
+    label: null,
+    street: "Berliner Straße 1",
+    postalCode: "12247",
+    city: "Berlin",
+    lon,
+    lat,
+    points: [],
+    changes: [],
+  };
+}

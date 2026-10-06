@@ -13,3 +13,10 @@ export class CreateRecommendationsDto {
   @Matches(/^[1-9][0-9]{0,18}$/)
   runId?: string;
 }
+
+export class RecommendationsQueryDto {
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @Matches(/^[1-9][0-9]{0,18}$/)
+  runId?: string;
+}

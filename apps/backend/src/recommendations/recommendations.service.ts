@@ -87,7 +87,21 @@ export class RecommendationsService {
     return toSet(row.id, row.created_at, payload);
   }
 
-  async latest(userId: string): Promise<RecommendationSet> {
+  async latest(userId: string, runId?: string): Promise<RecommendationSet> {
+    if (runId) {
+      const result = await this.db.query<SetRow>(
+        `SELECT id::text AS id, payload, created_at
+         FROM app.recommendation_sets
+         WHERE user_id = $1::bigint
+           AND analysis_run_id = $2::bigint
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [userId, runId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new NotFoundException(RECOMMENDATIONS_NOT_FOUND);
+      return toSet(row.id, row.created_at, row.payload);
+    }
     const result = await this.db.query<SetRow>(
       `SELECT id::text AS id, payload, created_at
        FROM app.recommendation_sets

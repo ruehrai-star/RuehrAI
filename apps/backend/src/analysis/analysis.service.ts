@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { emptyToNull, toCoord, toIso, toRevenue } from "../customer/values";
 import { fillMissingCatalogDisplay } from "../geo/catalog-display";
@@ -39,6 +39,7 @@ import {
 } from "./types";
 import { asOfFrom } from "./yearly-series";
 import { YearlySeriesService } from "./yearly-series.service";
+import { RecommendationsService } from "../recommendations/recommendations.service";
 
 interface RegionRow {
   label: string;
@@ -82,12 +83,15 @@ interface RunRow {
 
 @Injectable()
 export class AnalysisService {
+  private readonly logger = new Logger(AnalysisService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly brain: BrainSearchService,
     private readonly patterns: PatternService,
     private readonly geoCatalog: GeoCatalogService,
     private readonly yearlySeries: YearlySeriesService,
+    private readonly recommendations: RecommendationsService,
   ) {}
 
   async getInput(userId: string): Promise<AnalysisInput> {
@@ -96,8 +100,8 @@ export class AnalysisService {
 
   /**
    * Snapshots region, stores, and revenue, searches Brain, and stores the
-   * pattern on the run. Top-3 ranking reads that pattern from
-   * `POST /recommendations` and does not belong in this service.
+   * pattern on the run. When Zielregion(en) are marked, also ranks and
+   * persists a recommendation set bound to this runId. GET never computes.
    */
   async createRun(userId: string): Promise<AnalysisRun> {
     const input = await this.loadInput(userId);
@@ -112,6 +116,13 @@ export class AnalysisService {
     );
     const row = inserted.rows[0];
     if (!row) throw new NotFoundException(RUN_NOT_FOUND);
+    if (analysisRegions(input).length > 0) {
+      try {
+        await this.recommendations.create(userId, row.id);
+      } catch (error) {
+        this.logger.warn(`Recommendation set for run ${row.id} was not stored (${messageOf(error)}).`);
+      }
+    }
     return {
       id: row.id,
       status: "completed",
@@ -321,4 +332,8 @@ function toRun(row: RunRow): AnalysisRun {
     brain: row.brain,
     pattern: row.pattern,
   };
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown error";
 }

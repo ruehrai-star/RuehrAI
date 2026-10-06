@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { AnalysisBrain, AnalysisInput } from "@ruehrai/api-contracts";
 import {
@@ -77,7 +78,7 @@ test("summary counts stores and months that have a revenue, including zero", () 
 
 test("brain status names vector search and the SQL filter with its reason", () => {
   const vector: AnalysisBrain = { mode: "vector", vectorUnavailableReason: null, factCount: 1, facts: [] };
-  assert.deepEqual(brainStatusText(vector), { mode: "Vektorsuche · 1 Fakt", detail: null });
+  assert.deepEqual(brainStatusText(vector), { mode: "Vektorsuche · 1 Fakt", detail: null, tone: "status" });
 
   const sql: AnalysisBrain = {
     mode: "sql",
@@ -88,11 +89,19 @@ test("brain status names vector search and the SQL filter with its reason", () =
   assert.deepEqual(brainStatusText(sql), {
     mode: "Filter ohne Vektor · 2 Fakten",
     detail: "Einbettungen sind nicht erreichbar.",
+    tone: "info",
   });
 
   const sqlWithoutReason: AnalysisBrain = { mode: "sql", factCount: 0, facts: [] };
   assert.equal(brainStatusText(sqlWithoutReason).detail, null);
-  assert.equal(brainStatusText({ ...sql, vectorUnavailableReason: "no_embeddings_in_region" }).detail,
-    "In der Zielregion liegen keine Einbettungen vor.",
-  );
+  assert.equal(brainStatusText(sqlWithoutReason).tone, "status");
+  const noEmbeddings = brainStatusText({ ...sql, vectorUnavailableReason: "no_embeddings_in_region" });
+  assert.equal(noEmbeddings.detail, "In der Zielregion liegen keine Einbettungen vor.");
+  assert.equal(noEmbeddings.tone, "info");
+});
+
+test("Musteranalyse shows embedding notes as info, not as an error", () => {
+  const page = readFileSync(new URL("../../components/musteranalyse-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /brain\.tone === "info" \? "hint"/);
+  assert.doesNotMatch(page, /brain\.detail[\s\S]{0,80}message-error/);
 });
